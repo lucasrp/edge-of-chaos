@@ -283,22 +283,14 @@ class Neo4jGraphStore:
                 "MATCH (anchor {group_id:$group_id}) "
                 "WHERE anchor.ref=$ref OR anchor.uuid=$ref "
                 f"MATCH {pattern} "
-                "OPTIONAL MATCH (canonical {group_id:$group_id}) "
-                "WHERE canonical.ref=neighbor.merged_into "
-                "OR canonical.uuid=neighbor.merged_into "
-                "WITH anchor, r, CASE WHEN neighbor.merged_into IS NULL "
-                "THEN neighbor ELSE canonical END AS resolved_neighbor "
                 "WHERE coalesce(anchor.archived,false)=false "
                 "AND anchor.invalidated_at IS NULL "
                 "AND anchor.merged_into IS NULL "
-                "AND resolved_neighbor IS NOT NULL "
-                "AND resolved_neighbor.group_id=$group_id "
-                "AND coalesce(resolved_neighbor.archived,false)=false "
-                "AND resolved_neighbor.invalidated_at IS NULL "
+                "AND neighbor.group_id=$group_id "
                 "AND r.invalidated_at IS NULL "
-                "RETURN coalesce(resolved_neighbor.ref, resolved_neighbor.uuid) AS ref, "
-                "head(labels(resolved_neighbor)) AS label, "
-                "properties(resolved_neighbor) AS node_props, type(r) AS edge_kind, "
+                "RETURN coalesce(neighbor.ref, neighbor.uuid) AS ref, "
+                "head(labels(neighbor)) AS label, "
+                "properties(neighbor) AS node_props, type(r) AS edge_kind, "
                 f"properties(r) AS edge_props, '{hop}' AS direction"
             )
 
@@ -320,8 +312,45 @@ class Neo4jGraphStore:
                     f"observed cardinality {cardinality}"
                 )
             rows = session.run(query, **params).data()
+
+            def _canonical(row):
+                current = dict(row)
+                seen = set()
+                while True:
+                    props = dict(current.get("node_props") or {})
+                    identity = (props.get("uuid") or props.get("ref")
+                                or current.get("ref"))
+                    if not isinstance(identity, str) or identity in seen:
+                        return None
+                    seen.add(identity)
+                    if (props.get("archived") is True
+                            or props.get("invalidated_at") is not None):
+                        return None
+                    target = props.get("merged_into")
+                    if target is None:
+                        return current
+                    if not isinstance(target, str) or not target.strip():
+                        return None
+                    matches = session.run(
+                        "MATCH (canonical {group_id:$group_id}) "
+                        "WHERE canonical.ref=$target OR canonical.uuid=$target "
+                        "OR canonical.name=$target OR canonical.curated_name=$target "
+                        "RETURN coalesce(canonical.ref, canonical.uuid) AS ref, "
+                        "head(labels(canonical)) AS label, "
+                        "properties(canonical) AS node_props",
+                        group_id=self._group_id,
+                        target=target,
+                    ).data()
+                    if len(matches) != 1:
+                        return None
+                    resolved = dict(matches[0])
+                    current.update(resolved)
+
             neighbors = []
             for row in rows:
+                row = _canonical(row)
+                if row is None:
+                    continue
                 node_props = deepcopy(dict(row.get("node_props") or {}))
                 for internal in ("group_id", "ref", "archived", "invalidated_at"):
                     node_props.pop(internal, None)
@@ -390,6 +419,37 @@ class FakeGraph:
         if node is None:
             raise ValueError(f"missing graph node: {ref}")
         return node
+
+    def _canonical_node(self, ref):
+        seen = set()
+        current_ref = ref
+        while True:
+            node = self._nodes.get(current_ref)
+            if node is None or current_ref in seen:
+                return None
+            seen.add(current_ref)
+            if (node["invalidated_at"] is not None
+                    or node["props"].get("archived") is True):
+                return None
+            target = node["props"].get("merged_into")
+            if target is None:
+                return current_ref, node
+            if not isinstance(target, str) or not target.strip():
+                return None
+            matches = [
+                (candidate_ref, candidate)
+                for candidate_ref, candidate in self._nodes.items()
+                if target in (
+                    candidate_ref,
+                    candidate["props"].get("ref"),
+                    candidate["props"].get("uuid"),
+                    candidate["props"].get("name"),
+                    candidate["props"].get("curated_name"),
+                )
+            ]
+            if len(matches) != 1:
+                return None
+            current_ref, node = matches[0]
 
     def merge_node(self, ref, label, props=None):
         self._before_operation("merge_node")
@@ -474,7 +534,9 @@ class FakeGraph:
     def neighbors(self, ref, edge_kind=None, direction="both"):
         self._before_operation("neighbors")
         anchor = self._require_node(ref)
-        if anchor["invalidated_at"] is not None:
+        if (anchor["invalidated_at"] is not None
+                or anchor["props"].get("archived") is True
+                or anchor["props"].get("merged_into") is not None):
             return []
         if direction not in {"in", "out", "both"}:
             raise ValueError("direction must be 'in', 'out', or 'both'")
@@ -493,17 +555,10 @@ class FakeGraph:
             if direction in {"in", "both"} and edge["dst_ref"] == ref:
                 hops.append((edge["src_ref"], "in"))
             for neighbor_ref, hop_direction in hops:
-                node = self._nodes[neighbor_ref]
-                merged_into = node["props"].get("merged_into")
-                if merged_into is not None:
-                    if not isinstance(merged_into, str):
-                        continue
-                    canonical = self._nodes.get(merged_into)
-                    if canonical is None:
-                        continue
-                    neighbor_ref, node = merged_into, canonical
-                if node["invalidated_at"] is not None:
+                resolved = self._canonical_node(neighbor_ref)
+                if resolved is None:
                     continue
+                neighbor_ref, node = resolved
                 found.append(
                     GraphNeighbor(
                         ref=neighbor_ref,

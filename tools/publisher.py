@@ -1159,6 +1159,116 @@ def project_session_topics(log=eventlog.LOG):
             pass
 
 
+def project_doc(payload, log=eventlog.LOG, *, driver_factory=None, identity=None,
+                embed_fn=None):
+    """Best-effort projection for an injected md doc (issue #130, S6). MERGE a :Doc node carrying
+    the provenance markers the spec fixes — `provenance_class='asserted'` + `author='operador'`
+    (a classe EXISTENTE do axis, não um enum novo) — plus a content embedding (best-effort) and
+    DISTILLS edges to EXISTING clusters only (never fabricated, mirror project_artefato). The doc
+    is Voz curada-desejada: acima da sessão crua, abaixo do curado-do-grill.
+
+    Degrade-safe (ADR-0011/0006): the LOG is truth; ANY failure PRINTS and returns, NEVER raises
+    into the inject. `payload` = md_to_mem.graph_episode_payload(...)."""
+    if not _is_canonical_log(log):
+        return
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("doc projection payload must be a dict")
+        slug = payload.get("slug")
+        body = payload.get("body")
+        threads = payload.get("threads", [])
+        if not (isinstance(slug, str) and SLUG_RE.fullmatch(slug)):
+            raise ValueError("doc projection needs a valid slug")
+        if not (isinstance(body, str) and body.strip()):
+            raise ValueError("doc projection needs a non-blank body")
+        if (not isinstance(threads, list)
+                or not all(isinstance(ref, str) and ref.strip() for ref in threads)):
+            raise ValueError("doc projection threads must be a list of non-blank refs")
+        if payload.get("author") != "operador":
+            raise ValueError("doc projection author must be operador")
+        if payload.get("provenance_class") != "asserted":
+            raise ValueError("doc projection provenance_class must be asserted")
+        content_sha256 = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        supplied_sha256 = payload.get("sha256")
+        if supplied_sha256 is not None and supplied_sha256 != content_sha256:
+            raise ValueError("doc projection sha256 does not match body")
+        threads = [ref.strip() for ref in threads]
+    except Exception as ex:  # noqa: BLE001 — malformed projection input is degrade-safe
+        print("doc project skipped (best-effort, malformed payload):", ex)
+        return
+    try:
+        if identity is None:
+            import _identity as identity
+        g = identity.require_group()
+        uri, user, pw = identity.neo4j_conn()
+        if driver_factory is None:
+            from neo4j import GraphDatabase
+            driver_factory = GraphDatabase.driver
+        drv = driver_factory(uri, auth=(user, pw))
+    except Exception as ex:  # noqa: BLE001 — best-effort; the log already holds the truth
+        print("doc project skipped (best-effort, graph unreachable):", ex)
+        return
+    try:
+        with drv.session() as s:
+            s.run("MERGE (d:Doc {group_id:$g, slug:$slug}) "
+                  "SET d.body=$body, d.sha256=$sha256, d.threads=$threads, "
+                  "d.provenance_class=$pc, d.author=$author, "
+                  "d.projected_at=$pat, d.projection_complete=false",
+                  g=g, slug=slug, body=body, sha256=content_sha256, threads=threads,
+                  pc="asserted", author="operador",
+                  pat=_dt.now(_tz.utc).isoformat())
+            # embed the CONTENT (mesma infra dos artefatos, best-effort — sem key → pula).
+            emb_hash = hashlib.sha256(f"{slug}\n{body}".encode("utf-8")).hexdigest()
+            row = s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) "
+                        "RETURN d.embedding IS NOT NULL AS e, d.embedding_input_hash AS h",
+                        g=g, slug=slug).single()
+            embed_current = bool(row["e"]) and row["h"] == emb_hash
+            if not embed_current:
+                try:
+                    embedding_input = f"{slug}\n{body}"
+                    if embed_fn is None:
+                        from openai import OpenAI
+                        _load_openai_key()
+                        emb = OpenAI().embeddings.create(
+                            model="text-embedding-3-small", input=embedding_input,
+                        ).data[0].embedding
+                    else:
+                        emb = embed_fn(embedding_input)
+                    s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) "
+                          "SET d.embedding=$e, d.embedding_input_hash=$h",
+                          g=g, slug=slug, e=emb, h=emb_hash)
+                    embed_current = True
+                except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
+                    print("doc embed skipped (best-effort, will retry on recovery):", ex)
+            # DISTILLS to EXISTING active clusters only (never fabricate — a thread já validada no
+            # inject; aqui só linka se o cluster já existe no grafo, senão a curadoria pendura depois).
+            s.run("MATCH (d:Doc {group_id:$g, slug:$slug})-[r:DISTILLS]->() DELETE r", g=g, slug=slug)
+            labels = [r["l"] for r in s.run(
+                "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
+                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
+                "RETURN DISTINCT e.curated_cluster AS l", g=g)]
+            by_slug = {_cluster_slug(l): l for l in labels}
+            unresolved = False
+            for ref in threads:
+                label = by_slug.get(_cluster_slug(str(ref).replace("cluster:", "")))
+                if not label:
+                    unresolved = True
+                    continue
+                s.run("MATCH (d:Doc {group_id:$g, slug:$slug}),"
+                      "(e:Entity {group_id:$g, curated_cluster:$label}) MERGE (d)-[:DISTILLS]->(e)",
+                      g=g, slug=slug, label=label)
+            if embed_current and not unresolved:
+                s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) SET d.projection_complete=true",
+                      g=g, slug=slug)
+    except Exception as ex:  # noqa: BLE001 — recoverable on next reproject
+        print("doc project failed (best-effort, reproject next beat):", ex)
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
 def _project_para_default(s, g, slug, name):
     """Curadoria autoral (§6, regra do operador): with NO authored `para`, the artefato is still
     FOR someone — the operador/mentee. The mark is a PROP on the :Artefato (`a.para_default`,
@@ -1913,6 +2023,348 @@ def promote_artefato_to_source(slug, reviewer, note="", log=eventlog.LOG):
         # verdade" num replay — a projeção deve ser determinística do evento).
         _mark_integrated_source(slug, reviewer, ts=ev.get("ts"))
     return ev
+
+
+# ---------------------------------------------------------------------------
+# Structured Activity/Direction lenses — deterministic GraphStore projection.
+# ---------------------------------------------------------------------------
+
+def project_lentes(log, store):
+    """Replay the structured lenses into ``store`` best-effort, keyed by stable refs.
+
+    The log/folds remain truth; this projection performs no extraction or model call.  A graph
+    outage stops the pass and names every ref in the untouched suffix so the next sweep can
+    deterministically finish it.
+    """
+    from graph_store import EdgeSpec, GraphUnavailable, ProjectionResult
+
+    events = eventlog.read(log=log)
+    activities = eventlog.atividades_at(log=log)
+    claims = eventlog.claims_at(log=log)
+    graph_refs = {}
+    operations = []
+
+    def _seq_for(event_types, ulid):
+        return next((event.get("seq") for event in events
+                     if event.get("type") in event_types
+                     and isinstance(event.get("payload"), dict)
+                     and event["payload"].get("ulid") == ulid), None)
+
+    for _full_ref, activity in sorted(activities.items()):
+        ulid = activity["ulid"]
+        ref = f"atividade:{ulid}"
+        graph_refs[ulid] = ref
+        props = {
+            "ulid": ulid,
+            "num": activity.get("num"),
+            "operacao": activity.get("operacao"),
+            "finalidade": activity.get("finalidade"),
+            "estado": activity.get("estado"),
+            "tipo_ref": activity.get("tipo_ref"),
+            "tier": activity.get("tier"),
+            "contested": bool(activity.get("contested")),
+            "src_seq": _seq_for({"atividade.opened"}, ulid),
+        }
+        operations.append((ref, lambda ref=ref, props=props:
+                           store.merge_node(ref, "Atividade", props)))
+
+    runs = eventlog.runs_at(log=log)
+    for _full_ref, run in sorted(runs.items()):
+        ulid = run["ulid"]
+        ref = f"run:{ulid}"
+        graph_refs[ulid] = ref
+        props = {
+            "ulid": ulid, "num": run.get("num"), "operacao": run.get("operacao"),
+            "resultado": run.get("resultado"), "tier": run.get("tier"),
+            "leva": run.get("leva"), "prediction_hash": run.get("prediction_hash"),
+            "src_seq": _seq_for({"run.opened"}, ulid),
+        }
+        operations.append((ref, lambda ref=ref, props=props:
+                           store.merge_node(ref, "Run", props)))
+
+    facts = {}
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if (event.get("type") == "fato.observed" and isinstance(payload.get("ulid"), str)
+                and isinstance(event.get("seq"), int)):
+            facts[payload["ulid"]] = (event, payload)
+    for ulid, (event, fact) in sorted(facts.items()):
+        ref = f"fato:{ulid}"
+        graph_refs[ulid] = ref
+        props = {
+            "ulid": ulid, "num": fact.get("num"), "operacao": fact.get("operacao"),
+            "body": fact.get("body"), "tier": fact.get("tier"), "leva": fact.get("leva"),
+            "src_seq": event["seq"],
+        }
+        operations.append((ref, lambda ref=ref, props=props:
+                           store.merge_node(ref, "Fato", props)))
+
+    arcs = eventlog.arcos_at(log=log)
+    for _full_ref, arc in sorted(arcs.items()):
+        ulid = arc["ulid"]
+        ref = f"arco:{ulid}"
+        graph_refs[ulid] = ref
+        props = {
+            "ulid": ulid, "num": arc.get("num"), "operacao": arc.get("operacao"),
+            "nome": arc.get("nome"), "tier": arc.get("tier"),
+            "valencia": arc.get("valencia"), "julgamento": arc.get("julgamento"),
+            "src_seq": _seq_for({"arco.opened"}, ulid),
+        }
+        operations.append((ref, lambda ref=ref, props=props:
+                           store.merge_node(ref, "Arco", props)))
+
+    wayfinds = eventlog.wayfinds_at(log=log)
+    for _full_ref, item in sorted(wayfinds["maps"].items()):
+        ulid = item["ulid"]
+        ref = f"map:{ulid}"
+        graph_refs[ulid] = ref
+        thread = item.get("thread") if isinstance(item.get("thread"), dict) else {}
+        props = {
+            "ulid": ulid, "num": item.get("num"), "operacao": item.get("operacao"),
+            "titulo": item.get("titulo"), "estado": item.get("estado"),
+            "tier": item.get("tier"), "thread_uuid": thread.get("uuid"),
+            "thread_display": thread.get("display"), "src_seq": _seq_for({"map.opened"}, ulid),
+        }
+        operations.append((ref, lambda ref=ref, props=props:
+                           store.merge_node(ref, "Map", props)))
+    for _full_ref, item in sorted(wayfinds["tickets"].items()):
+        ulid = item["ulid"]
+        ref = f"ticket:{ulid}"
+        graph_refs[ulid] = ref
+        props = {
+            "ulid": ulid, "num": item.get("num"), "operacao": item.get("operacao"),
+            "titulo": item.get("titulo"), "question": item.get("question"),
+            "estado": item.get("estado"), "tier": item.get("tier"),
+            "src_seq": _seq_for({"ticket.opened"}, ulid),
+        }
+        operations.append((ref, lambda ref=ref, props=props:
+                           store.merge_node(ref, "Ticket", props)))
+    for state in ("propostos", "ratificados", "declinados"):
+        for item in wayfinds["moves"].get(state, []):
+            ulid = item.get("ulid")
+            if not isinstance(ulid, str):
+                continue
+            ref = f"move:{ulid}"
+            graph_refs[ulid] = ref
+            props = {
+                "ulid": ulid, "kind": item.get("kind"), "estado": item.get("estado"),
+                "move_key": item.get("move_key"), "author": item.get("author"),
+                "src_seq": item.get("seq"),
+            }
+            operations.append((ref, lambda ref=ref, props=props:
+                               store.merge_node(ref, "Move", props)))
+
+    claim_items = []
+    claim_items.extend((ulid, item, "asserted")
+                       for ulid, item in claims.get("declared", {}).items())
+    claim_items.extend((ulid, item, "llm_judged")
+                       for ulid, item in claims.get("hypothesized", {}).items())
+    for ulid, claim, tier in sorted(claim_items):
+        ref = f"claim:{ulid}"
+        graph_refs[ulid] = ref
+        props = {
+            "ulid": ulid,
+            "statement": claim.get("statement"),
+            "tier": tier,
+            "contested": bool(claim.get("contested")),
+            "promoted_to": claim.get("promoted_to"),
+            "src_seq": _seq_for({"hypothesis.declared", "claim.hypothesized"}, ulid),
+        }
+        operations.append((ref, lambda ref=ref, props=props:
+                           store.merge_node(ref, "Claim", props)))
+
+    session_ids = sorted({
+        touch.get("sessao")
+        for activity in activities.values()
+        for touch in activity.get("toques", [])
+        if isinstance(touch.get("sessao"), str)
+    })
+    for session_id in session_ids:
+        ref = f"sessao:{session_id}"
+        operations.append((ref, lambda ref=ref, session_id=session_id:
+                           store.merge_node(ref, "Episodic", {"session_id": session_id})))
+
+    operation_names = sorted({
+        item.get("operacao")
+        for collection in (activities.values(), runs.values(), arcs.values(),
+                           wayfinds["maps"].values())
+        for item in collection
+        if isinstance(item.get("operacao"), str)
+    })
+    for operation_name in operation_names:
+        ref = f"operacao:{operation_name}"
+        operations.append((ref, lambda ref=ref, operation_name=operation_name:
+                           store.merge_node(ref, "Objective", {"operacao": operation_name})))
+
+    edge_sets = {}
+
+    def _plane(tier):
+        return "llm_judged" if tier == "llm_judged" else "asserted"
+
+    def _put_edge(owner_ref, kind, target_ref, seq, tier="asserted", **props):
+        if not (isinstance(seq, int) and seq > 0 and owner_ref and target_ref):
+            return
+        edge_props = {"src_seq": seq, "provenance_class": _plane(tier), **props}
+        current = edge_sets.setdefault((owner_ref, kind), {}).get(target_ref)
+        if current is None or current.props["src_seq"] <= seq:
+            edge_sets[(owner_ref, kind)][target_ref] = EdgeSpec(target_ref, edge_props)
+
+    def _latest_event(types, predicate):
+        candidates = [event for event in events
+                      if event.get("type") in types and isinstance(event.get("payload"), dict)
+                      and isinstance(event.get("seq"), int) and predicate(event["payload"])]
+        return max(candidates, key=lambda event: event["seq"]) if candidates else None
+
+    # Atividade → Arco membership and Session → Atividade touches.
+    for activity in activities.values():
+        activity_ref = graph_refs[activity["ulid"]]
+        arc_ulid = activity.get("arco")
+        if arc_ulid in graph_refs:
+            assertion = _latest_event(
+                {"atividade.opened", "arco.moved"},
+                lambda payload, activity=activity, arc_ulid=arc_ulid: (
+                    (payload.get("ulid") == activity["ulid"] and payload.get("arco") == arc_ulid)
+                    or (payload.get("ref") == activity["ulid"]
+                        and payload.get("arco_novo") == arc_ulid)
+                ),
+            )
+            if assertion:
+                _put_edge(activity_ref, "PART_OF", graph_refs[arc_ulid], assertion["seq"],
+                          assertion["payload"].get("tier"))
+        for touch in activity.get("toques", []):
+            session_id = touch.get("sessao")
+            if isinstance(session_id, str):
+                _put_edge(f"sessao:{session_id}", "TOUCHES", activity_ref,
+                          touch.get("seq"), touch.get("tier"))
+
+    # Current Activity bearings (same endpoint is amendable, latest assertion wins).
+    for event in events:
+        if event.get("type") != "atividade.bears_on" or not isinstance(event.get("payload"), dict):
+            continue
+        payload = event["payload"]
+        source, target = payload.get("ref"), payload.get("alvo")
+        if source in graph_refs and target in graph_refs:
+            _put_edge(graph_refs[source], "BEARS_ON", graph_refs[target], event.get("seq"),
+                      payload.get("tier"), valencia=payload.get("valencia"),
+                      evidencia=payload.get("evidencia"))
+
+    # Run/Ticket verdict bearings.
+    for run in runs.values():
+        closure = run.get("fecho") or {}
+        for bearing in closure.get("bears_on", []):
+            target = bearing.get("alvo") if isinstance(bearing, dict) else None
+            if target in graph_refs:
+                _put_edge(graph_refs[run["ulid"]], "BEARS_ON", graph_refs[target],
+                          closure.get("seq"), closure.get("tier"),
+                          valencia=bearing.get("valencia"))
+    for ticket in wayfinds["tickets"].values():
+        ticket_ref = graph_refs[ticket["ulid"]]
+        opened = _latest_event({"ticket.opened"},
+                               lambda payload, ticket=ticket: payload.get("ulid") == ticket["ulid"])
+        if opened and ticket.get("map") in graph_refs:
+            _put_edge(ticket_ref, "PART_OF", graph_refs[ticket["map"]], opened["seq"],
+                      opened["payload"].get("tier"))
+        deps_event = _latest_event(
+            {"ticket.opened", "ticket.deps_changed"},
+            lambda payload, ticket=ticket: (payload.get("ulid") == ticket["ulid"]
+                                             or payload.get("ref") == ticket["ulid"]),
+        )
+        if deps_event:
+            for blocker in ticket.get("blocked_by", []):
+                if blocker in graph_refs:
+                    _put_edge(ticket_ref, "BLOCKED_BY", graph_refs[blocker], deps_event["seq"],
+                              deps_event["payload"].get("tier", "asserted"))
+        if opened and ticket.get("inscricao") in graph_refs:
+            _put_edge(ticket_ref, "INSCRIBES", graph_refs[ticket["inscricao"]], opened["seq"],
+                      opened["payload"].get("tier"))
+        closure = ticket.get("fecho") or {}
+        for bearing in closure.get("bears_on", []):
+            target = bearing.get("alvo") if isinstance(bearing, dict) else None
+            if target in graph_refs:
+                _put_edge(ticket_ref, "BEARS_ON", graph_refs[target], closure.get("seq"),
+                          closure.get("tier"), valencia=bearing.get("valencia"))
+
+    # Immutable claim lineage.
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event.get("type") == "hypothesis.superseded":
+            old, new = payload.get("old"), payload.get("new")
+            if old in graph_refs and new in graph_refs:
+                _put_edge(graph_refs[new], "SUPERSEDES", graph_refs[old], event.get("seq"))
+
+    # Latest stable landmark per operation (target grain → operation hub).
+    latest_marcos = {}
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if (event.get("type") == "marco.set" and isinstance(payload.get("operacao"), str)
+                and payload.get("ref") in graph_refs):
+            latest_marcos[payload["operacao"]] = (event, payload)
+    for operation_name, (event, payload) in latest_marcos.items():
+        _put_edge(graph_refs[payload["ref"]], "MARCO_OF", f"operacao:{operation_name}",
+                  event.get("seq"), "asserted")
+
+    # Every owned edge kind is replaced, including empty desired sets, so stale topology leaves.
+    owners_by_kind = set(edge_sets)
+    for item in activities.values():
+        owners_by_kind.update({
+            (graph_refs[item["ulid"]], "BEARS_ON"),
+            (graph_refs[item["ulid"]], "PART_OF"),
+            (graph_refs[item["ulid"]], "MARCO_OF"),
+        })
+    for item in runs.values():
+        owners_by_kind.update({
+            (graph_refs[item["ulid"]], "BEARS_ON"),
+            (graph_refs[item["ulid"]], "MARCO_OF"),
+        })
+    for ulid in facts:
+        owners_by_kind.add((graph_refs[ulid], "MARCO_OF"))
+    for item in arcs.values():
+        owners_by_kind.add((graph_refs[item["ulid"]], "MARCO_OF"))
+    for item in wayfinds["tickets"].values():
+        owners_by_kind.update({
+            (graph_refs[item["ulid"]], "PART_OF"),
+            (graph_refs[item["ulid"]], "BLOCKED_BY"),
+            (graph_refs[item["ulid"]], "INSCRIBES"),
+            (graph_refs[item["ulid"]], "BEARS_ON"),
+        })
+    owners_by_kind.update((f"sessao:{session_id}", "TOUCHES") for session_id in session_ids)
+    owners_by_kind.update((f"claim:{ulid}", "SUPERSEDES")
+                          for ulid, _item, _tier in claim_items)
+    for owner_ref, kind in sorted(owners_by_kind):
+        desired = sorted(edge_sets.get((owner_ref, kind), {}).values(),
+                         key=lambda edge: (edge.dst_ref, edge.props["src_seq"]))
+        operations.append((owner_ref, lambda owner_ref=owner_ref, kind=kind, desired=desired:
+                           store.replace_edges(owner_ref, kind, desired)))
+
+    # Map → Graphiti thread. On replay, navigation follows ``merged_into`` to the canonical
+    # UUID. Replacing this map-owned edge removes the stale endpoint; the Graphiti Entity and
+    # its semantic relations remain owned by Graphiti/grill writeback (F16).
+    for item in sorted(wayfinds["maps"].values(), key=lambda value: value["ulid"]):
+        map_ref = graph_refs[item["ulid"]]
+        thread = item.get("thread") if isinstance(item.get("thread"), dict) else {}
+        declared_uuid = thread.get("uuid")
+        opened_seq = _seq_for({"map.opened"}, item["ulid"])
+
+        def _project_thread(map_ref=map_ref, declared_uuid=declared_uuid,
+                            opened_seq=opened_seq, tier=item.get("tier")):
+            if not isinstance(declared_uuid, str):
+                return store.replace_edges(map_ref, "PART_OF", [])
+            existing = store.neighbors(map_ref, "PART_OF", direction="out")
+            target = existing[0].ref if existing and existing[0].ref != declared_uuid else declared_uuid
+            store.replace_edges(map_ref, "PART_OF", [EdgeSpec(
+                target,
+                {"src_seq": opened_seq, "provenance_class": _plane(tier),
+                 "graphiti_uuid": declared_uuid},
+            )])
+
+        operations.append((map_ref, _project_thread))
+
+    for index, (_ref, operation) in enumerate(operations):
+        try:
+            operation()
+        except GraphUnavailable:
+            return ProjectionResult.incomplete(ref for ref, _operation in operations[index:])
+    return ProjectionResult.success()
 
 
 def _mark_integrated_source(slug, reviewer, ts=None):
