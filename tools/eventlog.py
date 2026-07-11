@@ -839,8 +839,8 @@ def record_session_topic(session_id, topic_id, *, title, surface, path=None, sco
     topic_id = _validated_session_topic_id(topic_id, "topic_id")
     if not (isinstance(title, str) and title.strip()):
         raise ValueError("session.topic title must be non-blank")
-    if surface not in ("claude", "codex"):
-        raise ValueError("session.topic surface must be 'claude' or 'codex'")
+    if surface not in ("claude", "codex", "grok"):
+        raise ValueError("session.topic surface must be 'claude', 'codex', or 'grok'")
     if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
         raise ValueError("session.topic score must be a finite number")
     if fragments is None:

@@ -54,6 +54,23 @@ def write_codex_session(d, sid, n_human=3, text=BODY, append=False):
     return p
 
 
+def write_grok_session(d, sid, n_human=3, text=BODY, append=False):
+    """Grok layout: sessions/<cwd>/<sid>/chat_history.jsonl."""
+    root = Path(d) / "%2Ftmp" / sid
+    root.mkdir(parents=True, exist_ok=True)
+    p = root / "chat_history.jsonl"
+    lines = []
+    for i in range(n_human):
+        q = f"<user_query>\n{text} ({i})\n</user_query>"
+        lines.append(json.dumps({"type": "user", "content": [{"type": "text", "text": q}]}))
+        lines.append(json.dumps({"type": "assistant",
+                                 "content": [{"type": "text", "text": f"reply {i}: {text}"}]}))
+    mode = "a" if append else "w"
+    with p.open(mode) as fh:
+        fh.write("\n".join(lines) + "\n")
+    return p
+
+
 class PlanSweepSelectsDeltas(unittest.TestCase):
     """plan_sweep returns each session's new-since-cursor delta; a session already at its
     watermark plans nothing (idempotent); a thin delta is marked skip (left to grow)."""
@@ -89,6 +106,16 @@ class PlanSweepSelectsDeltas(unittest.TestCase):
             plan = sweep.plan_sweep(proj, {}, codex_dir=codex)
             self.assertEqual([p["id"] for p in plan], ["claudeA", "codex:codexA"])
             self.assertEqual(plan[1]["surface"], "codex")
+            self.assertIn("human:", plan[1]["body"])
+            self.assertIn("edge:", plan[1]["body"])
+
+    def test_grok_sessions_are_planned_when_grok_dir_is_explicit(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as grok:
+            write_session(proj, "claudeA")
+            write_grok_session(grok, "grokA")
+            plan = sweep.plan_sweep(proj, {}, grok_dir=grok, codex_dir=False)
+            self.assertEqual([p["id"] for p in plan], ["claudeA", "grok:grokA"])
+            self.assertEqual(plan[1]["surface"], "grok")
             self.assertIn("human:", plan[1]["body"])
             self.assertIn("edge:", plan[1]["body"])
 
@@ -258,6 +285,21 @@ class ExecuteIngestsLogsAdvances(unittest.TestCase):
             self.assertEqual(eps[0]["payload"]["session"], "codex:codexA")
             self.assertEqual(eps[0]["payload"]["surface"], "codex")
 
+    def test_grok_episode_carries_surface_metadata(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as grok, \
+             tempfile.TemporaryDirectory() as st:
+            write_grok_session(grok, "grokA")
+            log = Path(st) / "log.jsonl"
+            cur, n = sweep.execute(
+                sweep.plan_sweep(proj, {}, grok_dir=grok, codex_dir=False),
+                lambda items: None, {}, log=log)
+            self.assertEqual(n, 1)
+            self.assertIn("grok:grokA", cur)
+            eps = eventlog.read(types=["episode"], log=log)
+            self.assertEqual(eps[0]["subject"], "session:grok:grokA")
+            self.assertEqual(eps[0]["payload"]["session"], "grok:grokA")
+            self.assertEqual(eps[0]["payload"]["surface"], "grok")
+
 
 class RunIsIdempotent(unittest.TestCase):
     """The whole-sweep guarantee: two back-to-back runs ingest the session once; the second is a
@@ -342,6 +384,31 @@ class RunIsIdempotent(unittest.TestCase):
                            graph_recover_fn=False, group="test-group", codex_dir=codex)
             self.assertEqual(n2, 1)
             self.assertEqual(seen, ["codex:codexA"])
+
+    def test_first_grok_run_baselines_existing_logs_without_ingesting(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as grok, \
+             tempfile.TemporaryDirectory() as st:
+            write_grok_session(grok, "grokA")
+            cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
+            seen = []
+            n1 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+                           cursors_path=cp, reproject_fn=False, log=log,
+                           graph_recover_fn=False, group="test-group",
+                           grok_dir=grok, codex_dir=False)
+            cursors = sweep.load_cursors(cp)
+            self.assertEqual(n1, 0)
+            self.assertEqual(seen, [])
+            self.assertTrue(cursors[sweep.GROK_BASELINE_KEY])
+            self.assertGreater(cursors["grok:grokA"], 0)
+            self.assertEqual(eventlog.read(types=["episode"], log=log), [])
+
+            write_grok_session(grok, "grokA", append=True)
+            n2 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+                           cursors_path=cp, reproject_fn=False, log=log,
+                           graph_recover_fn=False, group="test-group",
+                           grok_dir=grok, codex_dir=False)
+            self.assertEqual(n2, 1)
+            self.assertEqual(seen, ["grok:grokA"])
 
 
 class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):

@@ -1,8 +1,8 @@
 """Session reader + delta — the raw layer of the measure-first spike (ADR-0004 decision A).
 
 A transcript is the non-lossy raw: one `.jsonl` = one session. Claude Code remains the original
-store/format; Codex is an additional surface normalized into the same Turn(role, text) shape. This
-module discovers sessions and parses ordered dialogue deltas since a watermark. It is
+store/format; Codex and Grok are additional surfaces normalized into the same Turn(role, text)
+shape. This module discovers sessions and parses ordered dialogue deltas since a watermark. It is
 locator/offset-based, carrying no semantics (ADR-0001).
 """
 import json
@@ -13,6 +13,8 @@ from pathlib import Path
 
 ROLES = {"user": "human", "assistant": "edge"}
 CODEX_ROLES = {"user": "human", "assistant": "edge"}
+GROK_ROLES = {"user": "human", "assistant": "edge"}
+_USER_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
 SCAFFOLDING_PREFIXES = (
     "<environment_context>",
     "<skill>",
@@ -28,6 +30,8 @@ SCAFFOLDING_PREFIXES = (
     "<task>",
     "Base directory for this skill:",
     "This session is being continued from a previous conversation",
+    "<system-reminder>",
+    "<user_info>",
 )
 
 
@@ -52,30 +56,35 @@ def list_sessions(project_dir) -> list:
 
 
 def codex_sessions_dir():
-    """The Codex transcript root. EDGE_CODEX_SESSIONS_DIR wins; else CODEX_HOME/sessions; else
-    ~/.codex/sessions. Missing is a dark optional surface, not a sweep failure."""
-    raw = os.environ.get("EDGE_CODEX_SESSIONS_DIR")
-    if raw:
-        return Path(os.path.expanduser(raw))
-    codex_home = os.environ.get("CODEX_HOME")
-    if codex_home:
-        return Path(os.path.expanduser(codex_home)) / "sessions"
-    return Path.home() / ".codex" / "sessions"
+    """The Codex transcript root. Env → agent.yaml surfaces.codex → ~/.codex/sessions."""
+    import surfaces_cfg
+    return surfaces_cfg.surface_sessions_dir("codex") or (Path.home() / ".codex" / "sessions")
 
 
 def codex_session_anchor(session_id: str) -> str:
     return session_id if session_id.startswith("codex:") else f"codex:{session_id}"
 
 
+def grok_session_anchor(session_id: str) -> str:
+    return session_id if session_id.startswith("grok:") else f"grok:{session_id}"
+
+
 def split_session_anchor(session_id):
     if isinstance(session_id, str) and session_id.startswith("codex:"):
         raw = session_id[len("codex:"):]
         return ("codex", raw) if raw else (None, None)
+    if isinstance(session_id, str) and session_id.startswith("grok:"):
+        raw = session_id[len("grok:"):]
+        return ("grok", raw) if raw else (None, None)
     return ("claude", session_id) if isinstance(session_id, str) and session_id else (None, None)
 
 
 def current_session_anchor(env=None):
-    """Live session anchor: Claude first, then Codex, else None."""
+    """Live session anchor: Claude first, then Codex, then Grok, else None.
+
+    Grok CLI does not export GROK_SESSION_ID; when unset, resolve from
+    active_sessions.json (pid match / parent chain, else sole entry).
+    """
     env = os.environ if env is None else env
     sid = env.get("CLAUDE_CODE_SESSION_ID")
     if isinstance(sid, str) and sid.strip():
@@ -84,6 +93,126 @@ def current_session_anchor(env=None):
         sid = env.get(key)
         if isinstance(sid, str) and sid.strip():
             return codex_session_anchor(sid.strip())
+    sid = env.get("GROK_SESSION_ID")
+    if isinstance(sid, str) and sid.strip():
+        return grok_session_anchor(sid.strip())
+    live = resolve_grok_live_session_id(env=env)
+    if live:
+        return grok_session_anchor(live)
+    return None
+
+
+def grok_active_sessions_path(env=None) -> Path:
+    """Path to Grok's live active_sessions.json (env → agent.yaml → ~/.grok/...)."""
+    import surfaces_cfg
+    env = os.environ if env is None else env
+    return (surfaces_cfg.surface_active_sessions_path("grok", env=env)
+            or (Path.home() / ".grok" / "active_sessions.json"))
+
+
+def _ancestor_pids(start_pid=None):
+    """Yield this process id and its parent chain (Linux /proc)."""
+    pid = os.getpid() if start_pid is None else int(start_pid)
+    seen = set()
+    # Never yield pid 1 (init) — every process ancestry ends there and would false-match.
+    while pid and pid > 1 and pid not in seen:
+        seen.add(pid)
+        yield pid
+        try:
+            with open(f"/proc/{pid}/status") as fh:
+                ppid = None
+                for line in fh:
+                    if line.startswith("PPid:"):
+                        ppid = int(line.split()[1])
+                        break
+            if ppid is None or ppid == pid:
+                break
+            pid = ppid
+        except (OSError, ValueError):
+            break
+
+
+def resolve_grok_live_session_id(env=None, path=None, pid=None):
+    """Resolve the live Grok session_id from active_sessions.json.
+
+    Real shape: [{"session_id", "pid", "cwd", "opened_at"}, ...]. Prefer an entry
+    whose pid is this process or an ancestor; if exactly one entry exists, use it
+    carefully as a sole-entry fallback. Multiple unmatched entries → None.
+    """
+    path = Path(path) if path is not None else grok_active_sessions_path(env)
+    try:
+        data = json.loads(Path(path).read_text(errors="replace"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, list):
+        return None
+    entries = []
+    for e in data:
+        if not isinstance(e, dict):
+            continue
+        sid = e.get("session_id")
+        if isinstance(sid, str) and sid.strip():
+            entries.append(e)
+    if not entries:
+        return None
+    ancestors = set(_ancestor_pids(pid))
+    for e in entries:
+        try:
+            ep = int(e.get("pid"))
+        except (TypeError, ValueError):
+            continue
+        if ep in ancestors:
+            return e["session_id"].strip()
+    if len(entries) == 1:
+        return entries[0]["session_id"].strip()
+    return None
+
+
+def grok_sessions_dir():
+    """The Grok transcript root. Env → agent.yaml surfaces.grok → ~/.grok/sessions."""
+    import surfaces_cfg
+    return surfaces_cfg.surface_sessions_dir("grok") or (Path.home() / ".grok" / "sessions")
+
+
+def _grok_summary(path) -> dict:
+    """Sibling summary.json next to chat_history.jsonl (best-effort)."""
+    summary = Path(path).parent / "summary.json"
+    try:
+        if summary.is_file():
+            data = json.loads(summary.read_text(errors="replace"))
+            return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _grok_session_id(path) -> str:
+    """Grok stores chat_history.jsonl under <cwd-encoded>/<session-id>/; id is the dir name,
+    optionally confirmed by summary.json."""
+    data = _grok_summary(path)
+    info = data.get("info") if isinstance(data, dict) else None
+    if isinstance(info, dict) and isinstance(info.get("id"), str) and info["id"].strip():
+        return info["id"].strip()
+    return Path(path).parent.name
+
+
+def list_grok_sessions(root=None) -> list:
+    """Discover Grok sessions via chat_history.jsonl. [] means the optional store is dark."""
+    root = grok_sessions_dir() if root is None else Path(root)
+    if not root.is_dir():
+        return []
+    return [Session(id=_grok_session_id(p), path=p, surface="grok")
+            for p in sorted(root.rglob("chat_history.jsonl"))]
+
+
+def find_grok_session(session_id, root=None):
+    """Locate one Grok session by raw id or grok:<id> anchor."""
+    _surface, raw = split_session_anchor(session_id)
+    if not raw:
+        return None
+    for session in list_grok_sessions(root):
+        if session.id == raw:
+            return session
     return None
 
 
@@ -194,6 +323,16 @@ def looks_agent_launched_prompt(text) -> bool:
     return any(p.search(head) for p in _AGENT_LAUNCH_PATTERNS)
 
 
+def _strip_user_query(text: str) -> str:
+    """Grok wraps operator text in <user_query>; return the inner body when present."""
+    if not isinstance(text, str) or not text:
+        return ""
+    m = _USER_QUERY_RE.search(text)
+    if m:
+        return m.group(1).strip()
+    return text.strip()
+
+
 def _first_human_text(path, surface="claude") -> str:
     """First raw human/user message, before scaffolding filters."""
     try:
@@ -211,6 +350,10 @@ def _first_human_text(path, surface="claude") -> str:
             payload = obj.get("payload") or {}
             if payload.get("type") == "message" and payload.get("role") == "user":
                 return _text_of(payload.get("content")).strip()
+        elif surface == "grok":
+            if obj.get("type") != "user" or obj.get("synthetic_reason"):
+                continue
+            return _strip_user_query(_text_of(obj.get("content")))
         elif obj.get("type") == "user":
             return _text_of(obj.get("message", {}).get("content")).strip()
     return ""
@@ -231,6 +374,15 @@ def user_session_exclusion_reason(session: Session) -> str | None:
         source = meta.get("source")
         if isinstance(source, dict) and source.get("subagent"):
             return "codex-subagent"
+    elif session.surface == "grok":
+        if "subagents" in Path(session.path).parts:
+            return "grok-subagent"
+        # Real Grok stores workers as session_kind in sibling summary.json (not a path part).
+        kind = _grok_summary(session.path).get("session_kind")
+        if isinstance(kind, str) and kind.strip():
+            k = kind.strip()
+            if k.lower() not in {"user", "operator"}:
+                return f"grok-session-kind:{k}"
     else:
         if claude_is_sidechain(session.path):
             return "claude-sidechain"
@@ -286,12 +438,34 @@ def _codex_turn_from_obj(obj):
     return Turn(role=role, text=text)
 
 
+def _grok_turn_from_obj(obj):
+    """One Grok chat_history line → Turn, or None for synthetic/tool/system noise."""
+    if not isinstance(obj, dict):
+        return None
+    if obj.get("synthetic_reason"):
+        return None
+    role = GROK_ROLES.get(obj.get("type"))
+    if not role:
+        return None
+    text = _text_of(obj.get("content")).strip()
+    if role == "human":
+        text = _strip_user_query(text)
+    if not text or _is_scaffolding_turn(role, text):
+        return None
+    return Turn(role=role, text=text)
+
+
 def _turns_from_lines(lines, surface="claude") -> list:
     """Parse raw transcript lines into ordered human/edge dialogue turns, dropping noise.
     A corrupt/truncated line (a session written mid-sweep, a crashed writer) is dropped as
     noise — one bad line must never kill the whole sweep."""
     turns = []
-    turn_from_obj = _codex_turn_from_obj if surface == "codex" else _claude_turn_from_obj
+    if surface == "codex":
+        turn_from_obj = _codex_turn_from_obj
+    elif surface == "grok":
+        turn_from_obj = _grok_turn_from_obj
+    else:
+        turn_from_obj = _claude_turn_from_obj
     for line in lines:
         try:
             obj = json.loads(line)
