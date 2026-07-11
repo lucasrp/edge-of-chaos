@@ -4,10 +4,14 @@ The launcher does no cognition: it loads the /ed-beat skill body and pipes it in
 `claude -p -` invocation. Cognition lives in the skill. Interactive dispatch does not use this
 at all — the live session runs the skill in-place (never spawns claude -p).
 """
+import argparse
 import fcntl
+import hashlib
 import json
 import os
 import shutil
+import sys
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -15,6 +19,7 @@ import cortex
 import eventlog
 
 REPO = Path(__file__).resolve().parent.parent
+DEFAULT_PRODUCER_ROSTER = ("report", "map", "plan")
 
 
 @contextmanager
@@ -41,7 +46,7 @@ def heartbeat_lock(home):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def assert_beat_produced(log, before_count) -> list:
+def assert_beat_produced(log, before_count, expected_producer=None) -> list:
     """The deterministic POST-DISPATCH gate (Codex gate finding [high]): a `claude -p` exit of 0
     only proves the subprocess ran — NOT that stage-(iii) corpus work happened. Folding the log is
     the only proof. Given the corpus count captured BEFORE the beat, return the list of GAPS — empty
@@ -54,12 +59,21 @@ def assert_beat_produced(log, before_count) -> list:
     A pure reader over the log (no append, no claude): edge-heartbeat captures before_count, runs the
     beat, then calls this; non-empty gaps → NONZERO exit."""
     gaps = []
-    after_count = len(cortex.corpus_at(log=log))
+    corpus = cortex.corpus_at(log=log)
+    after_count = len(corpus)
     if after_count - before_count < 1:
         gaps.append(f"no new Artefato: corpus stayed at {after_count} (was {before_count})")
     debt = cortex.artefatos_without_kernel(log=log)
     if debt:
         gaps.append(f"C3 debt — Artefato(s) published without an intent kernel: {debt}")
+    if expected_producer is not None:
+        new_items = corpus[before_count:]
+        wrong = [item.get("slug") for item in new_items
+                 if item.get("skill") != expected_producer]
+        if wrong:
+            gaps.append(
+                f"authoritative dispatch producer {expected_producer!r} violated by Artefato(s): "
+                f"{wrong}")
     return gaps
 
 
@@ -81,13 +95,119 @@ def next_producer(roster, state_path) -> str:
     with open(lock_path, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            idx = json.loads(state_path.read_text())["next"]
+            state = json.loads(state_path.read_text())
+            idx = state["next"]
         except (FileNotFoundError, ValueError, KeyError):
+            state = {}
             idx = 0
         idx %= len(roster)
         producer = roster[idx]
-        state_path.write_text(json.dumps({"next": (idx + 1) % len(roster)}))
+        state["next"] = (idx + 1) % len(roster)
+        state_path.write_text(json.dumps(state, sort_keys=True))
     return producer
+
+
+def _dispatch_fingerprint(voz, session, contract, subject, roster, runtime_command):
+    try:
+        encoded = json.dumps(
+            {"voz": voz, "session": session, "contract": contract,
+             "subject": subject, "roster": list(roster),
+             "runtime_command": list(runtime_command)},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("dispatch causal inputs must be JSON-serializable") from exc
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _producer_for_dispatch(dispatch_id, fingerprint, roster, state_path):
+    """Idempotent rotation allocation: one dispatch id spends at most one cursor slot."""
+    state_path = Path(state_path)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = state_path.with_name(state_path.name + ".lock")
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            state = json.loads(state_path.read_text())
+            if not isinstance(state, dict):
+                state = {}
+        except (FileNotFoundError, ValueError):
+            state = {}
+        plans = state.get("plans") if isinstance(state.get("plans"), dict) else {}
+        existing = plans.get(dispatch_id)
+        if isinstance(existing, dict):
+            if existing.get("fingerprint") != fingerprint:
+                raise ValueError(
+                    f"dispatch_id {dispatch_id!r} was already bound to different causal inputs")
+            return existing["producer"]
+        idx = state.get("next", 0)
+        if not isinstance(idx, int) or isinstance(idx, bool):
+            idx = 0
+        idx %= len(roster)
+        producer = roster[idx]
+        plans[dispatch_id] = {"fingerprint": fingerprint, "producer": producer}
+        state.update({"next": (idx + 1) % len(roster), "plans": plans})
+        state_path.write_text(json.dumps(state, ensure_ascii=False, sort_keys=True))
+        return producer
+
+
+def dispatch_plan(voz, session, contract, subject, dispatch_id, *,
+                  roster=DEFAULT_PRODUCER_ROSTER, state_path=None,
+                  runtime_command=None):
+    """Plan one beat dispatch from its causal inputs and concrete runtime surface.
+
+    Portfolio is deliberately absent: maps describe the mentee's work and cannot authorize the
+    edge. The producer decision is allocated internally and idempotently by ``dispatch_id``; no
+    caller-supplied decision callback can close over portfolio. Tools and permissions describe the
+    actual already-built Claude CLI command without presenting it as a tool to relaunch.
+    """
+    if not isinstance(subject, str) or not subject.strip():
+        raise ValueError("dispatch subject must be a non-blank string")
+    if not isinstance(dispatch_id, str) or not dispatch_id.strip():
+        raise ValueError("dispatch_id must be a non-blank string")
+    roster = list(roster)
+    if not roster or not all(isinstance(item, str) and item.strip() for item in roster):
+        raise ValueError("roster must contain non-blank producer names")
+    if state_path is None:
+        state_path = REPO / "state" / "beat" / "cursor.json"
+    runtime_command = list(runtime_command or ["claude", "-p", "-"])
+    fingerprint = _dispatch_fingerprint(
+        voz, session, contract, subject.strip(), roster, runtime_command)
+    producer = _producer_for_dispatch(
+        dispatch_id.strip(), fingerprint, roster, state_path)
+    decision = {"dispatch_id": dispatch_id.strip(), "producer": producer,
+                "input_fingerprint": fingerprint}
+    import cortex_config
+    surface = cortex_config.dispatch_surface(
+        subject=subject.strip(), runtime_command=runtime_command,
+    )
+    return {"decision": decision, "tools": surface["tools"],
+            "permissions": surface["permissions"]}
+
+
+def mint_plan_dispatch_id():
+    return f"beat-{uuid.uuid4()}"
+
+
+def runtime_dispatch_inputs(home, dispatch_id, env=None):
+    """Portfolio-blind causal inputs available before the Claude beat process exists."""
+    env = os.environ if env is None else env
+    import _identity
+    cfg = _identity._cfg(Path(home) / "agent.yaml")
+    anchor = (env.get("CLAUDE_CODE_SESSION_ID") or env.get("CODEX_THREAD_ID")
+              or env.get("CODEX_SESSION_ID") or dispatch_id)
+    return (
+        cfg.get("voice") or "",
+        {"anchor": anchor, "kind": "heartbeat", "dispatch_id": dispatch_id},
+        {"skill": "beat", "read_only_world": True, "mission": cfg.get("mission") or ""},
+    )
+
+
+def bind_dispatch_plan(prompt, plan):
+    """Put the mechanically-authoritative plan before any skill prose/cognition."""
+    encoded = json.dumps(plan, ensure_ascii=False, sort_keys=True)
+    return ("AUTHORITATIVE DISPATCH PLAN (mechanical; do not override):\n"
+            f"{encoded}\nEND AUTHORITATIVE DISPATCH PLAN\n\n{prompt}")
 
 
 def resolve_claude_bin() -> str:
@@ -165,3 +285,36 @@ def load_beat_prompt(home) -> str:
                 text = parts[2] if len(parts) >= 3 else text
             return text.strip()
     raise FileNotFoundError("beat skill not found (skills/beat/SKILL.md)")
+
+
+def main(argv=None, stdin=None, stdout=None):
+    """Interactive fallback: compute the same authoritative plan before skill grounding."""
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    plan_parser = sub.add_parser("dispatch-plan")
+    plan_parser.add_argument("--home", default=str(REPO))
+    plan_parser.add_argument("--group", default=None)
+    plan_parser.add_argument("--subject", default="lead")
+    plan_parser.add_argument("--dispatch-id", required=True)
+    plan_parser.add_argument("--claude-bin", default=None)
+    plan_parser.add_argument("--mcp-config", default=None)
+    args = parser.parse_args(argv)
+    stdout = sys.stdout if stdout is None else stdout
+    home = Path(os.path.expanduser(args.home)).resolve()
+    claude_bin = args.claude_bin or resolve_claude_bin()
+    config_path = (Path(args.mcp_config).resolve() if args.mcp_config else
+                   ensure_cortex_config(home, group=args.group))
+    command = build_beat_command(claude_bin, mcp_config_path=config_path)
+    voz, session, contract = runtime_dispatch_inputs(home, args.dispatch_id)
+    result = dispatch_plan(
+        voz, session, contract, args.subject, args.dispatch_id,
+        state_path=home / "state" / "beat" / "cursor.json",
+        runtime_command=command,
+    )
+    json.dump(result, stdout, ensure_ascii=False, sort_keys=True)
+    stdout.write("\n")
+    return result
+
+
+if __name__ == "__main__":
+    main()

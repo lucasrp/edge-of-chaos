@@ -9,20 +9,30 @@ monolith (one grounding → one close): production is **3 acts** — escolher, p
 with **loops localizados**. The trunk chooses; the branches produce; every branch exits through
 the shared close (`skills/_shared/pipeline.md`).
 
+## Gate zero — plano autoritativo ANTES de qualquer grounding
+
+Comece lendo `EDGE_DISPATCH_PLAN`. No heartbeat ele já foi calculado mecanicamente e injetado no
+prompt + env **antes** deste processo existir. Se ausente numa invocação interativa, execute primeiro:
+
+`tools/edge-python tools/_beat.py dispatch-plan --home "$PWD" --dispatch-id "interactive-${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-$$}}}"`
+
+Esse `{decision, tools, permissions}` é autoritativo. `decision.producer` fixa o producer desta
+batida; grounding posterior escolhe pauta/ângulo/quantidade **dentro dessa forma**, nunca outro
+producer e nunca outras permissões. **Mapa descreve, nunca autoriza**: portfolio/map/frontier não
+entram no plano e não podem alterá-lo.
+
 ## Ato 1 — the trunk: grounding inicial → PROPOSTA
 
 1. **Grounding INICIAL** — the hot look: run the mechanical entry-driver
    (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
    recall), then a LIGHT sweep of the world — enough to see what moved, not a deep dive (depth
    belongs to the branches, each doing its own rounds).
-2. **PROPOSTA** — the trunk's output is an **explicit proposal**: WHICH artefatos (1..N), why
-   each one is worth it, each with its own angle and form. The "why" is the plan-side gates the
+2. **PROPOSTA** — respeitando o `decision.producer` já fixado, o trunk produz uma proposta
+   explícita: QUAIS artefatos (1..N) nessa forma, por que cada um vale, e qual ângulo. The "why" is the plan-side gates the
    close already carries (B.4): **VoI > custo** (vale surfar?), **é real** (grounded, not
    manufactured), **é pra ele** (serves the mentee's live work — except `lazer`, which owes only
-   taste). The editorial-compass is the living prototype of this gate. A report + a map + a
-   JS-interativo of the same pauta is a legal proposal; so is a single brief. The rotation
-   cursor (`tools/_beat.py`) survives only as a **breadth prior** — a tie-breaker when the
-   proposal has no stronger reason, never a judgment.
+   taste). The editorial-compass is the living prototype of this gate. A rotação já foi consumida
+   uma única vez pelo plano autoritativo; a cognição não a reabre nem faz queue-jump.
 
 The proposal weighs **origem**: an artefato **pedido pelo usuário** (`origin: user_requested`,
 declared at the wake — `predispatch.py --origin user_requested`) is exactly where the mentee's
@@ -39,7 +49,7 @@ recently is the gradient the proposta follows; the beat's own picks are explorat
 For each artefato in the proposal, dispatch **one artefato-agent** (parallel, background — the
 subagent idiom; never block the trunk):
 
-- Each branch-agent runs its producer-skill (`skills/<producer>`) on the shared scaffold
+- Each branch-agent runs exactly `skills/<decision.producer>` on the shared scaffold
   (`skills/_shared/scaffold.md`) and produces **one Artefato** in its form.
 - **Grounding is NOT a single trunk phase**: each branch does its **own rounds** of grounding —
   it goes back to the world as many times as ITS artefato asks (rounds localizados; the harvest

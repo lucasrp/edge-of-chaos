@@ -6,6 +6,7 @@ no envelope, no retry — cognition lives in the skill. Interactive dispatch doe
 the live session runs /ed-beat in-place (never spawns claude -p).
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -20,6 +21,8 @@ def main() -> None:
     ap.add_argument("--home", required=True)
     ap.add_argument("--group", default=None,
                     help="Override the graph group for the cortex door (else identity resolves it)")
+    ap.add_argument("--dispatch-id", default=None,
+                    help="Stable plan id for an idempotent retry (default: mint one invocation id)")
     ap.add_argument("--dry-run", action="store_true", help="Print the command and prompt; do not invoke claude")
     args = ap.parse_args()
 
@@ -48,6 +51,22 @@ def main() -> None:
         print(prompt)
         return
 
+    # A32: decide BEFORE Claude starts. The same dispatch id is an idempotency key: retrying cannot
+    # consume another rotation slot. The plan is injected in BOTH prompt and env, so the skill begins
+    # from a mechanically-authoritative producer/tool/permission decision rather than deciding from
+    # portfolio-bearing grounding. Map state is absent from runtime_dispatch_inputs/dispatch_plan.
+    dispatch_id = args.dispatch_id or _beat.mint_plan_dispatch_id()
+    voz, session, contract = _beat.runtime_dispatch_inputs(home, dispatch_id)
+    plan = _beat.dispatch_plan(
+        voz, session, contract, "lead", dispatch_id,
+        state_path=home / "state" / "beat" / "cursor.json",
+        runtime_command=cmd,
+    )
+    prompt = _beat.bind_dispatch_plan(prompt, plan)
+    child_env = _beat.build_beat_env(home)
+    child_env["EDGE_DISPATCH_PLAN"] = json.dumps(plan, ensure_ascii=False, sort_keys=True)
+    child_env["EDGE_DISPATCH_PLAN_ID"] = dispatch_id
+
     # Serialize the WHOLE critical section {capture before_count -> run claude -p -> assert} under an
     # exclusive flock (Codex gate round-4 [medium]): otherwise two overlapping heartbeats share a
     # before/after window and one can produce NOTHING yet pass because the other appended a kerneled
@@ -63,14 +82,15 @@ def main() -> None:
         before_count = len(eventlog.corpus_at(log=log))
 
         rc = subprocess.run(cmd, cwd=str(home), input=prompt, text=True,
-                            env=_beat.build_beat_env(home)).returncode
+                            env=child_env).returncode
         if rc != 0:
             sys.exit(rc)  # claude -p itself failed — keep the existing failure exit.
 
         # claude -p exited 0, but a 0 only proves the subprocess ran. Fold the log and assert real
         # work: a beat that 'succeeded' without publishing a new kerneled Artefato (or that left C3
         # debt) is a FAILED beat — exit nonzero so the heartbeat surfaces it.
-        gaps = _beat.assert_beat_produced(log, before_count)
+        gaps = _beat.assert_beat_produced(
+            log, before_count, expected_producer=plan["decision"]["producer"])
     if gaps:
         for gap in gaps:
             print(f"edge-heartbeat: beat exited 0 but produced no corpus progress: {gap}",

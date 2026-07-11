@@ -165,6 +165,38 @@ def build_beat_command(claude_bin, config_path):
     return [claude_bin, "-p", "-", "--dangerously-skip-permissions", "--mcp-config", config_path]
 
 
+def dispatch_surface(*, subject, runtime_command):
+    """Honest tool/permission description of the actual Claude command already being launched.
+
+    The command is deliberately NOT returned as a tool (the running beat must not recursively
+    relaunch itself). Map/portfolio state is neither accepted nor read. Cortex remains subject-scoped;
+    the outer Claude permission mode is derived from the real argv instead of pretending its Cortex
+    allowlist describes every CLI capability.
+    """
+    command = list(runtime_command)
+    bypass = "--dangerously-skip-permissions" in command
+    config_path = None
+    if "--mcp-config" in command:
+        index = command.index("--mcp-config")
+        if index + 1 < len(command):
+            config_path = str(command[index + 1])
+    return {
+        "tools": {
+            "runtime": "claude-code",
+            "availability": "all-runtime-tools" if bypass else "claude-policy-filtered",
+            "mcp_config": config_path,
+            "cortex": allowed_tools(subject),
+        },
+        "permissions": {
+            "mode": ("dangerously-skip-permissions" if bypass
+                     else "claude-default-policy"),
+            "runtime_scope": "all" if bypass else "policy-filtered",
+            "cortex_allowed": allowed_tools(subject),
+            "cortex_disallowed": disallowed_tools(subject),
+        },
+    }
+
+
 def write_config(path, subject, group=None, home=None):
     """Render the MCP config for `subject` to `path` (the generated per-install genotype artifact).
     `subject` is REQUIRED (N5 fail-closed, codex Slice-4 [high]): there is no unscoped config — every
