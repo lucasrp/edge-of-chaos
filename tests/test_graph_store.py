@@ -289,10 +289,9 @@ class Neo4jGraphStoreContract(unittest.TestCase):
         self.assertEqual(cardinality_params, {"group_id": "edge-test", "ref": "atv:a"})
         query, params = driver.calls[1]
         self.assertIn("(anchor)-[r:`BEARS_ON`]->(neighbor)", query)
-        self.assertIn("neighbor.merged_into", query)
-        self.assertIn("resolved_neighbor", query)
-        self.assertIn("coalesce(resolved_neighbor.archived,false)=false", query)
-        self.assertIn("resolved_neighbor.group_id=$group_id", query)
+        self.assertIn("coalesce(anchor.archived,false)=false", query)
+        self.assertIn("anchor.merged_into IS NULL", query)
+        self.assertIn("neighbor.group_id=$group_id", query)
         self.assertIn("r.invalidated_at IS NULL", query)
         self.assertEqual(params, {"group_id": "edge-test", "ref": "atv:a"})
         self.assertEqual(neighbors, [graph_store.GraphNeighbor(
@@ -303,6 +302,37 @@ class Neo4jGraphStoreContract(unittest.TestCase):
             edge_props={"src_seq": 17, "valencia": "supports"},
             direction="out",
         )])
+
+    def test_live_neighbors_resolves_merged_into_by_name_across_multiple_hops(self):
+        raw = {
+            "ref": "old-ref", "label": "Entity",
+            "node_props": {"group_id": "edge-test", "ref": "old-ref",
+                           "uuid": "old-uuid", "name": "Old", "merged_into": "Middle"},
+            "edge_kind": "PART_OF", "edge_props": {"src_seq": 1}, "direction": "out",
+        }
+        middle = {"ref": "middle-ref", "label": "Entity",
+                  "node_props": {"group_id": "edge-test", "ref": "middle-ref",
+                                 "uuid": "middle-uuid", "name": "Middle",
+                                 "merged_into": "canonical-uuid"}}
+        canonical = {"ref": "canonical-ref", "label": "Entity",
+                     "node_props": {"group_id": "edge-test", "ref": "canonical-ref",
+                                    "uuid": "canonical-uuid", "name": "Canonical",
+                                    "curated_name": "Renamed", "archived": False}}
+        driver = _Driver(results=[
+            [{"anchors": 1}], [raw], [middle], [canonical],
+        ])
+        store = graph_store.Neo4jGraphStore(driver, group_id="edge-test")
+
+        neighbors = store.neighbors("map:m", "PART_OF", direction="out")
+
+        self.assertEqual(neighbors[0].ref, "canonical-ref")
+        self.assertEqual(neighbors[0].node_props["curated_name"], "Renamed")
+        canonical_queries = driver.calls[2:]
+        self.assertEqual([params["target"] for _query, params in canonical_queries], [
+            "Middle", "canonical-uuid",
+        ])
+        self.assertTrue(all(params["group_id"] == "edge-test"
+                            for _query, params in canonical_queries))
 
     def test_live_adapter_resolves_graphiti_uuid_for_edges_navigation_and_invalidation(self):
         edge_driver = _Driver()
@@ -322,9 +352,8 @@ class Neo4jGraphStoreContract(unittest.TestCase):
         neighbor_query, _params = navigation_driver.calls[1]
         self.assertIn("anchor.uuid=$ref", cardinality_query)
         self.assertIn("anchor.uuid=$ref", neighbor_query)
-        self.assertIn("canonical.uuid=neighbor.merged_into", neighbor_query)
         self.assertIn(
-            "coalesce(resolved_neighbor.ref, resolved_neighbor.uuid) AS ref",
+            "coalesce(neighbor.ref, neighbor.uuid) AS ref",
             neighbor_query,
         )
 
@@ -522,6 +551,34 @@ class FakeGraphNavigation(unittest.TestCase):
 
         self.assertEqual([neighbor.ref for neighbor in neighbors], ["entity:canonical"])
         self.assertEqual(neighbors[0].node_props["curated_name"], "Canonical")
+
+    def test_neighbors_resolves_name_ref_uuid_chains_and_hides_archived_terminal(self):
+        store = graph_store.FakeGraph()
+        store.merge_node("atv:a", "Atividade")
+        store.merge_node("old-ref", "Entity", {
+            "uuid": "old-uuid", "name": "Old", "merged_into": "Middle",
+        })
+        store.merge_node("middle-ref", "Entity", {
+            "uuid": "middle-uuid", "name": "Middle", "merged_into": "canonical-uuid",
+        })
+        store.merge_node("canonical-ref", "Entity", {
+            "uuid": "canonical-uuid", "name": "Canonical", "curated_name": "Renamed",
+        })
+        store.merge_edge("atv:a", "PART_OF", "old-ref", {"src_seq": 1})
+
+        self.assertEqual(store.neighbors("atv:a", "PART_OF")[0].ref, "canonical-ref")
+
+        store.merge_node("canonical-ref", "Entity", {"archived": True})
+        self.assertEqual(store.neighbors("atv:a", "PART_OF"), [])
+
+    def test_neighbors_hides_merge_cycles(self):
+        store = graph_store.FakeGraph()
+        store.merge_node("atv:a", "Atividade")
+        store.merge_node("entity:a", "Entity", {"name": "A", "merged_into": "B"})
+        store.merge_node("entity:b", "Entity", {"name": "B", "merged_into": "A"})
+        store.merge_edge("atv:a", "PART_OF", "entity:a", {"src_seq": 1})
+
+        self.assertEqual(store.neighbors("atv:a", "PART_OF"), [])
 
 
 class FakeGraphProgrammableFailure(unittest.TestCase):
