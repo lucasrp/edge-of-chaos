@@ -22,6 +22,7 @@ class TemplatesExist(unittest.TestCase):
     def test_service_and_timer_templates_present(self):
         self.assertTrue((REPO / "templates" / "edge-heartbeat.service.tpl").exists())
         self.assertTrue((REPO / "templates" / "edge-heartbeat.timer.tpl").exists())
+        self.assertTrue((REPO / "templates" / "edge-rationalize.service.tpl").exists())
 
 
 class RenderUnits(unittest.TestCase):
@@ -40,6 +41,18 @@ class RenderUnits(unittest.TestCase):
         self.assertIn("/home/x/edge", svc)
         self.assertNotIn("{{", svc)
 
+    def test_rationalizer_is_a_bounded_static_oneshot_in_the_install_venv(self):
+        svc = _provision.render_rationalize_service(CFG, home=Path("/home/x/edge"))
+
+        self.assertIn("Type=oneshot", svc)
+        self.assertIn("/home/x/edge/tools/edge-python", svc)
+        self.assertIn("/home/x/edge/tools/sweep.py --rationalize-only", svc)
+        self.assertIn("WorkingDirectory=/home/x/edge", svc)
+        self.assertIn("TimeoutStartSec=30min", svc)
+        self.assertIn("KillMode=control-group", svc)
+        self.assertNotIn("[Timer]", svc)
+        self.assertNotIn("{{", svc)
+
 
 class InstallUnits(unittest.TestCase):
     def test_writes_unit_files_to_user_systemd_dir(self):
@@ -52,6 +65,8 @@ class InstallUnits(unittest.TestCase):
                 run=lambda cmd: calls.append(list(cmd)) or type("R", (), {"returncode": 0})())
             self.assertTrue((unit_dir / "edge-heartbeat.service").exists())
             self.assertTrue((unit_dir / "edge-heartbeat.timer").exists())
+            self.assertTrue((unit_dir / "edge-rationalize.service").exists())
+            self.assertFalse((unit_dir / "edge-rationalize.timer").exists())
             self.assertIn("OnUnitActiveSec=3h", (unit_dir / "edge-heartbeat.timer").read_text())
 
     def test_runs_daemon_reload_enable_now_and_linger(self):
@@ -66,6 +81,7 @@ class InstallUnits(unittest.TestCase):
             self.assertTrue(any("daemon-reload" in f for f in flat))
             self.assertTrue(any("enable" in f and "--now" in f and "edge-heartbeat.timer" in f
                                 for f in flat), flat)
+            self.assertFalse(any("enable" in f and "edge-rationalize" in f for f in flat), flat)
             self.assertTrue(any("enable-linger" in f for f in flat),
                             "must enable linger so the timer runs while logged out")
 

@@ -154,7 +154,7 @@ def provision_neo4j(home, env_dir, run=subprocess.run, _password=None):
     return secret_path
 
 
-# --- systemd heartbeat timer (#19) --------------------------------------------------------------
+# --- systemd background lifecycle: heartbeat timer + static rationalizer worker ----------------
 def _render(text, variables):
     """Substitute {{var}} from variables (same convention as tools/edge-render)."""
     return re.sub(r"\{\{\s*(\w+)\s*\}\}",
@@ -182,16 +182,27 @@ def render_heartbeat_timer(cfg, home):
     return _render(tpl, _heartbeat_vars(cfg, home))
 
 
+def render_rationalize_service(cfg, home):
+    """Render the bounded static worker enqueued after a dispatch has been stamped."""
+    tpl = (TEMPLATES / "edge-rationalize.service.tpl").read_text()
+    return _render(tpl, _heartbeat_vars(cfg, home))
+
+
 def install_heartbeat(cfg, home, unit_dir=None, run=subprocess.run):
-    """Install + enable the heartbeat timer (#19), idempotently. Write the rendered units under
-    ~/.config/systemd/user/, daemon-reload, `enable --now` the timer, and `enable-linger` so it
-    fires while logged out. Fail loud on any systemctl/loginctl failure."""
+    """Install the heartbeat timer and static rationalizer worker, idempotently.
+
+    Only the heartbeat has a timer and is enabled here. Rationalization is a oneshot service
+    enqueued after a stamped dispatch; it deliberately has no independent cadence.
+    """
     home = Path(home)
     unit_dir = Path(unit_dir) if unit_dir is not None \
         else Path(os.path.expanduser("~/.config/systemd/user"))
     unit_dir.mkdir(parents=True, exist_ok=True)
     (unit_dir / "edge-heartbeat.service").write_text(render_heartbeat_service(cfg, home))
     (unit_dir / "edge-heartbeat.timer").write_text(render_heartbeat_timer(cfg, home))
+    (unit_dir / "edge-rationalize.service").write_text(
+        render_rationalize_service(cfg, home)
+    )
     _run(run, ["systemctl", "--user", "daemon-reload"], "systemctl daemon-reload")
     _run(run, ["systemctl", "--user", "enable", "--now", "edge-heartbeat.timer"],
          "systemctl enable --now timer")
