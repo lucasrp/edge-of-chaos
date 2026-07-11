@@ -29,8 +29,20 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 SKILLS = REPO / "skills"
 
-# The open producer roster the beat round-robins (agreed with S12).
-PRODUCERS = ("report", "map", "plan")
+# The open producer roster the beat round-robins (agreed with S12). Expanded to the full
+# TEXT roster for the genus-wide rito rollout (docs/rito-runtime.md §Producer adoption):
+# every prose Artefato exits through the same rite. `prototype` (interactive single-file JS)
+# is NOT here — its artefato does not fit the rite's pinned markdown renderer (see the
+# "Interactive producers" open decision in docs/rito-runtime.md) and stays on the legacy close.
+PRODUCERS = ("report", "map", "plan", "research", "discovery")
+
+# The rito split (docs/rito-runtime.md): the report exemplar led; the genus-wide rollout wired
+# every TEXT producer through the rito runtime (tools/rito.py — the experiment's rite as the
+# production path; publication inside the rite, form pinned to the approved markdown renderer).
+# "o edge deve soar o mesmo across artefatos". Legacy is now empty for the text roster — the
+# interactive producers (prototype, lazer) stay legacy but are pinned elsewhere.
+RITO_PRODUCERS = ("report", "map", "plan", "research", "discovery")
+LEGACY_PRODUCERS = tuple(p for p in PRODUCERS if p not in RITO_PRODUCERS)
 
 # The shared contracts every producer conforms to.
 SCAFFOLD_REF = "scaffold"      # skills/_shared/scaffold.md (loop1/loop2 role-slots)
@@ -83,9 +95,12 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
             self.assertIn(PIPELINE_REF, t, f"{p} does not reference the shared pipeline")
 
     def test_each_producer_publishes_through_the_publisher(self):
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             self.assertIn(PUBLISHER_REF, self.texts[p],
                           f"{p} does not publish via {PUBLISHER_REF}")
+        for p in RITO_PRODUCERS:
+            self.assertIn("tools/rito.py", self.texts[p],
+                          f"{p} does not exit through the rito runtime (tools/rito.py)")
 
     def test_each_producer_does_not_inline_publish_artefato(self):
         # publish through the close, NOT an inline eventlog.publish_artefato snippet.
@@ -94,11 +109,18 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
                              f"{p} inlines an eventlog.publish_artefato snippet")
 
     def test_each_producer_routes_through_the_enforced_close(self):
-        # the close is ENFORCED: publish happens ONLY via close.run_close (it mints the
-        # passing-review proof publisher.publish now requires).
-        for p in PRODUCERS:
+        # LEGACY producers: publish happens ONLY via close.run_close (it mints the
+        # passing-review proof publisher.publish requires). RITO producers route through
+        # rito.run_rito — the rite IS the enforced path (publication inside it).
+        for p in LEGACY_PRODUCERS:
             self.assertIn(ENFORCED_CLOSE_REF, self.texts[p].replace(" ", ""),
                           f"{p} does not route through the enforced close ({ENFORCED_CLOSE_REF})")
+        for p in RITO_PRODUCERS:
+            self.assertIn("rito.run_rito", self.texts[p].replace(" ", ""),
+                          f"{p} does not route through the rito runtime (rito.run_rito)")
+            self.assertNotIn("close.run_close(", self.texts[p].replace(" ", ""),
+                             f"{p} still shows a close.run_close(...) call — the rito replaced "
+                             "that exit (cycle-2 regression guard)")
 
     def test_no_producer_shows_a_bare_publisher_publish_call(self):
         # a direct publisher.publish(...) now RAISES (no passing-review proof) — the skill
@@ -116,10 +138,16 @@ class ProducersFillSlotsAndExitThroughClose(unittest.TestCase):
                             f"{p} names none of the role slots {SLOT_TOKENS}")
 
     def test_each_producer_draws_from_the_canonical_palette(self):
-        # blocks come from the one palette (tools/render.py), not freeform HTML.
-        for p in PRODUCERS:
+        # LEGACY: blocks come from the one palette (tools/render.py), not freeform HTML.
+        # RITO: the authoring format is Markdown, rendered by the PINNED approved renderer.
+        for p in LEGACY_PRODUCERS:
             self.assertIn("tools/render.py", self.texts[p],
                           f"{p} does not draw blocks from the canonical palette")
+        for p in RITO_PRODUCERS:
+            self.assertIn("renderer_id", self.texts[p],
+                          f"{p} does not name the pinned renderer (render.RENDERER_ID)")
+            self.assertIn("markdown", self.texts[p],
+                          f"{p} does not declare Markdown as the rite's authoring format")
 
     def test_report_no_longer_mandates_a_fixed_section_order(self):
         # sections are FREE — the welded section-order mandate is gone.
@@ -169,7 +197,8 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
 
     def setUp(self):
         # raw (case-preserving) text — we assert on the literal snippet code, not prose.
-        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in PRODUCERS}
+        # RITO producers carry no run_close snippet (publication rides inside the rite).
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in LEGACY_PRODUCERS}
 
     def _artefato_literal(self, text):
         """Return the `artefato={...}` dict literal passed to run_close (the snippet builds it
@@ -192,7 +221,7 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
         # run_close mints from artefato.get(field); the dict must carry all proof-bound fields
         # (skill, distills, slug, intent, content, cites, proposes) so the mint digest == the
         # verified digest. `content` is the artefato dict's name for the digest's `spec`.
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             lit = self._artefato_literal(self.texts[p])
             for field in ("skill", "distills", "slug", "intent", "content", "cites", "proposes",
                           "dispatch_id", "lineage"):
@@ -204,7 +233,7 @@ class ProducerCloseSnippetMintsOverPublishPayload(unittest.TestCase):
         # the publish_fn must publish FROM `art` (its received artefato), reading the
         # proof-bound fields off it — not from separately-captured locals — so the published
         # payload is provably the one the proof was minted over.
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             t = self.texts[p]
             for field in PROOF_BOUND_ARTEFATO_FIELDS:
                 self.assertIn(f"art['{field}']", t,
@@ -223,10 +252,11 @@ class ProducersWireRealReProduction(unittest.TestCase):
     artefato is no longer enough on its own."""
 
     def setUp(self):
-        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in PRODUCERS}
+        # RITO producers have no run_close improve loop — the rite's own stages revise.
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in LEGACY_PRODUCERS}
 
     def test_each_producer_wires_improve_fn(self):
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             self.assertIn("improve_fn", self.texts[p].replace(" ", ""),
                           f"{p} does not wire improve_fn into run_close (a strike would only "
                           "hard-fail, never re-produce richer — #30)")
@@ -234,12 +264,56 @@ class ProducersWireRealReProduction(unittest.TestCase):
     def test_each_producer_improve_fn_takes_feedback(self):
         # improve_fn(artefato, feedback) — run_close hands it the reviewers' rationales+strikes,
         # which it uses to REVISE the draft. The signature must accept the feedback.
-        for p in PRODUCERS:
+        for p in LEGACY_PRODUCERS:
             t = self.texts[p].replace(" ", "")
             self.assertTrue("improve_fn=lambda" in t or "defimprove_fn" in t,
                             f"{p}'s improve_fn is not defined to receive the feedback")
             self.assertIn("feedback", self.texts[p].lower(),
                           f"{p} does not mention the feedback the improve_fn revises from")
+
+
+class ReportExitsThroughTheRito(unittest.TestCase):
+    """The rito exemplar (docs/rito-runtime.md): report's way out is the rite runtime — the
+    whole causal execution as code, publication inside it, form pinned. Generalized to EVERY
+    rito producer (genus-wide rollout): each carries the same load-bearing tokens so none can
+    silently drift back to the legacy exit (cycle-1/2 guard) — "o edge deve soar o mesmo"."""
+
+    def setUp(self):
+        self.texts = {p: _path(p).read_text(encoding="utf-8") for p in RITO_PRODUCERS}
+
+    def test_report_routes_through_run_rito(self):
+        for p, text in self.texts.items():
+            self.assertIn("rito.run_rito", text.replace(" ", ""),
+                          f"{p} does not route through rito.run_rito")
+
+    def test_report_names_the_detector_command(self):
+        for p, text in self.texts.items():
+            self.assertIn("tools/rito.py verify", text,
+                          f"{p} does not name the detector command")
+
+    def test_report_carries_the_product_spine_via_publish_meta(self):
+        for p, t in self.texts.items():
+            self.assertIn("publish_meta", t, f"{p} omits publish_meta")
+            for field in ("proposes", "distills", "cites", "lineage", "bears_on", "para",
+                          "reports_on"):
+                self.assertIn(f"'{field}'", t,
+                              f"{p}'s publish_meta omits {field!r} — the rite replaces the "
+                              "path, not the ontology")
+
+    def test_report_shows_no_legacy_close_snippet(self):
+        for p, text in self.texts.items():
+            t = text.replace(" ", "")
+            self.assertNotIn("close.run_close(", t,
+                             f"{p} still shows a close.run_close( call")
+            self.assertNotIn("artefato={", t, f"{p} still builds a legacy artefato dict")
+            self.assertNotIn("publish_fn=lambdaart,proof", t,
+                             f"{p} still shows the legacy publish_fn lambda")
+
+    def test_report_preserves_the_blind_readable_first_draft(self):
+        for p, text in self.texts.items():
+            self.assertIn("blind", text.lower(), f"{p} loses the blind-readable draft note")
+            self.assertIn("first authorial draft", text.lower(),
+                          f"{p} does not name the sealed first authorial draft")
 
 
 class PipelineDocumentsTheReProductionWiring(unittest.TestCase):
@@ -259,6 +333,70 @@ class PipelineDocumentsTheReProductionWiring(unittest.TestCase):
         self.assertIn("rich-rite", self.text)
         self.assertTrue("hard-fail" in self.text or "hard fail" in self.text,
                         "pipeline must contrast re-production against a bare hard-fail")
+
+
+class PedagogicalRewriteIntegration(unittest.TestCase):
+    """exp-feynman-pedagogico (operator-ratified: "pode integrar no genotipo"): the winning arm
+    was a rewrite in the PEDAGOGUE's Feynman-Lectures voice, ONE review round that reaches for
+    NEW grounding, length EMERGENT (no target), and the table-wall killed (prose carries the
+    argument; a table only for a genuine A-vs-B comparison). This pins the genotype change on the
+    two exemplar producers (report + research), across BOTH prompt-carriers: the authoring prose
+    sections AND the rito prompts-dict placeholder strings."""
+
+    EXEMPLARS = ("report", "research")
+
+    def setUp(self):
+        self.texts = {p: _path(p).read_text(encoding="utf-8").lower() for p in self.EXEMPLARS}
+
+    def test_authoring_carries_the_feynman_lectures_pedagogical_voice(self):
+        # the PEDAGOGUE's Feynman (build from the concrete, motivate WHY before formalism, one
+        # vivid handle, address the reader, anticipate confusion, explain-don't-label).
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertIn("feynman lectures", t,
+                          f"{p} does not name the Feynman-Lectures pedagogical voice")
+            self.assertTrue("motivate why" in t or "why before" in t,
+                            f"{p} does not carry motivate-WHY-before-formalism")
+            self.assertIn("vivid handle", t, f"{p} does not carry the one-vivid-handle move")
+            self.assertTrue("explain" in t and "label" in t,
+                            f"{p} does not carry explain-don't-label")
+
+    def test_length_is_emergent_no_word_target(self):
+        # length EMERGENT — it grows because contextualization was added, never a word target.
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertIn("emergent", t, f"{p} does not declare length EMERGENT")
+            self.assertNotIn("word count", t, f"{p} still names a word count target")
+            self.assertNotIn("word target", t, f"{p} still names a word target")
+
+    def test_table_wall_killed_prose_carries_the_argument(self):
+        # kill the table-wall default: prose carries the argument; a table ONLY for a genuine
+        # A-vs-B comparison (the winner went from 45 table-rows to 5).
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertTrue("prose carries the argument" in t or "prose carries" in t,
+                            f"{p} does not say prose carries the argument")
+            self.assertTrue("table-wall" in t or "table wall" in t,
+                            f"{p} does not name the table-wall it must kill")
+
+    def test_gap_critique_is_pedagogical(self):
+        # gap_critique asks: where does this fail to TEACH? where is it cryptic / thin?
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertTrue("fail to teach" in t or "fails to teach" in t or "does not teach" in t,
+                            f"{p}'s gap_critique is not a teaches-check")
+
+    def test_grounding2_carries_new_grounding_reach_with_fidelity_guard(self):
+        # grounding2 fetches NEW grounding (world/domain beyond G1) to fill the pedagogical gaps
+        # — with the fidelity guard: FETCHED + cited, NEVER invented.
+        for p in self.EXEMPLARS:
+            t = self.texts[p]
+            self.assertIn("new grounding", t,
+                          f"{p}'s grounding2 does not carry the new-grounding reach")
+            self.assertTrue("fetched" in t and ("cited" in t or "cite" in t),
+                            f"{p}'s new-grounding reach lacks the fetched+cited fidelity guard")
+            self.assertTrue("never invent" in t or "not invent" in t or "not fabricat" in t,
+                            f"{p}'s new-grounding reach does not forbid inventing")
 
 
 if __name__ == "__main__":

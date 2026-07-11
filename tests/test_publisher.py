@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import close  # noqa: E402
 import eventlog  # noqa: E402
+import producer_descriptor  # noqa: E402
 import publisher  # noqa: E402
 import render  # noqa: E402
 import visual_grounding  # noqa: E402
@@ -77,7 +78,7 @@ class NoWakeGateIsRealAtTheSeam(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             with self.assertRaises(RuntimeError) as ctx:
-                _REAL_PUBLISH("any-slug", "<h1>x</h1>", "intent", skill="report",
+                _REAL_PUBLISH("any-slug", "<h1>x</h1>", "intent", skill=_LEGACY_SKILL,
                               verdict={"not": "a proof"}, log=log, blog_dir=tmp)
             self.assertIn("no-wake", str(ctx.exception))
 
@@ -87,8 +88,14 @@ def _fake_embed(text):
     return [float(len(text)), 1.0]
 
 
+# The legacy-publish VEHICLE for tests of publisher.publish's OTHER seams (atomicity, recovery,
+# telemetry, residuals, lineage). `report` moved to the rite and is REFUSED by publish now
+# (LegacyPublishClosedForRitoProducers), so those tests drive a still-legacy producer instead.
+_LEGACY_SKILL = "prototype"
+
+
 def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
-                   distills=None, skill="report", lineage=None):
+                   distills=None, skill=_LEGACY_SKILL, lineage=None):
     """A BOUND passing proof for the exact payload — minted via close's PRIVATE `_mint_proof`
     the same way `run_close` mints it (run_close-only token + sha256 digest of
     slug+spec+intent+cites+proposes+distills+skill+lineage + both passing reviewer verdicts
@@ -158,7 +165,7 @@ class PublishIsAtomicAndKerneled(unittest.TestCase):
             intent = "next bet: pour the gate into the slot"
             path = publisher.publish(
                 slug, _spec(), intent=intent,
-                skill="report", cites=cites, date="2026-06-08",
+                skill=_LEGACY_SKILL, cites=cites, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed,
                 verdict=_passing_proof(slug, _spec(), intent, cites=cites),
             )
@@ -171,7 +178,7 @@ class PublishIsAtomicAndKerneled(unittest.TestCase):
             self.assertIn(".derivation", text)        # inlined base.css token
             self.assertIn("#7C3AED", text)            # functional derivation-purple, kept
             self.assertIn('<article class="report">', text)
-            self.assertIn('<p class="meta">2026-06-08 · report</p>', text)
+            self.assertIn(f'<p class="meta">2026-06-08 · {_LEGACY_SKILL}</p>', text)
             self.assertIn("atomic publish plus kernel in one act", text)
 
             # the wrapper declares the entries' language and inlines the
@@ -197,7 +204,7 @@ class PublishIsAtomicAndKerneled(unittest.TestCase):
             for missing in (None, "", "   "):
                 with self.assertRaises(ValueError):
                     publisher.publish(
-                        "no-kernel", _spec(), intent=missing, skill="report",
+                        "no-kernel", _spec(), intent=missing, skill=_LEGACY_SKILL,
                         date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                         verdict=_passing_proof("no-kernel", _spec(), missing),
                     )
@@ -217,7 +224,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             with self.assertRaises(ValueError):
                 publisher.publish(
-                    "ungated", _spec(), intent="open: x; bet: y", skill="report",
+                    "ungated", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                 )
             self.assertEqual(eventlog.corpus_at(log=log), [])
@@ -230,7 +237,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 {"pass": True, "strikes": []}, {"pass": False, "strikes": ["x"]}]}
             with self.assertRaises(ValueError):
                 publisher.publish(
-                    "ungated", _spec(), intent="open: x; bet: y", skill="report",
+                    "ungated", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                     verdict=failing,
                 )
@@ -246,7 +253,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 "cites": [],
                 "proposes": [],
                 "intent": "open: x; bet: y",
-                "skill": "report",
+                "skill": _LEGACY_SKILL,
             }
             published = []
 
@@ -291,7 +298,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             cites = [{"ref": "arXiv:1", "kind": "mundo", "relevant": True, "snippet": "external frame snippet"}]
             lineage = [{"type": "supersedes", "target": "thread-7"}]  # target-only: the deciding lineage move
             art = {"slug": slug, "content": content, "cites": cites, "proposes": [],
-                   "intent": "open: x; bet: y", "skill": "report", "lineage": lineage}
+                   "intent": "open: x; bet: y", "skill": _LEGACY_SKILL, "lineage": lineage}
             published = []
 
             def publish_fn(artefato, verdict):
@@ -320,7 +327,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 {"pass": True}, {"pass": True}], "digest": "x", "token": "guessed"}
             with self.assertRaises(ValueError):
                 publisher.publish(
-                    "forged", _spec(), intent="open: x; bet: y", skill="report",
+                    "forged", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                     verdict=forged,
                 )
@@ -339,7 +346,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             proof_a = _passing_proof("artefato-a", spec_a, "open: a; bet: a")
             with self.assertRaises(ValueError):
                 publisher.publish(
-                    "artefato-b", spec_b, intent="open: b; bet: b", skill="report",
+                    "artefato-b", spec_b, intent="open: b; bet: b", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                     verdict=proof_a,  # A's proof, B's payload → digest mismatch
                 )
@@ -355,10 +362,10 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 [{"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
                   "reviewer": close.FEYNMAN_REVIEWER_ID}],
                 slug="single", spec=_spec(), intent="open: x; bet: y",
-                cites=[], proposes=[], distills=None, skill="report")
+                cites=[], proposes=[], distills=None, skill=_LEGACY_SKILL)
             with self.assertRaises(ValueError):
                 publisher.publish(
-                    "single", _spec(), intent="open: x; bet: y", skill="report",
+                    "single", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                     verdict=one,
                 )
@@ -375,7 +382,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                                    distills=reviewed_distills)
             with self.assertRaises(ValueError):
                 publisher.publish(
-                    slug, _spec(), intent="open: x; bet: y", skill="report",
+                    slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                     distills=[{"page": "memory", "body": "POISONED at publish"}],
                     verdict=proof,
@@ -388,7 +395,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             slug = "bound-skill"
-            proof = _passing_proof(slug, _spec(), "open: x; bet: y", skill="report")
+            proof = _passing_proof(slug, _spec(), "open: x; bet: y", skill=_LEGACY_SKILL)
             with self.assertRaises(ValueError):
                 publisher.publish(
                     slug, _spec(), intent="open: x; bet: y", skill="plan",
@@ -407,7 +414,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             proof = _passing_proof(slug, _spec(), "open: x; bet: y",
                                    distills=reviewed_distills)
             path = publisher.publish(
-                slug, _spec(), intent="open: x; bet: y", skill="report",
+                slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                 date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                 distills=reviewed_distills, verdict=proof,
             )
@@ -425,7 +432,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                                    lineage=reviewed_lineage)
             with self.assertRaises(ValueError):
                 publisher.publish(
-                    slug, _spec(), intent="open: x; bet: y", skill="report",
+                    slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                     lineage=[{"type": "contradicts", "target": "POISONED at publish"}],
                     verdict=proof,
@@ -444,7 +451,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             proof = _passing_proof(slug, _spec(), "open: x; bet: y",
                                    lineage=reviewed_lineage)
             path = publisher.publish(
-                slug, _spec(), intent="open: x; bet: y", skill="report",
+                slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                 date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                 lineage=reviewed_lineage, verdict=proof,
             )
@@ -464,7 +471,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                        {"type": "builds_on", "target": "thread-3"}]
             proof = _passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage)
             publisher.publish(
-                slug, _spec(), intent="open: x; bet: y", skill="report",
+                slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                 date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
                 lineage=lineage, verdict=proof,
             )
@@ -486,13 +493,13 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
         # verifies against the SAME lineage it was minted over...
         close.verify_proof(
             proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
-            cites=[], proposes=[], skill="report", lineage=lineage, reviewer_count=2,
+            cites=[], proposes=[], skill=_LEGACY_SKILL, lineage=lineage, reviewer_count=2,
         )
         # ...but an ALTERED lineage (forged authored provenance) is rejected.
         with self.assertRaises(ValueError):
             close.verify_proof(
                 proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
-                cites=[], proposes=[], skill="report",
+                cites=[], proposes=[], skill=_LEGACY_SKILL,
                 lineage=[{"type": "contradicts", "target": "POISONED at publish"}],
                 reviewer_count=2,
             )
@@ -506,7 +513,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
         for lineage in (None, []):
             close.verify_proof(
                 proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
-                cites=[], proposes=[], skill="report", lineage=lineage,
+                cites=[], proposes=[], skill=_LEGACY_SKILL, lineage=lineage,
                 reviewer_count=2,
             )
 
@@ -560,7 +567,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                             lineage=lineage, log=log, gate=gate)
 
             publisher.publish(
-                slug, _spec(), intent=intent, skill="report", cites=cites,
+                slug, _spec(), intent=intent, skill=_LEGACY_SKILL, cites=cites,
                 proposes=proposes, distills=distills, lineage=lineage, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=project_fn,
                 verdict=_passing_proof(slug, _spec(), intent, cites=cites,
@@ -568,7 +575,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             )
             self.assertEqual(seen["slug"], slug)
             self.assertEqual(seen["intent"], intent)
-            self.assertEqual(seen["skill"], "report")
+            self.assertEqual(seen["skill"], _LEGACY_SKILL)
             self.assertEqual(seen["distills"], distills)
             self.assertEqual(seen["proposes"], proposes)
             self.assertEqual(seen["cites"], cites)
@@ -605,7 +612,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 seen["lineage"] = lineage
 
             publisher.publish(
-                slug, _spec(), intent=intent, skill="report", cites=cites,
+                slug, _spec(), intent=intent, skill=_LEGACY_SKILL, cites=cites,
                 proposes=proposes, distills=distills, lineage=published, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=project_fn,
                 verdict=_passing_proof(slug, _spec(), intent, cites=cites,
@@ -625,7 +632,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 raise RuntimeError("neo4j unreachable")
 
             path = publisher.publish(
-                slug, _spec(), intent=intent, skill="report", date="2026-06-08",
+                slug, _spec(), intent=intent, skill=_LEGACY_SKILL, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=boom_project,
                 verdict=_passing_proof(slug, _spec(), intent),
             )
@@ -657,7 +664,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             # commit two artefatos to the log (no graph projection — project_fn=None)
             for slug in ("recov-a", "recov-b"):
                 publisher.publish(
-                    slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                    slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                     log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
                     verdict=_passing_proof(slug, _spec(), "open: x; bet: y"))
             projected = []
@@ -679,7 +686,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             slug = "recov-lineage"
             lineage = [{"type": "supersedes", "target": "thread-7"}]
             publisher.publish(
-                slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None, lineage=lineage,
                 verdict=_passing_proof(slug, _spec(), "open: x; bet: y", lineage=lineage))
             seen = {}
@@ -852,7 +859,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             for slug in ("have-it", "missing-it"):
                 publisher.publish(
-                    slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                    slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                     log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
                     verdict=_passing_proof(slug, _spec(), "open: x; bet: y"))
             projected = []
@@ -870,7 +877,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             publisher.publish(
-                "republished", _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                "republished", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
                 verdict=_passing_proof("republished", _spec(), "open: x; bet: y"))
             projected = []
@@ -1033,7 +1040,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             publisher.publish(
-                "present-one", _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                "present-one", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
                 verdict=_passing_proof("present-one", _spec(), "open: x; bet: y"))
             projected, backbones = [], []
@@ -1054,7 +1061,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             publisher.publish(
-                "recov-c", _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                "recov-c", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
                 verdict=_passing_proof("recov-c", _spec(), "open: x; bet: y"))
             prev_uri = os.environ.get("EDGE_NEO4J_URI")
@@ -1128,7 +1135,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             try:
                 with redirect_stdout(buf):
                     publisher.publish(
-                        slug, _spec(), intent="open: x; bet: y", skill="report", date="2026-06-08",
+                        slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                         log=log, blog_dir=tmp, embed_fn=_fake_embed,  # NO project_fn → default
                         verdict=_passing_proof(slug, _spec(), "open: x; bet: y"))
             finally:
@@ -1153,14 +1160,14 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             try:
                 with self.assertRaises(OSError):
                     publisher.publish(
-                        slug, _floored_spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
+                        slug, _floored_spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                         log=log, blog_dir=blog, embed_fn=_fake_embed, project_fn=None,
-                        verdict=_passing_proof(slug, _floored_spec(), "open: x; bet: y", skill="map"))
+                        verdict=_passing_proof(slug, _floored_spec(), "open: x; bet: y", skill=_LEGACY_SKILL))
             finally:
                 os.replace = orig_replace
             publisher.reproject_missing_pages(log=log, blog_dir=blog, date="2026-06-08")
             text = (blog / f"{slug}.html").read_text()
-            self.assertIn('<p class="meta">2026-06-08 · map</p>', text)  # the REAL skill, not report
+            self.assertIn(f'<p class="meta">2026-06-08 · {_LEGACY_SKILL}</p>', text)  # the REAL skill, not report
 
     def test_published_event_carries_skill_for_graph_recovery(self):
         # the skill rides the atomic published event (the only recovery source), so a reproject
@@ -1169,10 +1176,10 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             slug = "skill-persisted"
             publisher.publish(
-                slug, _floored_spec(), intent="open: x; bet: y", skill="map", date="2026-06-08",
+                slug, _floored_spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL, date="2026-06-08",
                 log=log, blog_dir=tmp, embed_fn=_fake_embed, project_fn=None,
-                verdict=_passing_proof(slug, _floored_spec(), "open: x; bet: y", skill="map"))
-            self.assertEqual(eventlog.corpus_at(log=log)[0]["skill"], "map")
+                verdict=_passing_proof(slug, _floored_spec(), "open: x; bet: y", skill=_LEGACY_SKILL))
+            self.assertEqual(eventlog.corpus_at(log=log)[0]["skill"], _LEGACY_SKILL)
 
     def test_project_artefato_clears_stale_edges_before_re_adding(self):
         # Codex P2: a republish/replay with corrected distills/proposes/cites must not leave the
@@ -1196,7 +1203,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             # exercise the REAL projection (the module no-op patch is bypassed here), against a
             # dead bolt port — the genuine unreachable-graph degrade path, offline, no pollution.
             _REAL_PROJECT(
-                "deg", "open: x; bet: y", skill="report",
+                "deg", "open: x; bet: y", skill=_LEGACY_SKILL,
                 distills=["cluster:recall"], proposes=[], cites=[])
         except Exception as e:  # noqa: BLE001
             self.fail(f"project_artefato must degrade safely, raised {e!r}")
@@ -1205,6 +1212,114 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 os.environ.pop("EDGE_NEO4J_URI", None)
             else:
                 os.environ["EDGE_NEO4J_URI"] = prev
+
+
+class LegacyPublishClosedForRitoProducers(unittest.TestCase):
+    """The legacy publish road is CLOSED for the rito-migrated producers (docs/rito-runtime.md).
+    `publisher.publish` (the seam `close.run_close` calls) REFUSES report/research/map/plan/
+    discovery/mentor with a LOUD door-closed error naming the fix — so those artefatos CANNOT be
+    published legacy; their only road is the rite (`rito.run_rito` → `publish_rito`, which does not
+    route through `publish`). prototype/lazer stay legacy (still succeed here). The migrated set is
+    DERIVED from producer_descriptor.RITO_PRODUCERS, the single tools-side source of truth — not a
+    hardcoded copy — and must equal the complement of the still-legacy producers in the roster."""
+
+    def test_every_rito_producer_is_refused_at_the_legacy_publish_seam(self):
+        for skill in producer_descriptor.RITO_PRODUCERS:
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                slug = f"legacy-{skill}"
+                # a VALID bound proof for this skill — the door-closed refusal is independent of the
+                # proof: even a perfectly gated legacy publish cannot land a rito producer.
+                proof = _passing_proof(slug, _floored_spec(), "open: x; bet: y", skill=skill)
+                with self.assertRaises(ValueError) as ctx:
+                    publisher.publish(
+                        slug, _floored_spec(), intent="open: x; bet: y", skill=skill,
+                        date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                        verdict=proof)
+                msg = str(ctx.exception)
+                self.assertIn("legacy publish is closed for rito producers", msg)
+                self.assertIn("rito.run_rito", msg)      # the refusal names the fix
+                # nothing landed — refused before any state/page write
+                self.assertEqual(eventlog.corpus_at(log=log), [])
+                self.assertFalse((Path(tmp) / f"{slug}.html").exists())
+
+    def test_prototype_and_lazer_still_publish_legacy(self):
+        for skill in ("prototype", "lazer"):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                slug = f"still-legacy-{skill}"
+                path = publisher.publish(
+                    slug, _spec(), intent="open: x; bet: y", skill=skill,
+                    date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
+                    verdict=_passing_proof(slug, _spec(), "open: x; bet: y", skill=skill))
+                self.assertTrue(Path(path).exists())
+                self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], [slug])
+
+    def test_run_close_for_a_rito_producer_fails_at_publish_no_silent_legacy(self):
+        # the WHOLE enforced legacy path: run_close gates a `report`, mints a proof, calls publish_fn
+        # → publisher.publish → the door is closed. The error SURFACES; no legacy artefato lands.
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            slug = "report-via-runclose"
+            art = {"slug": slug, "content": _spec(), "cites": [], "proposes": [],
+                   "intent": "open: x; bet: y", "skill": "report", "lineage": None}
+
+            def publish_fn(artefato, verdict):
+                publisher.publish(
+                    artefato["slug"], artefato["content"], intent=artefato["intent"],
+                    skill=artefato["skill"], date="2026-06-08", log=log, blog_dir=tmp,
+                    embed_fn=_fake_embed, verdict=verdict)
+
+            with self.assertRaises(ValueError) as ctx:
+                close.run_close(
+                    art, produce_fn=lambda: art,
+                    reviewers=(close.feynman_review, close.regular_review),
+                    complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
+                    publish_fn=publish_fn)
+            self.assertIn("legacy publish is closed for rito producers", str(ctx.exception))
+            self.assertEqual(eventlog.corpus_at(log=log), [])   # no silent legacy artefato
+            self.assertFalse((Path(tmp) / f"{slug}.html").exists())
+
+    def test_migrated_set_is_the_complement_of_the_still_legacy_roster(self):
+        # the split is DERIVED from producer_descriptor.RITO_PRODUCERS, not hardcoded here: every
+        # roster producer is EITHER refused (rito) OR still-legacy — no producer is both/neither.
+        rito = set(producer_descriptor.RITO_PRODUCERS)
+        self.assertTrue(rito.issubset(set(publisher.PRODUCER_ROSTER)))
+        # the still-legacy interactive producers are OUTSIDE the refused set (operator decision)
+        self.assertNotIn("prototype", rito)
+        self.assertNotIn("lazer", rito)
+        self.assertEqual(rito, {"report", "research", "map", "plan", "discovery", "mentor"})
+
+    def test_direct_atomic_commit_is_the_closed_backdoor_for_a_rito_producer(self):
+        # the ROAD is closed, not one door (codex adversarial gate): the low-level commit
+        # primitive eventlog.publish_artefato_atomic ALSO refuses a migrated producer, so a
+        # hand-rolled snippet / a close.run_close publish_fn pointed straight at it cannot land a
+        # legacy artefato. Only publisher.publish_rito (the rite) passes the internal authorization.
+        for skill in producer_descriptor.RITO_PRODUCERS:
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                with self.assertRaises(ValueError) as ctx:
+                    eventlog.publish_artefato_atomic(
+                        f"backdoor-{skill}", intent="open: x; bet: y",
+                        spec={"sections": []}, skill=skill, log=log)
+                self.assertIn("legacy publish is closed for rito producers", str(ctx.exception))
+                self.assertEqual(eventlog.read(log=log), [])   # nothing committed
+
+
+class PublishRitoStaysOpenForRitoProducers(unittest.TestCase):
+    """publish_rito is the rito road and must stay fully working for a migrated producer — it does
+    NOT route through publish's door-closed guard (publish_rito commits via
+    eventlog.publish_artefato_atomic directly). The full green rite for a `report` still publishes.
+    Drives the existing rite harness (tests.test_rito_runtime._green_run) rather than reinventing
+    the 11-stage machine."""
+
+    def test_publish_rito_for_report_still_publishes_end_to_end(self):
+        import tests.test_rito_runtime as rr
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest, run_dir, log, blog = rr._green_run(tmp)
+            self.assertEqual(manifest["status"], "completed")
+            self.assertTrue((blog / f"{rr.SLUG}.html").exists())
+            self.assertEqual([c["slug"] for c in eventlog.corpus_at(log=log)], [rr.SLUG])
 
 
 class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
@@ -1233,7 +1348,11 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
             self.assertFalse((Path(tmp) / f"{slug}.html").exists())
 
     def test_every_in_roster_skill_publishes_a_clean_meta_line(self):
-        for skill in publisher.PRODUCER_ROSTER:
+        # only the LEGACY-publish producers still go through publisher.publish — the rito-migrated
+        # producers are refused here (their road is the rite; see LegacyPublishClosedForRitoProducers).
+        legacy = [s for s in publisher.PRODUCER_ROSTER
+                  if s not in producer_descriptor.RITO_PRODUCERS]
+        for skill in legacy:
             with tempfile.TemporaryDirectory() as tmp:
                 log = Path(tmp) / "log.jsonl"
                 slug = f"clean-{skill}"
@@ -1255,7 +1374,7 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
             slug = "xss-via-date"
             evil_date = "2026<script>alert(1)</script>"
             path = publisher.publish(
-                slug, _spec(), intent="open: x; bet: y", skill="report",
+                slug, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                 date=evil_date, log=log, blog_dir=tmp, embed_fn=_fake_embed,
                 verdict=_passing_proof(slug, _spec(), "open: x; bet: y"),
             )
@@ -1268,7 +1387,7 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
         # must still escape it so no value reaches the page as raw markup.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            page = publisher._page("a-b", "<p>body</p>", skill="report",
+            page = publisher._page("a-b", "<p>body</p>", skill=_LEGACY_SKILL,
                                    date="2026-06-08", css="")
             self.assertIn("<title>a b</title>", page)
             self.assertIn("<h1>a b</h1>", page)
@@ -1277,13 +1396,13 @@ class WrapperMetadataIsEscapedAndSkillIsRostered(unittest.TestCase):
         # page.js is repo-controlled, but defense in depth: a closing script tag
         # inside it must not terminate the wrapper's script element early.
         with tempfile.TemporaryDirectory():
-            page = publisher._page("a-b", "<p>body</p>", skill="report",
+            page = publisher._page("a-b", "<p>body</p>", skill=_LEGACY_SKILL,
                                    date="2026-06-08", css="",
                                    js='var a = "</script>";')
             self.assertEqual(page.count("</script>"), 1)  # the wrapper's own close tag
 
     def test_empty_js_emits_no_script_element(self):
-        page = publisher._page("a-b", "<p>body</p>", skill="report",
+        page = publisher._page("a-b", "<p>body</p>", skill=_LEGACY_SKILL,
                                date="2026-06-08", css="")
         self.assertNotIn("<script>", page)
 
@@ -1302,7 +1421,7 @@ class SlugIsContainedUnderBlogDir(unittest.TestCase):
                         "with space", "dot.slug"):
                 with self.assertRaises(ValueError, msg=f"slug {bad!r} should be rejected"):
                     publisher.publish(
-                        bad, _spec(), intent="open: x; bet: y", skill="report",
+                        bad, _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                         date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
                         verdict=_passing_proof(bad, _spec(), "open: x; bet: y"),
                     )
@@ -1316,7 +1435,7 @@ class SlugIsContainedUnderBlogDir(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             blog = Path(tmp) / "entries"
             out = publisher.publish(
-                "recall-report-2", _spec(), intent="open: x; bet: y", skill="report",
+                "recall-report-2", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                 date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
                 verdict=_passing_proof("recall-report-2", _spec(), "open: x; bet: y"),
             )
@@ -1340,7 +1459,7 @@ class SlugIsContainedUnderBlogDir(unittest.TestCase):
             try:
                 with self.assertRaises(RuntimeError):
                     publisher.publish(
-                        "boom-slug", _spec(), intent="open: x; bet: y", skill="report",
+                        "boom-slug", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                         date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
                         verdict=_passing_proof("boom-slug", _spec(), "open: x; bet: y"),
                     )
@@ -1371,7 +1490,7 @@ class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
             try:
                 with self.assertRaises(OSError):
                     publisher.publish(
-                        slug, _spec(), intent=intent, skill="report", cites=cites,
+                        slug, _spec(), intent=intent, skill=_LEGACY_SKILL, cites=cites,
                         date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
                         verdict=_passing_proof(slug, _spec(), intent, cites=cites),
                     )
@@ -1402,7 +1521,7 @@ class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
             blog_ok = Path(tmp_ok) / "entries"
             slug = "byte-match"
             publisher.publish(
-                slug, spec, intent=intent, skill="report", cites=cites,
+                slug, spec, intent=intent, skill=_LEGACY_SKILL, cites=cites,
                 date="2026-06-08", log=log_ok, blog_dir=blog_ok, embed_fn=_fake_embed,
                 verdict=_passing_proof(slug, spec, intent, cites=cites))
             reference = (blog_ok / f"{slug}.html").read_bytes()
@@ -1417,7 +1536,7 @@ class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
             try:
                 with self.assertRaises(OSError):
                     publisher.publish(
-                        slug, spec, intent=intent, skill="report", cites=cites,
+                        slug, spec, intent=intent, skill=_LEGACY_SKILL, cites=cites,
                         date="2026-06-08", log=log_bad, blog_dir=blog_bad,
                         embed_fn=_fake_embed,
                         verdict=_passing_proof(slug, spec, intent, cites=cites))
@@ -1442,7 +1561,7 @@ class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
                 RuntimeError("signal store down"))
             try:
                 path = publisher.publish(
-                    slug, _spec(), intent=intent, skill="report", cites=cites,
+                    slug, _spec(), intent=intent, skill=_LEGACY_SKILL, cites=cites,
                     date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
                     verdict=_passing_proof(slug, _spec(), intent, cites=cites))
             finally:
@@ -1466,7 +1585,7 @@ class PublishIsRecoverableAfterTheCommit(unittest.TestCase):
             intent = "open: x; bet: y"
             cites = [{"ref": "arXiv:1", "kind": "mundo", "snippet": "snip"}]
             publisher.publish(
-                slug, _spec(), intent=intent, skill="report", cites=cites,
+                slug, _spec(), intent=intent, skill=_LEGACY_SKILL, cites=cites,
                 date="2026-06-08", log=log, blog_dir=blog, embed_fn=_fake_embed,
                 verdict=_passing_proof(slug, _spec(), intent, cites=cites))
             before = (blog / f"{slug}.html").read_bytes()
@@ -1525,7 +1644,7 @@ class LineageEdgesAreDirectedInTheLiveGraph(unittest.TestCase):
 
     def test_supersedes_lands_directed_and_corrected_republish_removes_stale(self):
         # (1) project with supersedes -> prior: the directed edge this -> prior exists...
-        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill="report",
+        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill=_LEGACY_SKILL,
                       lineage=[{"type": "supersedes", "target": self.PRIOR}],
                       log="/tmp/cv1l-noncanonical.jsonl")  # non-canonical: ADD-only, no backbone
         self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.PRIOR), 1,
@@ -1534,7 +1653,7 @@ class LineageEdgesAreDirectedInTheLiveGraph(unittest.TestCase):
         self.assertEqual(self._edge(self.PRIOR, "SUPERSEDES", self.THIS), 0,
                          "the reverse lineage edge must NOT exist (direction is load-bearing)")
         # (3) a corrected republish (now supersedes OTHER, not PRIOR) removes the stale edge.
-        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill="report",
+        _REAL_PROJECT(self.THIS, "open: x; bet: y", skill=_LEGACY_SKILL,
                       lineage=[{"type": "supersedes", "target": self.OTHER}],
                       log="/tmp/cv1l-noncanonical.jsonl")
         self.assertEqual(self._edge(self.THIS, "SUPERSEDES", self.PRIOR), 0,
@@ -1548,7 +1667,7 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
     degraded / shortfall / capability_state), so adoption is read off the EVENT STREAM at publish-time,
     never reconstructed from a retrospective corpus scan."""
 
-    def _publish_and_read(self, slug, spec, *, skill="report", cites=None, visual_flags=None):
+    def _publish_and_read(self, slug, spec, *, skill=_LEGACY_SKILL, cites=None, visual_flags=None):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             intent = "next bet: measure adoption"
@@ -1562,7 +1681,7 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
 
     def test_prose_only_report_owes_no_visual(self):
         p = self._publish_and_read("adopt-prose", _spec())
-        self.assertEqual(p["producer"], "report")
+        self.assertEqual(p["producer"], _LEGACY_SKILL)
         self.assertFalse(p["owed"])
         self.assertFalse(p["satisfied"])
 
@@ -1639,7 +1758,7 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
             p = self._publish_and_read("adopt-boom", _spec())
         finally:
             render.diagram_available = orig
-        self.assertEqual(p["producer"], "report")
+        self.assertEqual(p["producer"], _LEGACY_SKILL)
         self.assertIsNotNone(p.get("error"))          # the failure is recorded, not swallowed
         self.assertIn("probe boom", p["error"])
         # Codex S10: an errored record exposes NULL on EVERY countable field — never a partially-computed
@@ -1667,7 +1786,7 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             _el.dispatch_open(log=log)
-            _el.publish_artefato_atomic("malformed-slug", "open: x; bet: y", skill="report",
+            _el.publish_artefato_atomic("malformed-slug", "open: x; bet: y", skill=_LEGACY_SKILL,
                                         log=log, adoption={"owed": True})  # partial dict
             p = _el.read(types=["artefato.adoption"], log=log)[-1]["payload"]
             self.assertEqual(p["error"], "malformed-adoption")
@@ -1683,7 +1802,7 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
             _el.dispatch_open(log=log)
             bad = {"owed": False, "satisfied": False, "degraded": False, "shortfall": False,
                    "capability_state": True, "error": "probe boom"}
-            _el.publish_artefato_atomic("errored-slug", "open: x; bet: y", skill="report",
+            _el.publish_artefato_atomic("errored-slug", "open: x; bet: y", skill=_LEGACY_SKILL,
                                         log=log, adoption=bad)
             p = _el.read(types=["artefato.adoption"], log=log)[-1]["payload"]
             self.assertEqual(p["error"], "probe boom")        # message preserved
@@ -1732,16 +1851,19 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
             _el.dispatch_open(log=log)
             payload = {"slug": "x", "producer": "map", "owed": True, "satisfied": True,
                        "degraded": False, "shortfall": False, "capability_state": True, "error": None}
-            _el.publish_artefato_atomic("attrib-slug", "open: x; bet: y", skill="report",
+            _el.publish_artefato_atomic("attrib-slug", "open: x; bet: y", skill=_LEGACY_SKILL,
                                         log=log, adoption=payload)
             p = _el.read(types=["artefato.adoption"], log=log)[-1]["payload"]
-            self.assertEqual(p["producer"], "report")   # not the caller's "map"
+            self.assertEqual(p["producer"], _LEGACY_SKILL)   # from skill, not the caller's "map"
 
     def test_form_owed_for_a_visual_descriptor_skill(self):
-        # a `map` owes a visual by its DESCRIPTOR form even without quantitative content; _floored_spec
-        # carries the ascii-diagrams + a callout (so R0 prose owe is met) → owed True.
-        p = self._publish_and_read("adopt-map", _floored_spec(), skill="map")
-        self.assertTrue(p["owed"])
+        # a `map` owes a visual by its DESCRIPTOR form even without quantitative content. map is a
+        # rito producer (legacy publish refused), so assert the form-owe unit directly rather than
+        # publishing map — the telemetry it feeds is unchanged.
+        if render.diagram_available():
+            self.assertTrue(publisher._form_owes_visual("map"))
+        else:
+            self.assertFalse(publisher._form_owes_visual("map"))  # env degrades the renderable floor
 
 
 class PublishCarriesResidualsFromTheProof(unittest.TestCase):
@@ -1765,9 +1887,9 @@ class PublishCarriesResidualsFromTheProof(unittest.TestCase):
                      "overall": 3.0, "reviewer": close.REGULAR_REVIEWER_ID},
                 ]
                 proof = close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
-                                          cites=[], proposes=[], skill="report",
+                                          cites=[], proposes=[], skill=_LEGACY_SKILL,
                                           residual_publish=True, unaddressed=unaddressed)
-                publisher.publish(slug, spec, intent=intent, skill="report", date="2026-06-08",
+                publisher.publish(slug, spec, intent=intent, skill=_LEGACY_SKILL, date="2026-06-08",
                                   log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=proof)
                 ev = eventlog.read(types=["artefato.published"], log=log)[-1]
                 self.assertEqual(ev["payload"]["residuals"], unaddressed)
@@ -1778,7 +1900,7 @@ class PublishCarriesResidualsFromTheProof(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             slug, intent = "no-residual-page", "open: x; bet: y"
-            publisher.publish(slug, _spec(), intent=intent, skill="report", date="2026-06-08",
+            publisher.publish(slug, _spec(), intent=intent, skill=_LEGACY_SKILL, date="2026-06-08",
                               log=log, blog_dir=tmp, embed_fn=_fake_embed,
                               verdict=_passing_proof(slug, _spec(), intent))
             ev = eventlog.read(types=["artefato.published"], log=log)[-1]

@@ -68,6 +68,19 @@ DESCRIPTORS = {
     "lazer": {"require": []},
 }
 
+# The MIGRATED producers — the prose/visual genus the rito rollout closed the legacy publish road for
+# (docs/rito-runtime.md §Producer adoption). Their ONLY road to publication is the rite
+# (rito.run_rito → publisher.publish_rito); the legacy close (close.run_close → publisher.publish) is
+# REFUSED for them, at BOTH the publisher.publish seam AND the eventlog.publish_artefato_atomic
+# commit primitive (only publish_rito passes the internal rite authorization). `prototype`/`lazer`
+# (interactive single-file) stay legacy by operator decision and are NOT here. This is the single
+# tools-side source of truth for the publish-guard split — the publish tests (test_publisher) derive
+# their expectations from THIS tuple, not a hardcoded copy. (mentor publishes its insight through the
+# rite with skill='mentor', so it is refused at the legacy seam like the rest; the doc-iteration
+# tuples in test_producers / test_lineage_producer_docs cover the 5 canonical prose skill-DOC files
+# and are a separate concern.)
+RITO_PRODUCERS = ("report", "research", "map", "plan", "discovery", "mentor")
+
 _STRUCTURE_BLOCKS = {"framed_steps": {"next-steps-grid", "numbered-card"}}
 
 

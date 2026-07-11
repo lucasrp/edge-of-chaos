@@ -710,7 +710,7 @@ class ExperimentCurationFoldsCuratedFirst(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.publish_artefato_atomic(
                 "relatorio-exp40", "open: exp40; bet: report finalizes experiment",
-                skill="report", reports_on=[" exp40 "],
+                skill="report", _rite_authorized=True, reports_on=[" exp40 "],
                 experiment_curation={
                     "prose": "GN wins this retrieval race.",
                     "typed": {"claim": "GN wins.", "scope": "process 76610395.",
@@ -1096,7 +1096,8 @@ class PublishRequiresKernel(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.publish_artefato_atomic("rel-map", intent="open: x; bet: y",
-                                             spec={"sections": []}, skill="map", log=log)
+                                             spec={"sections": []}, skill="map",
+                                             _rite_authorized=True, log=log)
             published = eventlog.read(types=["artefato.published"], log=log)
             self.assertEqual(published[0]["payload"]["skill"], "map")
             corpus = eventlog.corpus_at(log=log)

@@ -421,11 +421,13 @@ class PublisherCarriesTheProofBoundDispatchId(unittest.TestCase):
             {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
              "reviewer": close.REGULAR_REVIEWER_ID},
         ]
+        # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish
+        # now, so this dispatch-id test drives a still-legacy producer (prototype).
         proof = close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
-                                  cites=cites, proposes=[], skill="report",
+                                  cites=cites, proposes=[], skill="prototype",
                                   dispatch_id=proof_dispatch_id)
         eventlog.dispatch_open({"dispatch_id": dispatch_id}, log=log)
-        publisher.publish(slug, spec, intent, skill="report", verdict=proof,
+        publisher.publish(slug, spec, intent, skill="prototype", verdict=proof,
                           cites=cites, date="2026-07-01", log=log,
                           blog_dir=Path(tmp) / "blog", dispatch_id=dispatch_id)
         return log
@@ -482,9 +484,13 @@ class LegacyPublishArtefatoIsDeclaredMigrationOnly(unittest.TestCase):
 class ProducerSnippetsCarryTheDispatchId(unittest.TestCase):
     """E1b — the publish snippets producers actually run: the artefato dict carries
     'dispatch_id' (read from the wake's DISPATCH_ID line) and the publish_fn passes
-    dispatch_id=art['dispatch_id']. Covers the whole roster that publishes via a snippet."""
+    dispatch_id=art['dispatch_id']. Covers the whole roster that publishes via a snippet.
+    `report` moved to the rito runtime (docs/rito-runtime.md): its snippet passes
+    dispatch_id=dispatch_id straight into rito.run_rito (which forwards it to the canonical
+    publish seam) — no artefato dict, no publish_fn lambda."""
 
-    SNIPPET_PRODUCERS = ("report", "research", "map", "plan", "discovery", "mentor")
+    SNIPPET_PRODUCERS = ()
+    RITO_SNIPPET_PRODUCERS = ("report", "map", "plan", "research", "discovery", "mentor")
 
     def test_every_snippet_binds_and_passes_the_dispatch_id(self):
         for p in self.SNIPPET_PRODUCERS:
@@ -493,6 +499,13 @@ class ProducerSnippetsCarryTheDispatchId(unittest.TestCase):
                           f"{p}'s artefato dict does not carry the proof-bound dispatch_id")
             self.assertIn("art['dispatch_id']", text,
                           f"{p}'s publish_fn does not pass dispatch_id from the minted art")
+            self.assertIn("DISPATCH_ID", text,
+                          f"{p} never tells the producer where the id comes from "
+                          "(the wake's machine-readable DISPATCH_ID line)")
+        for p in self.RITO_SNIPPET_PRODUCERS:
+            text = (REPO / "skills" / p / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("dispatch_id=dispatch_id", text.replace(" ", ""),
+                          f"{p}'s rito snippet does not pass the dispatch_id into run_rito")
             self.assertIn("DISPATCH_ID", text,
                           f"{p} never tells the producer where the id comes from "
                           "(the wake's machine-readable DISPATCH_ID line)")

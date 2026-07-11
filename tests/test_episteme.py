@@ -499,8 +499,11 @@ class PublishForwardsBearsOnToEventAndProjection(unittest.TestCase):
             {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
              "reviewer": close.REGULAR_REVIEWER_ID},
         ]
+        # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish;
+        # the bears_on/para/reports_on/experiment_curation forwarding is skill-agnostic at this
+        # seam, so drive a still-legacy producer here.
         proof = close._mint_proof(verdicts, slug="fwd", spec=spec, intent=intent,
-                                  cites=cites, proposes=[], skill="report",
+                                  cites=cites, proposes=[], skill="prototype",
                                   bears_on=bears, para=["Julio"], reports_on=["exp40"],
                                   experiment_curation=experiment_curation)
         seen = {}
@@ -508,7 +511,7 @@ class PublishForwardsBearsOnToEventAndProjection(unittest.TestCase):
             log = _log(tmp)
             eventlog.dispatch_open(log=log)
             publisher.publish(
-                "fwd", spec, intent, skill="report", cites=cites, verdict=proof,
+                "fwd", spec, intent, skill="prototype", cites=cites, verdict=proof,
                 bears_on=bears, para=["Julio"], reports_on=[" exp40 "],
                 experiment_curation=experiment_curation, log=log, blog_dir=tmp,
                 embed_fn=lambda t: [1.0, 0.0],

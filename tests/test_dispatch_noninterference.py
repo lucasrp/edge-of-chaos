@@ -132,7 +132,7 @@ class DispatchNonInterference(unittest.TestCase):
                 "'prompt': prompt, 'plan': os.environ.get('EDGE_DISPATCH_PLAN')}))\n"
                 "home = Path(os.environ['EDGE_TEST_HOME'])\n"
                 "eventlog.publish_artefato_atomic('fake-beat', 'why', "
-                "skill=plan['decision']['producer'], "
+                "skill=plan['decision']['producer'], _rite_authorized=True, "
                 "log=home/'state/events/log.jsonl')\n"
             )
             fake.chmod(0o755)
@@ -156,7 +156,7 @@ class DispatchNonInterference(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.publish_artefato_atomic(
-                "wrong-producer", "why", skill="map", log=log)
+                "wrong-producer", "why", skill="map", _rite_authorized=True, log=log)
             gaps = _beat.assert_beat_produced(
                 log, before_count=0, expected_producer="report")
             self.assertTrue(any("producer" in gap and "report" in gap for gap in gaps))

@@ -63,7 +63,16 @@ The scaffold names three role-defined slots; research maps each to its directed-
   adjacent thing the target points to — the technique next door, the deeper question a gap exposed. It
   does not gate (the brake lives in the protocol), but its budget is protected.
 
-## Produce — a self-contained explanation, framed in the Idiom
+## Produce — a self-contained explanation, framed in the Idiom, in the PEDAGOGUE's Feynman voice
+
+**Write as if it were the Feynman Lectures on Physics** (exp-feynman-pedagogico 2026-07-10, operator
+"ficou excelente o feynman"). This is the PEDAGOGUE's Feynman, not the researcher's rigor alone:
+**build from the concrete and intuitive** before any formalism; **motivate WHY before the mechanism**;
+**one vivid handle per hard idea** (a picture, an analogy, a worked number that makes it land); **address
+the reader** and **anticipate the confusion**; keep a **narrative flow**; and **explain, don't label** —
+teach the idea a term points at, never drop the term and move on. **Prose carries the argument**, and its
+**length is EMERGENT** — it grows only where a hard idea earned a handle, never toward a number. Do not
+set or chase a length target or cap.
 
 The research Artefato is a **self-contained explanation for THIS reader**: the mentee understands the
 target without the sources open — without being re-taught what he already knows. Show the **thinking** —
@@ -83,98 +92,99 @@ exhaustive essay that buries the move.
 
 Research's idiom is **prose-and-derivation**: reach for the `derivation` block to show the reasoning chain
 and the `gap-table` / `gap-marker` for what is open, from the canonical palette — as elements, never
-mandatory sections. Visualize what deserves it: where the content is **3+ values, a comparison, or a
-before/after**, emit a `table` / `metrics-grid` **instead of narrating the numbers** — a block only where
-it replaces a paragraph, never where it decorates one (banca cega da forma 2026-07-04).
+mandatory sections. These are the Feynman research carriers (the reasoning chain and the open-gap ledger)
+and stand apart from the comparison-table rule below. But **prose carries the argument** — **kill the
+table-wall default** (exp-feynman-pedagogico 2026-07-10: the winner went from 45 table-rows to 5). A
+**comparison** `table` / `metrics-grid` appears **only for a genuine A-vs-B comparison** — two things
+weighed side by side on the same axes — and it **replaces** that comparison's prose, never decorates a
+paragraph. Numbers that belong to the derivation get **taught in prose** (a worked handle), not parked
+in a grid (banca cega da forma 2026-07-04).
 
-## Build the body from the canonical palette
+## Author in Markdown — derivation + gaps as Markdown-native carriers
 
-Emit a **structured spec** (blocks), not freeform HTML — the body is rendered from the one canonical
-element-vocabulary in `tools/render.py` (paragraph, derivation, gap-table, table, callout, … — one
-registry). The publisher renders the spec and wraps it in the self-contained neutral page; you do not
-write the HTML shell or the CSS yourself.
+The rite's form is pinned **Markdown** (the neutral `render.RENDERER_ID` renderer, H1 first). Research's
+derivation idiom rides Markdown-native carriers: the reasoning chain as an ordered **list** or a fenced
+derivation block (`from first principles: … → [GAP] … → closed by <cite>: …`), the open gaps as a
+**gap table**, comparative numbers as a **table** instead of narrated prose (a block only where it
+replaces a paragraph). Mark the knowledge boundary explicitly — derived vs repeated vs unknown.
+**Sections are FREE** — the rite checks the *property* (depth, derivation, honesty, actionability),
+never a named section.
 
-## Publish through the close — hand the SETTLED artefato to the publisher (Facet B, #61)
+## The rite is the path — exit through `tools/rito.py` (docs/rito-runtime.md)
 
-**You do not run `close.run_close` inline.** Once the artefato is **SETTLED** — every claim already made, the
-context still rich in your window — **write its fields to disk pointers and hand off to the
-`{prefix}-publisher` subagent** (via the Agent tool, `.claude/agents/publisher.md`) with the **publish-brief**:
-`{dispatch_id, main_session_id (your CLAUDE_CODE_SESSION_ID), skill, intent_kernel, slug, spec_path,
-cites_path, proposes_path, distills_path, lineage_path}` — **pointers, never a context dump**. The publisher
-runs the whole close below in a **clean process** (the heavy publish machine lives in the sub now) and returns
-a typed **pull-channel** `{status, slug, url, cost, residuals, rationales, bounce_reason}`. You **read that
-back**: `published`/`residual-published` → done; `bounced: needs author` → you hold the rich context, so
-re-produce from the named gap and re-hand the pointers under the **same `dispatch_id`** (no re-wake). Your
-window stays on the thinking. The close it runs is exactly:
+**The research producer traverses the experiment's rite as executable code**, the same runtime `report`
+exits through ("o edge deve soar o mesmo across artefatos"). You do not build a structured spec, you do
+not call `close.run_close`, and you **never** call `publisher.publish` — the rite runtime sequences the
+whole causal execution (grounding-1 through publication of the rendered page) and seals a receipt for
+every stage. Your job is the COGNITION: the per-stage prompts carrying research's derive-first Feynman
+cognition. The runtime owns sequencing, sealing, rendering (the pinned neutral-markdown renderer,
+`render.RENDERER_ID`) and publication. A run that didn't publish didn't finish the rite.
 
-You do **not** inline an `eventlog` publish snippet, and you **never** call `publisher.publish` directly —
-that is the forbidden back door: the publisher **refuses** unless handed the **unforgeable, bound**
-passing-review proof only `close.run_close` mints (it raises without a valid `verdict=`). The proof is
-bound to a sha256 **digest** of the exact publish payload (slug + spec + intent + cites + proposes +
-**distills** + **skill** + **lineage** + **dispatch_id** — EVERY persisted publish arg), carries **both** reviewer verdicts, and stamps a
-`run_close`-only secret token — so a hand-built dict, a stale proof, a proof minted for a different
-artefato (digest mismatch), or one with `distills`/`skill`/`lineage` altered post-mint cannot publish. Exit through
-the enforced close: build the artefato carrying **every proof-bound field** (`slug`, `intent`,
-`content`=spec, `cites`, `proposes`, **`distills`**, **`skill`**, **`lineage`**, **`dispatch_id`** — E1b) so the minted digest equals the publish
-payload, then call `close.run_close(artefato, produce_fn, publish_fn=…)`, which runs the genus contract
-**first** (a genus violation bounces — it can never mint a pass proof) → **both blind reviewers** (bounded
-bounce, `BOUNCE_MAX` — a strike re-produces, then hard-fails) → and **only on pass** mints the bound proof
-and publishes via the `publish_fn` — a `tools/publisher.py`-backed publish_fn that receives the minted
-`proof` and hands it to the publisher as `verdict=proof`. The publisher re-derives the digest from what it
-is about to publish, verifies token + digest + both verdicts, then atomically renders the spec →
-self-contained neutral HTML at `blog/entries/<slug>.html`, records the `artefato.published` event AND its
-**mandatory `intent.kernel`** in one act (C3 enforced at the seam — you cannot publish without the *why*:
-~3 lines, what is open, the next bet), and emits a `source.signal` per cited snippet. Research **moves or
-confirms the Direction** — pass its candidate steers and provenance through the publish_fn:
+The stages you feed (authoring format is **Markdown**; the derivation list/fence + gap table + comparison
+table carry the visual idiom): `grounding1_dossier` (your derive-first dossier — the from-first-principles
+reconstruction with each stall marked `[GAP: …]`, then the gap-closing evidence you read; the
+gather-grounding slot above) → `first_authorial_draft` → `gap_critique` → `grounding2_targeted` →
+`provisional_rewrite` → `fact_audit` → `author_correction` → `treatment_cleanup` (deterministic copy
+when the leak scan is clean) → `final_html` (pinned render, runtime-owned) → `final_review` (fail-closed
+`ACCEPTANCE:` header) → `publication`. The canonical prompt bodies are archived in
+`drafts/old-edge-double-grounding-repro/run.py`; adapt their content to THIS target — the produce
+guidance above (derive, show the thinking, mark the boundary, end ready-to-implement, in the
+PEDAGOGUE's Feynman voice with prose carrying the argument, a table only for a genuine A-vs-B
+comparison, length EMERGENT) is what the authoring prompts must carry. Three stages carry the
+exp-feynman-pedagogico intent: the authoring drafts write in that voice; `gap_critique` is a
+**pedagogical critique** — where does this fail to TEACH? where is it cryptic, where is the
+contextualization thin? name the gaps a reader cannot cross; and `grounding2_targeted` REACHES for
+**NEW grounding** — world/domain material beyond grounding-1 — to fill the pedagogical gaps the
+critique named (the deep-dive expands HERE). **Fidelity guard: the new grounding must be FETCHED and
+cited, NEVER invented** — grounding-1 plus the logged fetched sources are the only factual anchor; a
+pedagogical handle explains a grounded fact, it never licenses fabricating one. The `fact_audit` stage
+audits against grounding-1 **and** the grounding-2 fetched sources, so a fabricated grounding-2 citation
+is caught (both are passed to its prompt). Structurally enforcing the fetch-and-log — provenance receipts
+per fetched source — is a SEPARATE paused thread, not bundled here.
 
-- **`proposes`** — the candidate steers (you **declare**; you never write Direction yourself; the sweep
-  fans them into the non-curated `proposed` tier; the grill curates). A research that reframes the
-  mentee's next bet declares it here.
-- **`distills`** — the existing **threads** the study draws on, as cluster refs (`cluster:<label>`). Link
-  **only threads that already exist** (read the Knowledge clusters in the briefing). If none fits, leave
-  it **empty** — never fabricate a link; thread maintenance attaches/spawns one later.
-- **`cites`** — each **source** with the snippet you actually used (the intrinsic, mechanical
-  **Source-feedback** signal, never a self-rating); `kind` is `mundo` or `atividade`.
+The wake's `DISPATCH_ID=<id>` line rides into the run (the canonical publish refuses without it, E1c).
+The product spine still ships: pass `publish_meta` with `proposes` (candidate steers — a research that
+reframes the next bet declares it here), `distills` (existing cluster threads only — empty over
+fabricated), `cites` (source + the snippet you used), `lineage` (`builds_on` the prior the surf offers),
+`bears_on` (SÓ sobre hipótese VIVA — `cortex.hypotheses_at()` lists them; empty over fabricated), `para`
+(explicit target reader; empty resolves to the mentee) and `reports_on`.
 
-The wake's entry-driver printed a machine-readable **`DISPATCH_ID=<id>`** line — carry that exact id
-into the artefato as **`dispatch_id`** (proof-bound like `slug`, E1b; the canonical publish refuses
-without it, E1c — never reconstruct it from the log).
+    tools/edge-python <<'EOF'
+    import sys; sys.path.insert(0, 'tools')
+    import rito, llm_routes
 
-      tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import close, publisher, harvest; \
-        slug='<slug>'; intent='open: …; bet: …'; \
-        dispatch_id='<dispatch-id-from-DISPATCH_ID-line>'; \
-        main_session_id='<main-session-id-from-the-publish-brief>'  # the MAIN's session — the S6 floor's teeth (#61) ; \
-        spec={'sections':[{'title':'…','blocks':[ \
-          {'type':'derivation','steps':['from first principles: …','[GAP] …','closed by <cite>: …']}, \
-          {'type':'paragraph','text':'…'}]}]}; \
-        proposes=[{'body':'…','kind':'constraint'}]; \
-        distills=['cluster:<label>']  # the existing threads it draws on — [] if none fits ; \
-        cites=[{'ref':'<source-key>','kind':'mundo','relevant':True,'snippet':'<the text you used>'}]; \
-        lineage=[{'type':'builds_on','slug':'<prior-slug>'}]  # [] if none — the prior R1's surf OFFERS ; \
-        # curadoria autoral: YOU just derived the theme — author the judgement while the context is hot \
-        # (pipeline.md, consolidação): bears_on SÓ sobre hipótese VIVA — vazio honesto, NUNCA fabricado. \
-        bears_on=[]  # [{'hypothesis':'<ulid>','valence':'supports|refutes|qualifies|inconclusive','rationale':'…'}] — cortex.hypotheses_at() lists the live ones; none genuinely touched → [] ; \
-        para=[]  # the EXPLICIT target reader (promoted parceiro — a colleague/client); [] resolves MECHANICALLY to the operador-mentee default (every artefato is PARA someone) ; \
-        # the artefato MUST carry EVERY proof-bound field (skill + distills + lineage included): run_close \
-        # mints the digest from THIS dict, so it must equal the exact publish payload. \
-        artefato={'slug':slug,'intent':intent,'content':spec,'proposes':proposes, \
-          'cites':cites,'distills':distills,'skill':'research','lineage':lineage, \
-          'dispatch_id':dispatch_id,'bears_on':bears_on,'para':para}; \
-        pub=publisher.publish; \
-        publish_fn=lambda art, proof: pub(art['slug'], art['content'], art['intent'], \
-          skill=art['skill'], verdict=proof, proposes=art['proposes'], distills=art['distills'], \
-          cites=art['cites'], lineage=art['lineage'], dispatch_id=art['dispatch_id'], \
-          bears_on=art.get('bears_on'), para=art.get('para'), \
-          reports_on=art.get('reports_on'));  # ticket A: digest-bound like lineage \
-        # WIRE REAL RE-PRODUCTION (#30): improve_fn(art, feedback) REVISES the draft from the \
-        # reviewers' rationales+strikes — incl. a rich-rite floor strike (derivation / \
-        # what-i-dont-know / external-frame / lineage). run_close loops it IMPROVE_ROUNDS=2 BEFORE \
-        # the gating close, so a missing move ENRICHES the draft rather than only hard-failing. \
-        # Re-derive deeper from the named gaps; return the richer artefato (carrying every field). \
-        improve_fn=lambda art, feedback: deepen_from_feedback(art, feedback); \
-        close.run_close(artefato, produce_fn=lambda: artefato, improve_fn=improve_fn, \
-          floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''),  # S6 floor (#61): the PUBLISHER runs the close, so point session_id at the MAIN transcript (where the reads live) AND clear child_session='' (the publisher is a child) — else the floor darks out and loses its teeth; knob EDGE_GROUNDING_FLOOR, default 1=observe (ticket B) \
-          complete_fn=<review-completer>, publish_fn=publish_fn)"
+    slug = '<slug>'
+    dispatch_id = '<dispatch-id-from-DISPATCH_ID-line>'
+
+    def complete_fn(route, prompt, max_tokens):
+        return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
+
+    prompts = {
+        'first_authorial_draft': lambda o: f"<derive this target from first principles, then close the gaps with the dossier's evidence; mark derived vs repeated vs unknown; end ready-to-implement; PEDAGOGUE's Feynman voice: motivate WHY before the mechanism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME what the operator already masters (re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? which derivations are asserted not shown, where is it cryptic / contextualization thin, which claims lack a cite? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
+        'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2, deepening the derivation as contextualizing prose>\n\n{o['grounding2_targeted']}",
+        'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
+        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
+        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+    }
+
+    rito.run_rito(slug, run_dir=f'state/rito/{slug}',
+                  grounding1_fn=lambda: '<the derive-first dossier: first-principles reconstruction + gap-closers you read>',
+                  prompts=prompts, complete_fn=complete_fn,
+                  intent='open: …; bet: …', skill='research', dispatch_id=dispatch_id,
+                  publish_meta={'proposes': [], 'distills': [], 'cites': [],
+                                'lineage': [], 'bears_on': [], 'para': [], 'reports_on': []})
+    EOF
+
+The publisher's rito seam recomputes the pinned render from the sealed markdown and **refuses a hash
+mismatch** — the exact reviewed bytes, and only they, land at `blog/entries/<slug>.html`, bound to the
+`artefato.published` event + mandatory `intent.kernel` in one atomic act (C3), and the post-publish
+side-effects (source-signal + graph projection) run the same as every artefato. The
+first authorial draft stays sealed and addressable in the run dir for later blind reading. Prove it ran:
+
+    tools/edge-python tools/rito.py verify state/rito/<slug>
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
 the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,
