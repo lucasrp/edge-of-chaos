@@ -32,16 +32,21 @@ is OBSERVE THE WORK — never interview cold. The first turn of any mentor is **
 trabalho, e vi X"** — a data-loaded observation, never a form.
 
 **Mechanics of the observar, in order:**
-1. **Communities before anything** — the thematic map is the first instrument of the look. Read
+1. **Portfolio orientation, explicitly opt-in** — before asking, render
+   `recall.compose_portfolio_recall_brief()` and read its bounded role-scoped tail: active
+   maps/frontier, activities lost across later sessions, contested/agenda, and suspect
+   admissibility. This surface is read-only and role-scoped; never route it through the shared
+   briefing or the map-blind lazer/delta/diverge roles.
+2. **Communities before anything** — the thematic map is the first instrument of the look. Read
    `cortex.communities(group)`: `[]` means graph reachable but not yet consolidated — run the
    consolidation first (`tools/edge-python -c "import communities; communities.consolidate()"`)
    so the mentee's work is visible at a glance before you speak; `None` means the graph is dark —
    proceed down the evidence ladder and SAY so (declare the hunger, never fake the map).
-2. **Travessia do grafo** — navigate (structure × judgment × semantics): the open threads (the
+3. **Travessia do grafo** — navigate (structure × judgment × semantics): the open threads (the
    live bets), the artefatos-source (his work), the prior inscriptions (`hypothesis.declared` —
    the bets to collect on), what reflection flagged. Recall first (`skills/_shared/memory.md`).
-3. **The quente** — the live threads of the last K substantial sessions.
-4. **The Lint agenda** — `tools/grill_lint.py` hands you the curation-debt candidate pool
+4. **The quente** — the live threads of the last K substantial sessions.
+5. **The Lint agenda** — `tools/grill_lint.py` hands you the curation-debt candidate pool
    (harm-ranked, a delta past the grilled mark). It is **ammunition the questions draw on, never
    the opening line** — funnel it; a low-relevance item, however high its harm tier, is backlog.
 
