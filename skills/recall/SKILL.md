@@ -23,6 +23,22 @@ Render the brief with the genotype tool (it reads space 0 → the Objective → 
 tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import recall; print(recall.compose_recall_brief())"
 ```
 
+That command is the **shared, map-blind default**. When the caller explicitly identifies itself as
+`wake`, `mentor`, or `recall` and requests portfolio orientation, use the separate opt-in
+surface instead:
+
+```
+tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import recall; print(recall.compose_portfolio_recall_brief())"
+```
+
+With no snapshot arguments, this intentionally reads the current log of this install. Historical
+or hermetic callers pass `log=`, `seq=`, and `ts=` explicitly; `group=` scopes only the Cortex leg,
+never selects an event ledger.
+
+Never infer this mode from ambient state. The explicit callable is the seam that keeps
+lazer/delta/diverge blind to maps while authorized self-reading roles see active maps/frontier,
+lost activities, the bounded agenda, contested items, and suspect admissibility.
+
 Degrade-safe (CONTRACT C1, ADR-0011): an unreachable graph or no group renders an honest dark-leg
 marker, never a crash — the wake still composes from the briefing and the delta; you never gate it.
 

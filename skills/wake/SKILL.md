@@ -36,7 +36,12 @@ Then get your briefs. Use the **Agent tool** to run the four subagents in parall
   Mundo / Atividade / Voz. May be empty — it never gates the wake.
 - **recall** (`skills/recall`) → the **memory-salient**: the salient subgraph of your own Cortex,
   rooted at space-0. Dark on a graph outage — it never gates the wake. Never fused with delta
-  (the subject boundary, ADR-0014: delta reads the world, recall reads the self).
+  (the subject boundary, ADR-0014: delta reads the world, recall reads the self). This is an
+  explicitly portfolio-reading role: ask this recall subagent to render
+  `recall.compose_portfolio_recall_brief()`, not the shared map-blind default. Its role-scoped tail
+  carries active maps/frontier, activities lost across later sessions, contested/agenda, and
+  suspect admissibility; it remains read-only and bounded. Recall is the **sole portfolio owner**
+  in this fan-out: consume that tail exactly once; assemble never appends a second copy.
 - **quente** (`skills/quente`) → the **hot threads** (o SENTIR passivo): the live threads of the
   last K substantial sessions, read from `/tmp/quente-insumo.md` (hand the path in the prompt).
   **Always a FRESH subagent, never cached** — o quente de 2h atrás já nasceu morto. Dark when the
