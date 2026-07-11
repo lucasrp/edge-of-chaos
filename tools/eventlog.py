@@ -7,6 +7,7 @@ folds that replay deterministically, so a past cursor reconstructs that past sta
 """
 import fcntl
 import hashlib
+import inspect
 import json
 import math
 import os
@@ -945,6 +946,2573 @@ def fold_session_topics(events):
 def session_topics_at(seq=None, ts=None, log=LOG):
     """Fold the automatic Voz/session topic index up to a cursor. Empty -> three empty maps."""
     return fold_session_topics(read(types=SESSION_TOPIC_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
+# ---------------------------------------------------------------------------
+# Lentes de Atividade/Direction v2 — S1: atividade events + fold.
+# ---------------------------------------------------------------------------
+
+ATIVIDADE_TYPES = [
+    "atividade.opened", "atividade.touched", "atividade.closed",
+    "atividade.reopened", "atividade.bears_on", "sessao.racionalizada",
+]
+RUN_TYPES = ["run.opened", "run.closed", "instrumento.falhou"]
+ARCO_TYPES = ["arco.opened", "arco.closed", "arco.moved"]
+FATO_TYPES = ["fato.observed", "instrumento.falhou"]
+MARCO_TYPES = ["marco.set"]
+CLAIM_TYPES = ["hypothesis.declared", "hypothesis.superseded",
+               "claim.hypothesized", "claim.promoted"]
+CONTEST_TYPES = ["contest.raised", "contest.adjudicated"]
+WAYFIND_TYPES = [
+    "map.opened", "map.state", "ticket.opened", "ticket.closed", "ticket.declined",
+    "ticket.reopened", "ticket.deps_changed", "move.proposed", "move.ratified",
+    "move.declined",
+]
+_MAP_STATES = ("ativado", "pausado", "arquivado")
+_MOVE_EFFECT_TYPES = {
+    "ticket.close": "ticket.closed", "ticket.open": "ticket.opened",
+    "ticket.reopen": "ticket.reopened", "atividade.close": "atividade.closed",
+    "atividade.reopen": "atividade.reopened", "map.archive": "map.state",
+    "arco.move": "arco.moved", "contest": "contest.raised",
+    "falsificador_aconteceu": "contest.raised",
+}
+_OPERACAO_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_TIPO_REF_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_LENS_TIERS = ("asserted", "llm_judged")
+_ACTIVITY_AUTHORS = ("operador", "grill", "racionalizador")
+_ACTIVITY_STATES = ("cumprida", "abandonada", "superada_por")
+_BEARING_VALENCES = ("supports", "refutes", "qualifies", "inconclusive", "no_bearing")
+
+
+class AmbiguousRef(ValueError):
+    """A short human ref has no operation bind, so resolving it would be a guess."""
+
+
+def _lens_nonblank(value, field):
+    if not (isinstance(value, str) and value.strip()):
+        raise ValueError(f"`{field}` must be a non-blank string")
+    return value.strip()
+
+
+def _lens_choice(value, field, choices):
+    if value not in choices:
+        raise ValueError(f"`{field}` must be one of {choices}")
+    return value
+
+
+def _lens_operacao(value):
+    value = _lens_nonblank(value, "operacao")
+    if not _OPERACAO_RE.fullmatch(value):
+        raise ValueError("`operacao` must match ^[a-z0-9][a-z0-9-]*$")
+    return value
+
+
+def _next_lens_num(events, operacao, prefix):
+    highest = 0
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        num = payload.get("num")
+        if payload.get("operacao") != operacao or not isinstance(num, str):
+            continue
+        match = re.fullmatch(rf"{re.escape(prefix)}-(\d+)", num)
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return f"{prefix}-{highest + 1:03d}"
+
+
+def open_atividade(*, operacao, finalidade, eval=None, arco=None, tipo_ref=None,
+                   tier, author, origem_sessao=None, derivation_key=None,
+                   dispatch_id=None, log=LOG):
+    """Open one purpose-bearing activity; allocate its human num under the append flock."""
+    operacao = _lens_operacao(operacao)
+    finalidade = _lens_nonblank(finalidade, "finalidade")
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    _lens_choice(author, "author", _ACTIVITY_AUTHORS)
+    if dispatch_id is not None:
+        dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    if eval is not None:
+        if not isinstance(eval, dict):
+            raise ValueError("`eval` must be a dict containing a non-blank `regua`")
+        normalized_eval = dict(eval)
+        normalized_eval["regua"] = _lens_nonblank(eval.get("regua"), "eval.regua")
+        eval = normalized_eval
+    if tipo_ref is not None:
+        tipo_ref = _lens_nonblank(tipo_ref, "tipo_ref")
+        if not _TIPO_REF_RE.fullmatch(tipo_ref):
+            raise ValueError("`tipo_ref` must match ^[a-z0-9][a-z0-9-]*$")
+    if tier == "llm_judged":
+        origem_sessao = _lens_nonblank(origem_sessao, "origem_sessao")
+        derivation_key = _lens_nonblank(derivation_key, "derivation_key")
+        if author != "racionalizador":
+            raise ValueError("llm_judged atividade must have author='racionalizador'")
+    elif origem_sessao is not None or derivation_key is not None:
+        raise ValueError("asserted atividade cannot carry origem_sessao/derivation_key")
+    elif author not in ("operador", "grill"):
+        raise ValueError("asserted atividade must have author operador or grill")
+    if arco is not None:
+        arco = _resolve_lens_ref(
+            arco, read(log=log), operacao=operacao, kinds={"arco"})["ulid"]
+    ulid = _ulid()
+    payload = {
+        "ulid": ulid, "num": None, "operacao": operacao, "finalidade": finalidade,
+        "eval": eval, "arco": arco, "tipo_ref": tipo_ref, "tier": tier, "author": author,
+        "origem_sessao": origem_sessao, "derivation_key": derivation_key,
+        "dispatch_id": dispatch_id,
+    }
+
+    def _allocate_num():
+        payload["num"] = _next_lens_num(read(log=log), operacao, "atv")
+
+    return append_batch(
+        [("atividade.opened", f"atividade:{ulid}", payload)],
+        log=log, precondition=_allocate_num,
+    )[0]
+
+
+def _lens_entities(events):
+    """Index addressable grains without trusting malformed events (fold/read side is dark)."""
+    entities = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event_type in ("hypothesis.declared", "claim.hypothesized"):
+            if event_type == "claim.hypothesized" and not _foldable_hypothesized_claim(payload):
+                continue
+            ulid = payload.get("ulid")
+            if isinstance(ulid, str):
+                entities.append({"kind": "hypothesis" if event_type.startswith("hypothesis")
+                                 else "claim", "ulid": ulid, "num": None,
+                                 "operacao": None, "full": None})
+            continue
+        if event_type == "fato.observed":
+            if not _foldable_fact_observed(payload):
+                continue
+            ulid, num, operacao = (payload.get("ulid"), payload.get("num"),
+                                   payload.get("operacao"))
+            if all(isinstance(value, str) for value in (ulid, num, operacao)):
+                entities.append({"kind": "fato", "ulid": ulid, "num": num,
+                                 "operacao": operacao, "full": f"{operacao}/{num}"})
+            continue
+        if not (isinstance(event_type, str) and event_type.endswith(".opened")):
+            continue
+        kind = event_type.split(".", 1)[0]
+        if ((kind == "atividade" and not _foldable_activity_open(payload))
+                or (kind == "run" and not _foldable_run_open(payload))
+                or (kind == "arco" and not _foldable_arco_open(payload))
+                or (kind == "map" and not _foldable_map_open(payload))):
+            continue
+        ulid, num, operacao = payload.get("ulid"), payload.get("num"), payload.get("operacao")
+        if not (isinstance(ulid, str) and isinstance(num, str) and isinstance(operacao, str)):
+            continue
+        entities.append({"kind": kind, "ulid": ulid, "num": num,
+                         "operacao": operacao, "full": f"{operacao}/{num}"})
+    # Tickets inherit their operation namespace from their map; ticket.opened intentionally
+    # stores only `map`, not a redundant operation field.
+    for event in events:
+        if not isinstance(event, dict) or event.get("type") != "ticket.opened":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if not _foldable_ticket_open(payload):
+            continue
+        ulid, num, map_ref = payload.get("ulid"), payload.get("num"), payload.get("map")
+        if not (isinstance(ulid, str) and isinstance(num, str) and isinstance(map_ref, str)):
+            continue
+        parent = next(
+            (entity for entity in entities
+             if entity["kind"] == "map" and map_ref in (entity["ulid"], entity["full"])),
+            None,
+        )
+        if parent is not None and not any(entity["ulid"] == ulid for entity in entities):
+            entities.append({"kind": "ticket", "ulid": ulid, "num": num,
+                             "operacao": parent["operacao"],
+                             "full": f"{parent['operacao']}/{num}"})
+    return entities
+
+
+def _resolve_lens_ref(ref, events, *, operacao=None, kinds=None):
+    ref = _lens_nonblank(ref, "ref")
+    entities = _lens_entities(events)
+    if kinds is not None:
+        entities = [entity for entity in entities if entity["kind"] in kinds]
+    matches = [entity for entity in entities if ref in (entity["ulid"], entity["full"])]
+    if not matches and re.fullmatch(r"(?:atv|run|arc|map|tkt|fat)-\d+", ref):
+        if operacao is None:
+            raise AmbiguousRef(
+                f"short ref {ref!r} requires an explicit `operacao` bind; use <operacao>/{ref}")
+        bound = f"{_lens_operacao(operacao)}/{ref}"
+        matches = [entity for entity in entities if entity["full"] == bound]
+    if len(matches) != 1:
+        expected = "" if kinds is None else f" of kind {sorted(kinds)}"
+        raise ValueError(f"ref {ref!r} does not resolve to exactly one existing grain{expected}")
+    return matches[0]
+
+
+def _activity_expectation(expects, target, log):
+    if expects is None:
+        return
+    if not isinstance(expects, dict):
+        raise ValueError("`expects` must be a dict or None")
+    current = atividades_at(log=log).get(target["full"])
+    if current is None:
+        raise ValueError(f"stale activity {target['full']!r}: no current state")
+    mismatches = {}
+    for field, expected in expects.items():
+        actual = current.get(field)
+        matches = (actual in expected if isinstance(expected, (list, tuple, set))
+                   else actual == expected)
+        if not matches:
+            mismatches[field] = {"expected": expected, "actual": actual}
+    if mismatches:
+        raise ValueError(
+            f"stale activity {target['full']!r}: current state mismatches {mismatches}")
+
+
+def touch_atividade(*, ref, sessao, novo=None, files=None, spans=None, tier,
+                    operacao=None, dispatch_id=None, expects=None, log=LOG):
+    """Record one session×activity touch; refs are canonicalized to the activity ULID."""
+    sessao = _lens_nonblank(sessao, "sessao")
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    if novo is not None:
+        novo = _lens_nonblank(novo, "novo")
+    if files is None:
+        files = []
+    if not isinstance(files, list) or not all(isinstance(path, str) and path.strip() for path in files):
+        raise ValueError("`files` must be a list of non-blank paths")
+    files = [path.strip() for path in files]
+    if spans is None:
+        spans = []
+    if not isinstance(spans, list):
+        raise ValueError("`spans` must be a list of transcript span dicts")
+    normalized_spans = []
+    for span in spans:
+        if not isinstance(span, dict):
+            raise ValueError("each `spans` item must be {sessao, ini, fim}")
+        span_session = _lens_nonblank(span.get("sessao"), "spans.sessao")
+        start, end = span.get("ini"), span.get("fim")
+        if (isinstance(start, bool) or isinstance(end, bool)
+                or not isinstance(start, int) or not isinstance(end, int)
+                or start < 0 or end < start):
+            raise ValueError("each transcript span needs integer 0 <= ini <= fim")
+        normalized_spans.append({"sessao": span_session, "ini": start, "fim": end})
+    spans = normalized_spans
+    if dispatch_id is not None:
+        dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    if expects is not None and not isinstance(expects, dict):
+        raise ValueError("`expects` must be a dict or None")
+    events = read(log=log)
+    target = _resolve_lens_ref(ref, events, operacao=operacao, kinds={"atividade"})
+    payload = {"ref": target["ulid"], "sessao": sessao, "novo": novo,
+               "files": files, "spans": spans, "tier": tier,
+               "operacao": target["operacao"], "dispatch_id": dispatch_id}
+
+    def _one_touch_per_session_activity():
+        _activity_expectation(expects, target, log)
+        for event in read(types=["atividade.touched"], log=log):
+            previous = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+            if previous.get("ref") == target["ulid"] and previous.get("sessao") == sessao:
+                raise ValueError(
+                    f"one touch per session×activity: {sessao!r} already touched {target['full']}")
+
+    return append_batch(
+        [("atividade.touched", f"atividade:{target['ulid']}", payload)],
+        log=log, precondition=_one_touch_per_session_activity,
+    )[0]
+
+
+def _activity_curatorial_fields(*, tier, author, rationale, dispatch_id, log):
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    _lens_choice(author, "author", _ACTIVITY_AUTHORS)
+    if tier == "llm_judged":
+        raise ValueError("racionalizador never writes atividade.closed/reopened directly")
+    if author not in ("operador", "grill"):
+        raise ValueError("asserted atividade.closed/reopened author must be operador or grill")
+    if rationale is not None:
+        rationale = _lens_nonblank(rationale, "rationale")
+    if dispatch_id is not None:
+        dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    if _is_canonical_log(log):
+        rationale = _lens_nonblank(rationale, "rationale")
+        dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    return rationale, dispatch_id
+
+
+def close_atividade(*, ref, estado, julgamento, superada_por=None, tier, author,
+                    rationale=None, dispatch_id=None, operacao=None, expects=None, log=LOG):
+    """Append a dated, non-destructive activity closure/amendment."""
+    _lens_choice(estado, "estado", _ACTIVITY_STATES)
+    julgamento = _lens_nonblank(julgamento, "julgamento")
+    rationale, dispatch_id = _activity_curatorial_fields(
+        tier=tier, author=author, rationale=rationale, dispatch_id=dispatch_id, log=log)
+    events = read(log=log)
+    target = _resolve_lens_ref(ref, events, operacao=operacao, kinds={"atividade"})
+    successor = None
+    if estado == "superada_por":
+        if superada_por is None:
+            raise ValueError("estado='superada_por' requires a valid `superada_por` ref")
+        successor = _resolve_lens_ref(
+            superada_por, events, operacao=operacao, kinds={"atividade"})["ulid"]
+        if successor == target["ulid"]:
+            raise ValueError("`superada_por` must refer to another activity")
+    elif superada_por is not None:
+        raise ValueError("`superada_por` is only valid when estado='superada_por'")
+    payload = {
+        "ref": target["ulid"], "estado": estado, "julgamento": julgamento,
+        "superada_por": successor, "tier": tier, "author": author,
+        "rationale": rationale, "dispatch_id": dispatch_id,
+        "operacao": target["operacao"],
+    }
+    if expects is not None and not isinstance(expects, dict):
+        raise ValueError("`expects` must be a dict or None")
+
+    def _expected_state_still_holds():
+        _activity_expectation(expects, target, log)
+
+    return append_batch(
+        [("atividade.closed", f"atividade:{target['ulid']}", payload)],
+        log=log, precondition=_expected_state_still_holds,
+    )[0]
+
+
+def reopen_atividade(*, ref, motivo, evidencia=None, tier, author, rationale=None,
+                     dispatch_id=None, operacao=None, expects=None, log=LOG):
+    """Explicitly reopen a terminal activity; the state check is serialized with the write."""
+    motivo = _lens_nonblank(motivo, "motivo")
+    rationale, dispatch_id = _activity_curatorial_fields(
+        tier=tier, author=author, rationale=rationale, dispatch_id=dispatch_id, log=log)
+    target = _resolve_lens_ref(
+        ref, read(log=log), operacao=operacao, kinds={"atividade"})
+    payload = {
+        "ref": target["ulid"], "motivo": motivo, "evidencia": evidencia,
+        "author": author, "tier": tier, "rationale": rationale,
+        "dispatch_id": dispatch_id, "operacao": target["operacao"],
+    }
+    if expects is not None and not isinstance(expects, dict):
+        raise ValueError("`expects` must be a dict or None")
+
+    def _must_be_closed():
+        _activity_expectation(expects, target, log)
+        current = atividades_at(log=log).get(target["full"])
+        if current is None:
+            raise ValueError(f"activity {target['full']!r} no longer resolves")
+        if current.get("estado") in ("aberta", "reaberta"):
+            raise ValueError(f"cannot reopen activity {target['full']!r}: it is already aberta")
+
+    return append_batch(
+        [("atividade.reopened", f"atividade:{target['ulid']}", payload)],
+        log=log, precondition=_must_be_closed,
+    )[0]
+
+
+def bears_on(*, ref, alvo, valencia, evidencia=None, tier, operacao=None,
+             dispatch_id=None, expects=None, log=LOG):
+    """Link an activity to an existing grain with one vocabulary-wide valence."""
+    _lens_choice(valencia, "valencia", _BEARING_VALENCES)
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    if dispatch_id is not None:
+        dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    if expects is not None and not isinstance(expects, dict):
+        raise ValueError("`expects` must be a dict or None")
+    events = read(log=log)
+    source = _resolve_lens_ref(ref, events, operacao=operacao, kinds={"atividade"})
+    target = _resolve_lens_ref(
+        alvo, events, operacao=operacao,
+        kinds={"atividade", "arco", "ticket", "claim", "hypothesis"},
+    )
+    payload = {"ref": source["ulid"], "alvo": target["ulid"],
+               "valencia": valencia, "evidencia": evidencia, "tier": tier,
+               "dispatch_id": dispatch_id, "operacao": source["operacao"]}
+
+    def _source_expectation_still_holds():
+        _activity_expectation(expects, source, log)
+
+    return append_batch(
+        [("atividade.bears_on", f"atividade:{source['ulid']}", payload)],
+        log=log, precondition=_source_expectation_still_holds,
+    )[0]
+
+
+def _lens_derivation(tier, derivation_key):
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    if tier == "llm_judged":
+        return _lens_nonblank(derivation_key, "derivation_key")
+    if derivation_key is not None:
+        raise ValueError("asserted grain cannot carry `derivation_key`")
+    return None
+
+
+def open_run(*, atividades, config, eval=None, leva=None, nao_mede=None, tier,
+             derivation_key=None, operacao=None, prediction_hash=None, log=LOG):
+    """Pre-register a replayable N:M run; prediction_hash is substrate-computed."""
+    if prediction_hash is not None:
+        raise ValueError("caller must not supply `prediction_hash`; the run pen computes it")
+    if not isinstance(atividades, list) or not atividades:
+        raise ValueError("`atividades` must be a non-empty list of existing activity refs")
+    if not isinstance(config, dict) or not config:
+        raise ValueError("`config` must be a non-empty replayable dict")
+    if not isinstance(eval, dict):
+        raise ValueError("`eval` must pre-register non-blank metric and predicao")
+    metric = _lens_nonblank(eval.get("metric"), "eval.metric")
+    prediction = _lens_nonblank(eval.get("predicao"), "eval.predicao")
+    normalized_eval = {"metric": metric, "predicao": prediction}
+    canonical = json.dumps(normalized_eval, sort_keys=True, ensure_ascii=False,
+                           separators=(",", ":"))
+    prediction_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    derivation_key = _lens_derivation(tier, derivation_key)
+    events = read(log=log)
+    resolved_activities = [
+        _resolve_lens_ref(ref, events, operacao=operacao, kinds={"atividade"})
+        for ref in atividades
+    ]
+    operations = {activity["operacao"] for activity in resolved_activities}
+    if len(operations) != 1:
+        raise ValueError("all `atividades` in one run must belong to the same operacao")
+    operation = next(iter(operations))
+    if operacao is not None and _lens_operacao(operacao) != operation:
+        raise ValueError("`operacao` bind does not match the run's activities")
+    if nao_mede is None:
+        nao_mede = []
+    if not isinstance(nao_mede, list):
+        raise ValueError("`nao_mede` must be a list of resolvable grain refs")
+    resolved_non_measurements = []
+    for ref in nao_mede:
+        target = _resolve_lens_ref(
+            ref, events, operacao=operation,
+            kinds={"atividade", "arco", "ticket", "claim", "hypothesis"},
+        )["ulid"]
+        if target not in resolved_non_measurements:
+            resolved_non_measurements.append(target)
+    if leva is not None:
+        leva = _lens_nonblank(leva, "leva")
+    ulid = _ulid()
+    payload = {
+        "ulid": ulid, "num": None, "operacao": operation,
+        "atividades": [activity["ulid"] for activity in resolved_activities],
+        "leva": leva, "config": dict(config), "eval": normalized_eval,
+        "prediction_hash": prediction_hash, "nao_mede": resolved_non_measurements,
+        "tier": tier, "derivation_key": derivation_key,
+    }
+
+    def _allocate_num():
+        payload["num"] = _next_lens_num(read(log=log), operation, "run")
+
+    return append_batch(
+        [("run.opened", f"run:{ulid}", payload)], log=log, precondition=_allocate_num,
+    )[0]
+
+
+def close_run(*, ref, resultado, bears_on=None, tier, operacao=None, log=LOG):
+    """Close/amend a run, refusing claims over capabilities pre-registered as not measured."""
+    resultado = _lens_nonblank(resultado, "resultado")
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    events = read(log=log)
+    target = _resolve_lens_ref(ref, events, operacao=operacao, kinds={"run"})
+    current = runs_at(log=log).get(target["full"])
+    if current is None:
+        raise ValueError(f"run {target['full']!r} does not fold from its opening event")
+    if bears_on is None:
+        bears_on = []
+    if not isinstance(bears_on, list):
+        raise ValueError("`bears_on` must be a list of {alvo, valencia}")
+    normalized_bearings = []
+    for bearing in bears_on:
+        if not isinstance(bearing, dict):
+            raise ValueError("each `bears_on` item must be {alvo, valencia}")
+        valence = _lens_choice(bearing.get("valencia"), "bears_on.valencia", _BEARING_VALENCES)
+        resolved = _resolve_lens_ref(
+            bearing.get("alvo"), events, operacao=target["operacao"],
+            kinds={"atividade", "arco", "ticket", "claim", "hypothesis"},
+        )["ulid"]
+        if resolved in current.get("nao_mede", []) and valence != "no_bearing":
+            raise ValueError(
+                f"run {target['full']} declared alvo {resolved!r} in `nao_mede`; "
+                "only valencia='no_bearing' is valid")
+        normalized_bearings.append({"alvo": resolved, "valencia": valence})
+    payload = {"ref": target["ulid"], "resultado": resultado,
+               "bears_on": normalized_bearings, "tier": tier}
+    return append("run.closed", f"run:{target['ulid']}", payload, log=log)
+
+
+def observe_fato(*, atividade, body, run=None, leva=None, endereco=None, medida=None,
+                 tier, operacao=None, log=LOG):
+    """Record an addressed raw fact; judgment remains on its aggregate, never this frame."""
+    body = _lens_nonblank(body, "body")
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    events = read(log=log)
+    parent = _resolve_lens_ref(
+        atividade, events, operacao=operacao, kinds={"atividade"})
+    operation = parent["operacao"]
+    run_ulid = None
+    if run is not None:
+        resolved_run = _resolve_lens_ref(run, events, operacao=operation, kinds={"run"})
+        folded_run = runs_at(log=log).get(resolved_run["full"])
+        if folded_run is None or parent["ulid"] not in folded_run.get("atividades", []):
+            raise ValueError("`run` must be an existing run joined to `atividade`")
+        run_ulid = resolved_run["ulid"]
+    if leva is not None:
+        leva = _lens_nonblank(leva, "leva")
+    if medida is not None:
+        if not isinstance(medida, dict) or "valor" not in medida:
+            raise ValueError("`medida` must be {valor, como} when present")
+        medida = dict(medida)
+        medida["como"] = _lens_nonblank(medida.get("como"), "medida.como")
+    ulid = _ulid()
+    payload = {
+        "ulid": ulid, "num": None, "operacao": operation,
+        "atividade": parent["ulid"], "run": run_ulid, "leva": leva,
+        "body": body, "endereco": endereco, "medida": medida, "tier": tier,
+    }
+
+    def _allocate_num():
+        payload["num"] = _next_lens_num(read(log=log), operation, "fat")
+
+    return append_batch(
+        [("fato.observed", f"fato:{ulid}", payload)], log=log, precondition=_allocate_num,
+    )[0]
+
+
+def instrument_failure(*, instrumento, leva, detalhe, log=LOG):
+    """Record a first-class instrument failure joined to evidence by its batch identifier."""
+    instrumento = _lens_nonblank(instrumento, "instrumento")
+    leva = _lens_nonblank(leva, "leva")
+    detalhe = _lens_nonblank(detalhe, "detalhe")
+    payload = {"instrumento": instrumento, "leva": leva, "detalhe": detalhe}
+    return append("instrumento.falhou", f"leva:{leva}", payload, log=log)
+
+
+def open_arco(*, operacao, nome, tier, author, log=LOG):
+    """Open a named super-activity with its own operation-scoped human identity."""
+    operacao = _lens_operacao(operacao)
+    nome = _lens_nonblank(nome, "nome")
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    _lens_choice(author, "author", _ACTIVITY_AUTHORS)
+    if ((tier == "asserted" and author not in ("operador", "grill"))
+            or (tier == "llm_judged" and author != "racionalizador")):
+        raise ValueError("arco author must match its asserted/llm_judged tier")
+    ulid = _ulid()
+    payload = {"ulid": ulid, "num": None, "operacao": operacao,
+               "nome": nome, "tier": tier, "author": author}
+
+    def _allocate_num():
+        payload["num"] = _next_lens_num(read(log=log), operacao, "arc")
+
+    return append_batch(
+        [("arco.opened", f"arco:{ulid}", payload)], log=log, precondition=_allocate_num,
+    )[0]
+
+
+def _optional_canonical_rationale(rationale, dispatch_id, log):
+    if rationale is not None:
+        rationale = _lens_nonblank(rationale, "rationale")
+    if dispatch_id is not None:
+        dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    if _is_canonical_log(log):
+        rationale = _lens_nonblank(rationale, "rationale")
+        dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    return rationale, dispatch_id
+
+
+def close_arco(*, ref, valencia, julgamento, tier, rationale=None,
+               dispatch_id=None, operacao=None, log=LOG):
+    """Append an amendable verdict owned by the arc, not by any member activity."""
+    _lens_choice(valencia, "valencia", _BEARING_VALENCES)
+    julgamento = _lens_nonblank(julgamento, "julgamento")
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    rationale, dispatch_id = _optional_canonical_rationale(rationale, dispatch_id, log)
+    target = _resolve_lens_ref(
+        ref, read(log=log), operacao=operacao, kinds={"arco"})
+    payload = {"ref": target["ulid"], "valencia": valencia,
+               "julgamento": julgamento, "tier": tier,
+               "rationale": rationale, "dispatch_id": dispatch_id}
+    return append("arco.closed", f"arco:{target['ulid']}", payload, log=log)
+
+
+def move_arco(*, ref, arco_novo, tier, author, rationale=None,
+              dispatch_id=None, operacao=None, log=LOG):
+    """Curatorially move an activity to another existing arc in the same operation."""
+    rationale, dispatch_id = _activity_curatorial_fields(
+        tier=tier, author=author, rationale=rationale, dispatch_id=dispatch_id, log=log)
+    events = read(log=log)
+    activity = _resolve_lens_ref(ref, events, operacao=operacao, kinds={"atividade"})
+    arc = _resolve_lens_ref(
+        arco_novo, events, operacao=activity["operacao"], kinds={"arco"})
+    if arc["operacao"] != activity["operacao"]:
+        raise ValueError("activity and `arco_novo` must belong to the same operacao")
+    payload = {"ref": activity["ulid"], "arco_novo": arc["ulid"],
+               "rationale": rationale, "dispatch_id": dispatch_id,
+               "tier": tier, "author": author}
+    return append("arco.moved", f"atividade:{activity['ulid']}", payload, log=log)
+
+
+def set_marco(*, operacao, ref, rationale, dispatch_id, author, nota=None, log=LOG):
+    """Set the curated stable landmark for an operation; this never stores a frontier."""
+    operacao = _lens_operacao(operacao)
+    rationale = _lens_nonblank(rationale, "rationale")
+    dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    if author not in ("operador", "grill"):
+        raise ValueError("`author` for marco.set must be operador or grill")
+    if nota is not None:
+        nota = _lens_nonblank(nota, "nota")
+    target = _resolve_lens_ref(
+        ref, read(log=log), operacao=operacao,
+        kinds={"atividade", "run", "arco", "fato"},
+    )
+    if target["operacao"] != operacao:
+        raise ValueError("marco target must belong to `operacao`")
+    payload = {"operacao": operacao, "ref": target["ulid"], "nota": nota,
+               "rationale": rationale, "dispatch_id": dispatch_id, "author": author}
+    return append("marco.set", f"operacao:{operacao}", payload, log=log)
+
+
+def _wayfinder_curation(rationale, dispatch_id, author, *, tier="asserted"):
+    rationale = _lens_nonblank(rationale, "rationale")
+    dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    _lens_choice(tier, "tier", _LENS_TIERS)
+    author = _lens_nonblank(author, "author")
+    if ((tier == "asserted" and author not in ("operador", "grill"))
+            or (tier == "llm_judged" and author not in ("edge", "racionalizador"))):
+        raise ValueError("wayfinder author must match its asserted/llm_judged tier")
+    return rationale, dispatch_id, author
+
+
+def _resolved_thread(thread, resolve_thread_fn):
+    """Resolve a thread label to the persisted {uuid, display} at the pen's edge (A34).
+
+    Only a label string resolves via the injected adapter (exactly one live candidate). A raw
+    caller-supplied {uuid, display} is never trusted. Graphiti remains outside this module (A21).
+    """
+    if thread is None:
+        return None
+    if not isinstance(thread, str):
+        raise ValueError("`thread` must be a label string resolved at the pen boundary")
+    if not callable(resolve_thread_fn):
+        raise ValueError("`thread` label needs a `resolve_thread_fn` to resolve to a uuid")
+    raw_candidates = resolve_thread_fn(_lens_nonblank(thread, "thread"))
+    if inspect.isawaitable(raw_candidates):
+        close = getattr(raw_candidates, "close", None)
+        if callable(close):
+            close()
+        raise ValueError("thread resolver must be synchronous and return a list")
+    if not isinstance(raw_candidates, list):
+        raise ValueError("thread resolver must return a list of candidates")
+    candidates = raw_candidates
+    if len(candidates) != 1:
+        raise ValueError(
+            f"`thread` label must resolve to exactly one live entity, got {len(candidates)}")
+    resolved = candidates[0]
+    if not isinstance(resolved, dict):
+        raise ValueError("resolved `thread` must be {uuid, display}")
+    return {"uuid": _lens_nonblank(resolved.get("uuid"), "thread.uuid"),
+            "display": _lens_nonblank(resolved.get("display"), "thread.display")}
+
+
+def open_map(*, operacao, titulo, rationale, dispatch_id, author, thread=None,
+             resolve_thread_fn=None, tier="asserted", log=LOG):
+    """Open an operation-scoped map; map identity is allocated under the eventlog flock."""
+    operacao = _lens_operacao(operacao)
+    titulo = _lens_nonblank(titulo, "titulo")
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier=tier)
+    thread = _resolved_thread(thread, resolve_thread_fn)
+    ulid = _ulid()
+    payload = {"ulid": ulid, "num": None, "operacao": operacao, "titulo": titulo,
+               "rationale": rationale, "thread": thread, "tier": tier,
+               "author": author, "dispatch_id": dispatch_id}
+
+    def _allocate_num():
+        payload["num"] = _next_lens_num(read(log=log), operacao, "map")
+
+    return append_batch(
+        [("map.opened", f"map:{ulid}", payload)], log=log, precondition=_allocate_num,
+    )[0]
+
+
+def set_map_state(*, ref, estado, rationale, dispatch_id, author, operacao=None, log=LOG):
+    """Set one map's asserted lifecycle state; ticket state remains untouched."""
+    _lens_choice(estado, "estado", _MAP_STATES)
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier="asserted")
+    target = _resolve_lens_ref(
+        ref, read(log=log), operacao=operacao, kinds={"map"})
+    payload = {"ref": target["ulid"], "estado": estado, "rationale": rationale,
+               "author": author, "dispatch_id": dispatch_id}
+    return append("map.state", f"map:{target['ulid']}", payload, log=log)
+
+
+def _next_ticket_num(events, operacao):
+    """Allocate monotonically across materialized tickets and move-held reservations.
+
+    A ticket.open move owns its number from proposal time. Ratification duplicates that same
+    embedded effect and decline leaves the proposal in history, so scanning every move state (and
+    resolving a decline back to its proposal) makes the identity permanently non-reassignable.
+    """
+    highest = 0
+    for entity in _lens_entities(events):
+        if entity["kind"] != "ticket" or entity["operacao"] != operacao:
+            continue
+        match = re.fullmatch(r"tkt-(\d+)", entity["num"])
+        if match:
+            highest = max(highest, int(match.group(1)))
+    map_operations = {
+        key: entity["operacao"]
+        for entity in _lens_entities(events) if entity["kind"] == "map"
+        for key in (entity["ulid"], entity["full"])
+    }
+    proposals = {
+        payload.get("ulid"): payload
+        for event in events if isinstance(event, dict) and event.get("type") == "move.proposed"
+        for payload in [event.get("payload") if isinstance(event.get("payload"), dict) else {}]
+        if isinstance(payload.get("ulid"), str)
+    }
+    for event in events:
+        if not isinstance(event, dict) or event.get("type") not in (
+                "move.proposed", "move.ratified", "move.declined"):
+            continue
+        move_payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if (event.get("type") == "move.declined"
+                and not isinstance(move_payload.get("effect"), dict)):
+            move_payload = proposals.get(move_payload.get("ref"), {})
+        effect = move_payload.get("effect") if isinstance(move_payload, dict) else None
+        if not isinstance(effect, dict) or effect.get("event_type") != "ticket.opened":
+            continue
+        ticket_payload = effect.get("payload") if isinstance(effect.get("payload"), dict) else {}
+        num = ticket_payload.get("num")
+        if map_operations.get(ticket_payload.get("map")) != operacao or not isinstance(num, str):
+            continue
+        match = re.fullmatch(r"tkt-(\d+)", num)
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return f"tkt-{highest + 1:03d}"
+
+
+def open_ticket(*, map, titulo, question, rationale, dispatch_id, author,
+                blocked_by=None, inscricao=None, tier="asserted", legacy_ref=None,
+                annotations=None, operacao=None, log=LOG):
+    """Open one map-owned decision ticket with canonical dependency refs."""
+    titulo = _lens_nonblank(titulo, "titulo")
+    question = _lens_nonblank(question, "question")
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier=tier)
+    events = read(log=log)
+    parent = _resolve_lens_ref(map, events, operacao=operacao, kinds={"map"})
+    if blocked_by is None:
+        blocked_by = []
+    if not isinstance(blocked_by, list):
+        raise ValueError("`blocked_by` must be a list of ticket refs")
+    blockers = []
+    for ref in blocked_by:
+        blocker = _resolve_lens_ref(
+            ref, events, operacao=parent["operacao"], kinds={"ticket"})
+        current = wayfinds_at(log=log)["tickets"].get(blocker["full"])
+        if current is None or current["map"] != parent["ulid"]:
+            raise ValueError("every blocked_by ticket must belong to the same map")
+        if blocker["ulid"] not in blockers:
+            blockers.append(blocker["ulid"])
+    if inscricao is not None:
+        inscricao = _lens_nonblank(inscricao, "inscricao")
+        if inscricao not in hypotheses_at(log=log):
+            raise ValueError("`inscricao` must reference an existing hypothesis.declared")
+    if annotations is not None and not isinstance(annotations, dict):
+        raise ValueError("`annotations` must be a dict")
+    ulid = _ulid()
+    payload = {"ulid": ulid, "num": None, "map": parent["ulid"], "titulo": titulo,
+               "question": question, "rationale": rationale, "blocked_by": blockers,
+               "inscricao": inscricao, "tier": tier, "author": author,
+               "dispatch_id": dispatch_id, "legacy_ref": legacy_ref,
+               "annotations": annotations}
+
+    def _allocate_num():
+        payload["num"] = _next_ticket_num(read(log=log), parent["operacao"])
+
+    return append_batch(
+        [("ticket.opened", f"ticket:{ulid}", payload)],
+        log=log, precondition=_allocate_num,
+    )[0]
+
+
+def close_ticket(*, ref, resolucao, valencia, bears_on, rationale, dispatch_id,
+                 author, tier="asserted", operacao=None, log=LOG):
+    """Close/amend a ticket only with a non-empty valenced link to what resolved it."""
+    resolucao = _lens_nonblank(resolucao, "resolucao")
+    _lens_choice(valencia, "valencia", _BEARING_VALENCES)
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier=tier)
+    if not isinstance(bears_on, list) or not bears_on:
+        raise ValueError("ticket close `bears_on` must be a non-empty list")
+    events = read(log=log)
+    ticket = _resolve_lens_ref(ref, events, operacao=operacao, kinds={"ticket"})
+    current = wayfinds_at(log=log)["tickets"].get(ticket["full"])
+    if current is None or current["estado"] == "declined":
+        raise ValueError("cannot close a declined or nonexistent ticket; reopen it first")
+    normalized_bearings = []
+    for bearing in bears_on:
+        if not isinstance(bearing, dict):
+            raise ValueError("each ticket `bears_on` must be {alvo, valencia}")
+        bearing_valence = _lens_choice(
+            bearing.get("valencia"), "bears_on.valencia", _BEARING_VALENCES)
+        target = _resolve_lens_ref(
+            bearing.get("alvo"), events, operacao=ticket["operacao"],
+            kinds={"atividade", "run", "arco", "fato", "claim", "hypothesis", "ticket"},
+        )
+        normalized_bearings.append({"alvo": target["ulid"], "valencia": bearing_valence})
+    payload = {"ref": ticket["ulid"], "resolucao": resolucao, "valencia": valencia,
+               "bears_on": normalized_bearings, "rationale": rationale, "tier": tier,
+               "author": author, "dispatch_id": dispatch_id}
+    return append("ticket.closed", f"ticket:{ticket['ulid']}", payload, log=log)
+
+
+def decline_ticket(*, ref, reason, dispatch_id, author, rationale=None,
+                   operacao=None, log=LOG):
+    """Decline a ticket; a declined blocker explicitly unblocks its dependants."""
+    reason = _lens_nonblank(reason, "reason")
+    rationale = reason if rationale is None else rationale
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier="asserted")
+    ticket = _resolve_lens_ref(
+        ref, read(log=log), operacao=operacao, kinds={"ticket"})
+    current = wayfinds_at(log=log)["tickets"].get(ticket["full"])
+    if current is None or current["estado"] == "closed":
+        raise ValueError("cannot decline a closed or nonexistent ticket")
+    payload = {"ref": ticket["ulid"], "reason": reason, "rationale": rationale,
+               "dispatch_id": dispatch_id, "author": author}
+    return append("ticket.declined", f"ticket:{ticket['ulid']}", payload, log=log)
+
+
+def reopen_ticket(*, ref, motivo, dispatch_id, author, evidencia=None,
+                  rationale=None, operacao=None, log=LOG):
+    """Explicitly reopen a closed/declined ticket; serialized state check rejects open."""
+    motivo = _lens_nonblank(motivo, "motivo")
+    rationale = motivo if rationale is None else rationale
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier="asserted")
+    ticket = _resolve_lens_ref(
+        ref, read(log=log), operacao=operacao, kinds={"ticket"})
+    payload = {"ref": ticket["ulid"], "motivo": motivo, "evidencia": evidencia,
+               "rationale": rationale, "dispatch_id": dispatch_id, "author": author}
+
+    def _must_be_terminal():
+        current = wayfinds_at(log=log)["tickets"].get(ticket["full"])
+        if current is None or current["estado"] == "open":
+            raise ValueError("cannot reopen ticket: it is already open")
+
+    return append_batch(
+        [("ticket.reopened", f"ticket:{ticket['ulid']}", payload)],
+        log=log, precondition=_must_be_terminal,
+    )[0]
+
+
+def _ticket_deps_have_cycle(tickets, target_ulid, desired):
+    deps = {ticket["ulid"]: list(ticket.get("blocked_by", []))
+            for ticket in tickets.values()}
+    deps[target_ulid] = list(desired)
+    visiting, done = set(), set()
+
+    def visit(ulid):
+        if ulid in visiting:
+            return True
+        if ulid in done:
+            return False
+        visiting.add(ulid)
+        if any(blocker in deps and visit(blocker) for blocker in deps.get(ulid, [])):
+            return True
+        visiting.remove(ulid)
+        done.add(ulid)
+        return False
+
+    return any(visit(ulid) for ulid in deps if ulid not in done)
+
+
+def change_ticket_deps(*, ref, blocked_by, rationale, dispatch_id, author,
+                       operacao=None, log=LOG):
+    """Replace blocking edges atomically; a valid-API cycle is refused before append."""
+    if not isinstance(blocked_by, list):
+        raise ValueError("`blocked_by` must be a list of ticket refs")
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier="asserted")
+    events = read(log=log)
+    ticket = _resolve_lens_ref(ref, events, operacao=operacao, kinds={"ticket"})
+    folded = wayfinds_at(log=log)
+    current = folded["tickets"].get(ticket["full"])
+    if current is None:
+        raise ValueError("ticket does not fold from its opening event")
+    blockers = []
+    for blocker_ref in blocked_by:
+        blocker = _resolve_lens_ref(
+            blocker_ref, events, operacao=ticket["operacao"], kinds={"ticket"})
+        blocker_item = folded["tickets"].get(blocker["full"])
+        if blocker_item is None or blocker_item["map"] != current["map"]:
+            raise ValueError("every blocked_by ticket must belong to the same map")
+        if blocker["ulid"] == ticket["ulid"]:
+            raise ValueError("ticket dependency cycle: a ticket cannot block itself")
+        if blocker["ulid"] not in blockers:
+            blockers.append(blocker["ulid"])
+    payload = {"ref": ticket["ulid"], "blocked_by": blockers,
+               "rationale": rationale, "dispatch_id": dispatch_id, "author": author}
+
+    def _acyclic_under_lock():
+        current_fold = wayfinds_at(log=log)
+        if _ticket_deps_have_cycle(current_fold["tickets"], ticket["ulid"], blockers):
+            raise ValueError("ticket dependency cycle detected")
+
+    return append_batch(
+        [("ticket.deps_changed", f"ticket:{ticket['ulid']}", payload)],
+        log=log, precondition=_acyclic_under_lock,
+    )[0]
+
+
+def fold_wayfinds(events):
+    """Pure, fail-dark fold for map/ticket state and move audit history."""
+    events = _events_with_embedded_move_effects(events)
+    maps, tickets = {}, {}
+    maps_by_ulid, tickets_by_ulid = {}, {}
+    move_records, move_order = {}, []
+    pins = set()
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event_type == "map.opened":
+            if not _foldable_map_open(payload):
+                continue
+            required = (payload.get("ulid"), payload.get("num"), payload.get("operacao"),
+                        payload.get("titulo"), payload.get("rationale"),
+                        payload.get("dispatch_id"), payload.get("author"))
+            if (not all(isinstance(value, str) and value.strip() for value in required)
+                    or payload.get("tier") not in _LENS_TIERS):
+                continue
+            ref = f"{payload['operacao']}/{payload['num']}"
+            item = {**payload, "ref": ref, "estado": "ativado", "tickets": [],
+                    "rationale_log": [{"event": "map.opened", "rationale": payload["rationale"],
+                                       "seq": event.get("seq"), "ts": event.get("ts")}]}
+            maps[ref] = item
+            maps_by_ulid[payload["ulid"]] = item
+        elif event_type == "map.state":
+            item = maps_by_ulid.get(payload.get("ref"))
+            if (item is None or payload.get("estado") not in _MAP_STATES
+                    or payload.get("author") not in ("operador", "grill")
+                    or not all(isinstance(payload.get(field), str) and payload[field].strip()
+                               for field in ("rationale", "dispatch_id"))):
+                continue
+            item["estado"] = payload["estado"]
+            item["rationale_log"].append({"event": event_type,
+                                          "rationale": payload.get("rationale"),
+                                          "seq": event.get("seq"), "ts": event.get("ts")})
+        elif event_type == "ticket.opened":
+            if not _foldable_ticket_open(payload):
+                continue
+            parent = maps_by_ulid.get(payload.get("map"))
+            required = (payload.get("ulid"), payload.get("num"), payload.get("titulo"),
+                        payload.get("question"), payload.get("rationale"),
+                        payload.get("dispatch_id"), payload.get("author"))
+            if (parent is None or not all(isinstance(value, str) and value.strip()
+                                          for value in required)
+                    or payload.get("tier") not in _LENS_TIERS
+                    or not isinstance(payload.get("blocked_by", []), list)):
+                continue
+            ref = f"{parent['operacao']}/{payload['num']}"
+            item = {**payload, "ref": ref, "operacao": parent["operacao"],
+                    "estado": "open", "fechos": [], "fecho": None,
+                    "declines": [], "reopens": []}
+            tickets[ref] = item
+            tickets_by_ulid[payload["ulid"]] = item
+            parent["tickets"].append(ref)
+        elif event_type == "ticket.closed":
+            item = tickets_by_ulid.get(payload.get("ref"))
+            if (item is None or item["estado"] == "declined"
+                    or payload.get("valencia") not in _BEARING_VALENCES
+                    or payload.get("tier") not in _LENS_TIERS
+                    or not isinstance(payload.get("resolucao"), str)
+                    or not isinstance(payload.get("bears_on"), list)
+                    or not payload["bears_on"]
+                    or not all(isinstance(payload.get(field), str) and payload[field].strip()
+                               for field in ("rationale", "dispatch_id", "author"))):
+                continue
+            closure = {**payload,
+                       "seq": event.get("seq") if isinstance(event.get("seq"), int) else -1,
+                       "ts": event.get("ts")}
+            item["fechos"].append(closure)
+            item["fecho"] = max(
+                item["fechos"],
+                key=lambda candidate: (1 if candidate["tier"] == "asserted" else 0,
+                                       candidate["seq"]),
+            )
+            item["estado"] = "closed"
+        elif event_type == "ticket.declined":
+            item = tickets_by_ulid.get(payload.get("ref"))
+            if (item is None or item["estado"] == "closed"
+                    or not isinstance(payload.get("reason"), str)
+                    or not all(isinstance(payload.get(field), str) and payload[field].strip()
+                               for field in ("rationale", "dispatch_id", "author"))):
+                continue
+            decline = {**payload, "seq": event.get("seq"), "ts": event.get("ts")}
+            item["declines"].append(decline)
+            item["estado"] = "declined"
+        elif event_type == "ticket.reopened":
+            item = tickets_by_ulid.get(payload.get("ref"))
+            if (item is None or item["estado"] == "open"
+                    or not isinstance(payload.get("motivo"), str)
+                    or not all(isinstance(payload.get(field), str) and payload[field].strip()
+                               for field in ("rationale", "dispatch_id", "author"))):
+                continue
+            reopening = {**payload, "seq": event.get("seq"), "ts": event.get("ts")}
+            item["reopens"].append(reopening)
+            item["estado"] = "open"
+        elif event_type == "ticket.deps_changed":
+            item = tickets_by_ulid.get(payload.get("ref"))
+            blockers = payload.get("blocked_by")
+            if (item is None or not isinstance(blockers, list)
+                    or not all(isinstance(payload.get(field), str) and payload[field].strip()
+                               for field in ("rationale", "dispatch_id", "author"))):
+                continue
+            item["blocked_by"] = list(blockers)
+        elif event_type == "move.proposed":
+            ulid = payload.get("ulid")
+            if not isinstance(ulid, str):
+                continue
+            record = {**payload, "estado": "proposto", "seq": event.get("seq"),
+                      "ts": event.get("ts"), "history": []}
+            record["history"].append({"event": event_type, "seq": event.get("seq"),
+                                      "ts": event.get("ts")})
+            move_records[ulid] = record
+            if ulid not in move_order:
+                move_order.append(ulid)
+        elif event_type == "move.ratified":
+            record = move_records.get(payload.get("ref"))
+            if record is None:
+                continue
+            record.update({"estado": "ratificado", "ratification": dict(payload)})
+            record["history"].append({"event": event_type, "seq": event.get("seq"),
+                                      "ts": event.get("ts")})
+        elif event_type == "move.declined":
+            record = move_records.get(payload.get("ref"))
+            if record is None:
+                continue
+            record.update({"estado": "declinado", "decline": dict(payload)})
+            record["history"].append({"event": event_type, "seq": event.get("seq"),
+                                      "ts": event.get("ts")})
+            if payload.get("pin") is True and isinstance(record.get("move_key"), str):
+                pins.add(record["move_key"])
+    moves = {
+        "propostos": [move_records[ulid] for ulid in move_order
+                       if move_records[ulid]["estado"] == "proposto"],
+        "ratificados": [move_records[ulid] for ulid in move_order
+                         if move_records[ulid]["estado"] == "ratificado"],
+        "declinados": [move_records[ulid] for ulid in move_order
+                        if move_records[ulid]["estado"] == "declinado"],
+    }
+    return {"maps": maps, "tickets": tickets, "moves": moves, "pins": pins}
+
+
+def wayfinds_at(seq=None, ts=None, log=LOG):
+    return fold_wayfinds(read(types=WAYFIND_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
+def frontier_from_wayfinds(map_ref, wayfinds):
+    """Pure frontier over an already-folded wayfinder snapshot; malformed branches fail dark."""
+    maps = wayfinds.get("maps", {}) if isinstance(wayfinds, dict) else {}
+    tickets = wayfinds.get("tickets", {}) if isinstance(wayfinds, dict) else {}
+    current_map = maps.get(map_ref)
+    if current_map is None:
+        if isinstance(map_ref, str) and re.fullmatch(r"map-\d+", map_ref):
+            raise AmbiguousRef(
+                f"short ref {map_ref!r} requires an explicit operation bind; "
+                f"use <operacao>/{map_ref}")
+        matches = [item for item in maps.values()
+                   if isinstance(item, dict) and item.get("ulid") == map_ref]
+        if len(matches) != 1:
+            raise ValueError("map ref does not resolve to exactly one existing grain of kind map")
+        current_map = matches[0]
+    if not isinstance(current_map, dict) or current_map.get("estado") != "ativado":
+        return []
+    by_ulid = {ticket.get("ulid"): ticket for ticket in tickets.values()
+               if isinstance(ticket, dict) and isinstance(ticket.get("ulid"), str)}
+    memo, visiting = {}, set()
+
+    def layer(ticket):
+        if not isinstance(ticket, dict) or not isinstance(ticket.get("ulid"), str):
+            return None
+        ulid = ticket["ulid"]
+        if ulid in memo:
+            return memo[ulid]
+        if ulid in visiting:
+            return None  # corrupt historical cycle: fail dark rather than recurse forever
+        visiting.add(ulid)
+        live_blocker_layers = []
+        for blocker_ulid in ticket.get("blocked_by", []):
+            blocker = by_ulid.get(blocker_ulid)
+            if blocker is None or blocker.get("estado") in ("closed", "declined"):
+                continue
+            blocker_layer = layer(blocker)
+            if blocker_layer is None:
+                visiting.remove(ulid)
+                return None
+            live_blocker_layers.append(blocker_layer)
+        visiting.remove(ulid)
+        memo[ulid] = 0 if not live_blocker_layers else 1 + max(live_blocker_layers)
+        return memo[ulid]
+
+    grouped = {}
+    map_tickets = current_map.get("tickets", [])
+    if not isinstance(map_tickets, list):
+        return []
+    for ref in map_tickets:
+        ticket = tickets.get(ref)
+        if ticket is None or ticket.get("estado") != "open":
+            continue
+        ticket_layer = layer(ticket)
+        if ticket_layer is not None:
+            grouped.setdefault(ticket_layer, []).append(ref)
+    return [grouped[index] for index in sorted(grouped)]
+
+
+def frontier_of(map_ref, seq=None, ts=None, log=LOG):
+    """Compute frontier layers from live dependency state; no frontier event exists."""
+    folded = fold_wayfinds(read(
+        types=WAYFIND_TYPES, until_seq=seq, until_ts=ts, log=log))
+    return frontier_from_wayfinds(map_ref, folded)
+
+
+class _MoveAlreadyExists(Exception):
+    pass
+
+
+def _ticket_open_intent_key(kind, alvo, effect, evidence_ulids):
+    """Identity-free ticket.open intent used only to avoid spending a new reservation twice."""
+    if kind != "ticket.open" or not isinstance(effect, dict):
+        return None
+    raw_payload = effect.get("payload")
+    if not isinstance(raw_payload, dict):
+        return None
+    semantic_payload = dict(raw_payload)
+    semantic_payload.pop("ulid", None)
+    semantic_payload.pop("num", None)
+    material = {
+        "kind": kind,
+        "alvo": alvo,
+        "event_type": effect.get("event_type"),
+        "payload": semantic_payload,
+        "evidencia": sorted(evidence_ulids) if isinstance(evidence_ulids, list) else evidence_ulids,
+    }
+    return hashlib.sha256(json.dumps(
+        material, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
+
+
+def _move_target(kind, alvo, events, operacao):
+    kinds = {
+        "ticket.close": {"ticket"}, "ticket.reopen": {"ticket"},
+        "atividade.close": {"atividade"}, "atividade.reopen": {"atividade"},
+        "map.archive": {"map"}, "arco.move": {"atividade"},
+        "contest": {"atividade", "ticket", "run", "arco", "hypothesis"},
+        "falsificador_aconteceu": {"ticket"}, "ticket.open": {"map"},
+    }[kind]
+    return _resolve_lens_ref(alvo, events, operacao=operacao, kinds=kinds)
+
+
+def _validated_ticket_open_proposal(payload, target, events):
+    """Validate/canonicalize ticket semantics before its identity is allocated."""
+    if payload.get("ulid") is not None or payload.get("num") is not None:
+        raise ValueError("ticket.open proposal must leave effect ulid/num for flock allocation")
+    if payload.get("map") not in (target["ulid"], target.get("full")):
+        raise ValueError("ticket.open effect must belong to its map alvo")
+    normalized = dict(payload)
+    normalized.pop("ulid", None)
+    normalized.pop("num", None)
+    normalized["map"] = target["ulid"]
+    normalized["titulo"] = _lens_nonblank(payload.get("titulo"), "effect.titulo")
+    normalized["question"] = _lens_nonblank(payload.get("question"), "effect.question")
+    rationale, dispatch_id, author = _wayfinder_curation(
+        payload.get("rationale"), payload.get("dispatch_id"), payload.get("author"),
+        tier=payload.get("tier"),
+    )
+    normalized.update({"rationale": rationale, "dispatch_id": dispatch_id,
+                       "author": author, "tier": payload.get("tier")})
+    blocked_by = payload.get("blocked_by", [])
+    if not isinstance(blocked_by, list):
+        raise ValueError("effect.blocked_by must be a list")
+    folded = fold_wayfinds(events)
+    blockers = []
+    for ref in blocked_by:
+        blocker = _resolve_lens_ref(
+            ref, events, operacao=target["operacao"], kinds={"ticket"})
+        current = folded["tickets"].get(blocker["full"])
+        if current is None or current.get("map") != target["ulid"]:
+            raise ValueError("every effect.blocked_by ticket must belong to the same map")
+        if blocker["ulid"] not in blockers:
+            blockers.append(blocker["ulid"])
+    normalized["blocked_by"] = blockers
+    inscricao = payload.get("inscricao")
+    if inscricao is not None:
+        inscricao = _resolve_lens_ref(
+            inscricao, events, kinds={"hypothesis"})["ulid"]
+    normalized["inscricao"] = inscricao
+    annotations = payload.get("annotations")
+    if annotations is not None and not isinstance(annotations, dict):
+        raise ValueError("effect.annotations must be a dict or None")
+    normalized["annotations"] = annotations
+    return normalized
+
+
+def _validated_move_effect(kind, effect, target, events, *, allow_unallocated_ticket=False):
+    if not isinstance(effect, dict) or set(effect) != {"event_type", "subject", "payload"}:
+        raise ValueError("`effect` must be exactly {event_type, subject, payload}")
+    expected_type = _MOVE_EFFECT_TYPES[kind]
+    if effect.get("event_type") != expected_type:
+        raise ValueError(f"move kind {kind!r} requires effect.event_type={expected_type!r}")
+    subject = (effect.get("subject") if expected_type == "ticket.opened"
+               and allow_unallocated_ticket else
+               _lens_nonblank(effect.get("subject"), "effect.subject"))
+    if (expected_type == "ticket.opened" and allow_unallocated_ticket
+            and subject is not None and not isinstance(subject, str)):
+        raise ValueError("ticket.open proposal effect.subject must be a string or None")
+    if not isinstance(effect.get("payload"), dict):
+        raise ValueError("effect.payload must be a dict")
+    try:
+        payload = json.loads(json.dumps(effect["payload"], ensure_ascii=False))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("effect.payload must be JSON-serializable") from exc
+
+    target_ulid = target["ulid"]
+    operation = target.get("operacao")
+    if expected_type == "ticket.closed":
+        if payload.get("ref") != target_ulid or subject != f"ticket:{target_ulid}":
+            raise ValueError("ticket.close effect must address its canonical ticket alvo")
+        payload["resolucao"] = _lens_nonblank(payload.get("resolucao"), "effect.resolucao")
+        _lens_choice(payload.get("valencia"), "effect.valencia", _BEARING_VALENCES)
+        _wayfinder_curation(payload.get("rationale"), payload.get("dispatch_id"),
+                            payload.get("author"), tier=payload.get("tier"))
+        bearings = payload.get("bears_on")
+        if not isinstance(bearings, list) or not bearings:
+            raise ValueError("effect ticket.closed needs non-empty `bears_on`")
+        normalized = []
+        for bearing in bearings:
+            if not isinstance(bearing, dict):
+                raise ValueError("effect bears_on items must be {alvo, valencia}")
+            valence = _lens_choice(
+                bearing.get("valencia"), "effect.bears_on.valencia", _BEARING_VALENCES)
+            entity = _resolve_lens_ref(
+                bearing.get("alvo"), events, operacao=operation,
+                kinds={"atividade", "run", "arco", "fato", "claim", "hypothesis", "ticket"},
+            )
+            normalized.append({"alvo": entity["ulid"], "valencia": valence})
+        payload["bears_on"] = normalized
+    elif expected_type == "ticket.opened":
+        if allow_unallocated_ticket:
+            payload = _validated_ticket_open_proposal(payload, target, events)
+            subject = None
+        else:
+            if not _foldable_ticket_open(payload) or subject != f"ticket:{payload.get('ulid')}":
+                raise ValueError("ticket.open effect payload does not satisfy ticket.opened schema")
+            if payload.get("map") != target_ulid:
+                raise ValueError("ticket.open effect must belong to its map alvo")
+    elif expected_type == "ticket.reopened":
+        if payload.get("ref") != target_ulid or subject != f"ticket:{target_ulid}":
+            raise ValueError("ticket.reopen effect must address its canonical ticket alvo")
+        payload["motivo"] = _lens_nonblank(payload.get("motivo"), "effect.motivo")
+        _wayfinder_curation(payload.get("rationale"), payload.get("dispatch_id"),
+                            payload.get("author"), tier="asserted")
+    elif expected_type == "atividade.closed":
+        if payload.get("ref") != target_ulid or subject != f"atividade:{target_ulid}":
+            raise ValueError("atividade.close effect must address its canonical atividade alvo")
+        _lens_choice(payload.get("estado"), "effect.estado", _ACTIVITY_STATES)
+        payload["julgamento"] = _lens_nonblank(payload.get("julgamento"), "effect.julgamento")
+        payload["rationale"] = _lens_nonblank(payload.get("rationale"), "effect.rationale")
+        payload["dispatch_id"] = _lens_nonblank(
+            payload.get("dispatch_id"), "effect.dispatch_id")
+        if payload["estado"] == "superada_por":
+            successor = _resolve_lens_ref(payload.get("superada_por"), events,
+                                          operacao=operation, kinds={"atividade"})
+            payload["superada_por"] = successor["ulid"]
+        elif payload.get("superada_por") is not None:
+            raise ValueError("atividade.close effect superada_por only fits estado='superada_por'")
+        _activity_curatorial_fields(tier=payload.get("tier"), author=payload.get("author"),
+                                     rationale=payload.get("rationale"),
+                                     dispatch_id=payload.get("dispatch_id"), log=Path("/tmp/move"))
+    elif expected_type == "atividade.reopened":
+        if payload.get("ref") != target_ulid or subject != f"atividade:{target_ulid}":
+            raise ValueError("atividade.reopen effect must address its canonical atividade alvo")
+        payload["motivo"] = _lens_nonblank(payload.get("motivo"), "effect.motivo")
+        payload["rationale"] = _lens_nonblank(payload.get("rationale"), "effect.rationale")
+        payload["dispatch_id"] = _lens_nonblank(
+            payload.get("dispatch_id"), "effect.dispatch_id")
+        _activity_curatorial_fields(tier=payload.get("tier"), author=payload.get("author"),
+                                     rationale=payload.get("rationale"),
+                                     dispatch_id=payload.get("dispatch_id"), log=Path("/tmp/move"))
+    elif expected_type == "map.state":
+        if (payload.get("ref") != target_ulid or subject != f"map:{target_ulid}"
+                or payload.get("estado") != "arquivado"):
+            raise ValueError("map.archive effect must be map.state estado='arquivado' for alvo")
+        _wayfinder_curation(payload.get("rationale"), payload.get("dispatch_id"),
+                            payload.get("author"), tier="asserted")
+    elif expected_type == "arco.moved":
+        if payload.get("ref") != target_ulid or subject != f"atividade:{target_ulid}":
+            raise ValueError("arco.move effect must address its canonical atividade alvo")
+        new_arc = _resolve_lens_ref(
+            payload.get("arco_novo"), events, operacao=operation, kinds={"arco"})
+        payload["arco_novo"] = new_arc["ulid"]
+        payload["rationale"] = _lens_nonblank(payload.get("rationale"), "effect.rationale")
+        payload["dispatch_id"] = _lens_nonblank(
+            payload.get("dispatch_id"), "effect.dispatch_id")
+        _activity_curatorial_fields(tier=payload.get("tier"), author=payload.get("author"),
+                                     rationale=payload.get("rationale"),
+                                     dispatch_id=payload.get("dispatch_id"), log=Path("/tmp/move"))
+    elif expected_type == "contest.raised":
+        if payload.get("alvo") != target_ulid:
+            raise ValueError("contest effect payload.alvo must equal canonical move alvo")
+        if subject != f"{target['kind']}:{target_ulid}":
+            raise ValueError("contest effect subject must address the canonical move alvo")
+        evidence = _resolve_lens_ref(payload.get("evidencia"), events, operacao=operation,
+                                     kinds={"fato", "run", "atividade"})
+        payload["evidencia"] = evidence["ulid"]
+        payload["detalhe"] = _lens_nonblank(payload.get("detalhe"), "effect.detalhe")
+        payload["author"] = _lens_nonblank(payload.get("author"), "effect.author")
+    return {"event_type": expected_type, "subject": subject, "payload": payload}
+
+
+def propose_move(*, kind, effect, expects, evidencia, rationale, basis_seq,
+                 alvo=None, author="edge", operacao=None, log=LOG):
+    """Film a typed move once; move_key CAS is authoritative across every later state."""
+    if kind not in _MOVE_EFFECT_TYPES:
+        raise ValueError(f"unknown move `kind` {kind!r}")
+    if author != "edge":
+        raise ValueError("move.proposed author must be 'edge'")
+    rationale = _lens_nonblank(rationale, "rationale")
+    if not isinstance(basis_seq, int) or isinstance(basis_seq, bool) or basis_seq < 0:
+        raise ValueError("`basis_seq` must be a non-negative integer")
+    if not isinstance(expects, dict):
+        raise ValueError("`expects` must be a dict")
+    if not isinstance(evidencia, list) or not evidencia:
+        raise ValueError("`evidencia` must be a non-empty list of resolvable refs")
+    events = read(log=log)
+    if alvo is None and kind == "ticket.open" and isinstance(effect, dict):
+        effect_payload = effect.get("payload")
+        alvo = effect_payload.get("map") if isinstance(effect_payload, dict) else None
+    if alvo is None:
+        raise ValueError(f"move kind {kind!r} requires an explicit `alvo`")
+    target = _move_target(kind, alvo, events, operacao)
+    normalized_effect = _validated_move_effect(
+        kind, effect, target, events, allow_unallocated_ticket=(kind == "ticket.open"))
+    evidence_ulids = sorted({
+        _resolve_lens_ref(ref, events, operacao=target.get("operacao"),
+                          kinds={"atividade", "run", "fato"})["ulid"]
+        for ref in evidencia
+    })
+    ulid = _ulid()
+    payload = {"ulid": ulid, "kind": kind, "alvo": target["ulid"],
+               "effect": normalized_effect, "expects": dict(expects),
+               "evidencia": evidence_ulids, "rationale": rationale,
+               "basis_seq": basis_seq, "move_key": None, "author": "edge"}
+
+    def _set_move_key():
+        key_material = {"kind": kind, "alvo": target["ulid"], "effect": payload["effect"],
+                        "evidencia": evidence_ulids}
+        payload["move_key"] = hashlib.sha256(json.dumps(
+            key_material, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+
+    if kind != "ticket.open":
+        _set_move_key()
+
+    def _move_key_absent():
+        if kind == "ticket.open":
+            # Identity allocation belongs to the same critical section that reserves the number.
+            # A concurrent proposer/open_ticket therefore sees this proposal before choosing its
+            # own number; the generated identity is part of move_key, never patched afterwards.
+            current_events = read(log=log)
+            current_target = _move_target(
+                kind, target["ulid"], current_events, target.get("operacao"))
+            incoming_intent = _ticket_open_intent_key(
+                kind, current_target["ulid"], payload["effect"], evidence_ulids)
+            if any(
+                event.get("type") == "move.proposed"
+                and isinstance(event.get("payload"), dict)
+                and _ticket_open_intent_key(
+                    event["payload"].get("kind"), event["payload"].get("alvo"),
+                    event["payload"].get("effect"), event["payload"].get("evidencia"),
+                ) == incoming_intent
+                for event in current_events
+            ):
+                raise _MoveAlreadyExists(incoming_intent)
+            ticket_payload = dict(payload["effect"]["payload"])
+            ticket_payload["ulid"] = _ulid()
+            ticket_payload["num"] = _next_ticket_num(
+                current_events, current_target["operacao"])
+            candidate = {"event_type": "ticket.opened",
+                         "subject": f"ticket:{ticket_payload['ulid']}",
+                         "payload": ticket_payload}
+            payload["effect"] = _validated_move_effect(
+                kind, candidate, current_target, current_events)
+            _set_move_key()
+        move_key = payload["move_key"]
+        if any(isinstance(event.get("payload"), dict)
+               and event["payload"].get("move_key") == move_key
+               for event in read(types=["move.proposed"], log=log)):
+            raise _MoveAlreadyExists(move_key)
+
+    try:
+        return append_batch(
+            [("move.proposed", f"move:{ulid}", payload)],
+            log=log, precondition=_move_key_absent,
+        )[0]
+    except _MoveAlreadyExists:
+        return None
+
+
+def _events_with_embedded_move_effects(events):
+    """Recover a missing materialized effect from move.ratified without double-applying it."""
+    events = list(events)
+    materialized = {
+        (event.get("seq"), event.get("type"), event.get("subject"),
+         json.dumps(event.get("payload"), sort_keys=True, ensure_ascii=False))
+        for event in events if isinstance(event, dict)
+    }
+    expanded = []
+    for event in events:
+        expanded.append(event)
+        if not isinstance(event, dict) or event.get("type") != "move.ratified":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        effect = payload.get("effect")
+        if not (isinstance(effect, dict)
+                and set(effect) == {"event_type", "subject", "payload"}):
+            continue
+        identity = ((event.get("seq") + 1) if isinstance(event.get("seq"), int) else None,
+                    effect["event_type"], effect["subject"],
+                    json.dumps(effect["payload"], sort_keys=True, ensure_ascii=False))
+        if identity in materialized:
+            continue
+        expanded.append({"seq": event.get("seq"), "ts": event.get("ts"),
+                         "type": effect["event_type"], "subject": effect["subject"],
+                         "payload": effect["payload"], "recovered_from_move": payload.get("ref")})
+    return expanded
+
+
+def _current_move_target(proposal, log):
+    target_ulid = proposal.get("alvo")
+    entity = next((entity for entity in _lens_entities(read(log=log))
+                   if entity["ulid"] == target_ulid), None)
+    if entity is None:
+        return None
+    if entity["kind"] == "ticket":
+        return wayfinds_at(log=log)["tickets"].get(entity["full"])
+    if entity["kind"] == "map":
+        return wayfinds_at(log=log)["maps"].get(entity["full"])
+    if entity["kind"] == "atividade":
+        return atividades_at(log=log).get(entity["full"])
+    if entity["kind"] == "run":
+        return runs_at(log=log).get(entity["full"])
+    if entity["kind"] == "arco":
+        return arcos_at(log=log).get(entity["full"])
+    return {"ulid": target_ulid}
+
+
+def _bound_move_operation(proposal, operacao, log):
+    events = read(log=log)
+    target = _move_target(
+        proposal.get("kind"), proposal.get("alvo"), events, None)
+    actual = target.get("operacao")
+    if operacao is not None:
+        bound = _lens_operacao(operacao)
+        if actual != bound:
+            raise ValueError(
+                f"move target belongs to operacao {actual!r}, not explicit bind {bound!r}")
+    normalized = _validated_move_effect(
+        proposal.get("kind"), proposal.get("effect"), target, events)
+    if normalized != proposal.get("effect"):
+        raise ValueError("move effect no longer matches its canonical operation-bound target")
+    return actual, target
+
+
+def ratify_move(*, ref, rationale, dispatch_id, author, operacao=None, log=LOG):
+    """CAS-ratify a live move and materialize its exact embedded effect in one append batch."""
+    ref = _lens_nonblank(ref, "ref")
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier="asserted")
+    proposed = next((move for move in wayfinds_at(log=log)["moves"]["propostos"]
+                     if move.get("ulid") == ref), None)
+    if proposed is None:
+        raise ValueError(f"move {ref!r} is not in proposed state")
+    operation, target_entity = _bound_move_operation(proposed, operacao, log)
+    effect = json.loads(json.dumps(proposed["effect"], ensure_ascii=False))
+    ratification_payload = {"ref": ref, "effect": effect, "rationale": rationale,
+                            "dispatch_id": dispatch_id, "author": author,
+                            "operacao": operation, "alvo": target_entity["ulid"]}
+    ratification = ("move.ratified", f"move:{ref}", ratification_payload)
+    materialized = (effect["event_type"], effect["subject"], effect["payload"])
+
+    def _still_applicable():
+        current = next((move for move in wayfinds_at(log=log)["moves"]["propostos"]
+                        if move.get("ulid") == ref), None)
+        if current is None:
+            raise ValueError(f"move {ref!r} is no longer proposed (ratify/decline CAS)")
+        _bound_move_operation(current, operacao, log)
+        if current.get("basis_seq", -1) > _physical_len(log):
+            raise ValueError("move basis_seq is ahead of the current ledger")
+        target = _current_move_target(current, log)
+        expects = current.get("expects") if isinstance(current.get("expects"), dict) else {}
+        mismatches = {field: {"expected": expected,
+                              "actual": target.get(field) if isinstance(target, dict) else None}
+                      for field, expected in expects.items()
+                      if not isinstance(target, dict) or target.get(field) != expected}
+        if mismatches:
+            raise ValueError(f"stale move {ref!r}: current target state mismatches {mismatches}")
+
+    written = append_batch(
+        [ratification, materialized], log=log, precondition=_still_applicable,
+    )
+    return written[0], written[1]
+
+
+def decline_move(*, ref, reason, dispatch_id, author, pin=False, rationale=None,
+                 operacao=None, log=LOG):
+    """CAS-decline a live move; pin records its move_key in the fold, not merely its ULID."""
+    ref = _lens_nonblank(ref, "ref")
+    reason = _lens_nonblank(reason, "reason")
+    if not isinstance(pin, bool):
+        raise ValueError("`pin` must be a bool")
+    rationale = reason if rationale is None else rationale
+    rationale, dispatch_id, author = _wayfinder_curation(
+        rationale, dispatch_id, author, tier="asserted")
+    proposed = next((move for move in wayfinds_at(log=log)["moves"]["propostos"]
+                     if move.get("ulid") == ref), None)
+    if proposed is None:
+        raise ValueError(f"move {ref!r} is not in proposed state")
+    operation, target_entity = _bound_move_operation(proposed, operacao, log)
+    payload = {"ref": ref, "reason": reason, "pin": pin, "rationale": rationale,
+               "dispatch_id": dispatch_id, "author": author,
+               "operacao": operation, "alvo": target_entity["ulid"]}
+
+    def _still_proposed():
+        current = next((move for move in wayfinds_at(log=log)["moves"]["propostos"]
+                        if move.get("ulid") == ref), None)
+        if current is None:
+            raise ValueError(f"move {ref!r} is no longer proposed (ratify/decline CAS)")
+        _bound_move_operation(current, operacao, log)
+
+    return append_batch(
+        [("move.declined", f"move:{ref}", payload)],
+        log=log, precondition=_still_proposed,
+    )[0]
+
+
+def confirm_portfolio(*, rationale, dispatch_id, log=LOG):
+    """Record the explicit curated no-op for one exact mentor dispatch."""
+    rationale = _lens_nonblank(rationale, "rationale")
+    dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    return append("portfolio.confirmed", "portfolio",
+                  {"rationale": rationale, "dispatch_id": dispatch_id}, log=log)
+
+
+def portfolio_diff(dispatch_id, log=LOG):
+    """Return only gestures committed by one exact dispatch id, never a time-window guess."""
+    dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    events = read(log=log)
+    gestures = [event for event in events
+                if isinstance(event.get("payload"), dict)
+                and event["payload"].get("dispatch_id") == dispatch_id]
+    entities = {entity["ulid"]: entity for entity in _lens_entities(events)}
+    current_wayfinds = wayfinds_at(log=log)
+    result = {"abertos": [], "fechados": [], "reabertos": [],
+              "ativados": [], "pausados": [], "arquivados": [],
+              "moves_ratificados": [], "frontier_antes": {}, "frontier_depois": {},
+              "confirmed": []}
+    affected_maps = set()
+
+    def add_unique(field, value):
+        if value is not None and value not in result[field]:
+            result[field].append(value)
+
+    for event in gestures:
+        event_type = event.get("type")
+        payload = event["payload"]
+        entity = entities.get(payload.get("ref") or payload.get("ulid"))
+        full_ref = entity.get("full") if entity else None
+        if entity and entity.get("kind") == "ticket":
+            ticket_item = current_wayfinds["tickets"].get(full_ref)
+            parent = entities.get(ticket_item.get("map")) if ticket_item else None
+            if parent:
+                affected_maps.add(parent["full"])
+        if event_type == "ticket.opened":
+            add_unique("abertos", full_ref)
+            parent = entities.get(payload.get("map"))
+            if parent:
+                affected_maps.add(parent["full"])
+        elif event_type == "ticket.closed":
+            add_unique("fechados", full_ref)
+        elif event_type == "ticket.reopened":
+            add_unique("reabertos", full_ref)
+        elif event_type == "atividade.closed":
+            add_unique("fechados", full_ref)
+        elif event_type == "atividade.reopened":
+            add_unique("reabertos", full_ref)
+        elif event_type == "map.opened":
+            add_unique("ativados", full_ref)
+            if full_ref:
+                affected_maps.add(full_ref)
+        elif event_type == "map.state":
+            field = {"ativado": "ativados", "pausado": "pausados",
+                     "arquivado": "arquivados"}.get(payload.get("estado"))
+            if field:
+                add_unique(field, full_ref)
+            if full_ref:
+                affected_maps.add(full_ref)
+        elif event_type == "move.ratified":
+            add_unique("moves_ratificados", payload.get("ref"))
+            effect = payload.get("effect")
+            effect_payload = effect.get("payload") if isinstance(effect, dict) else None
+            effect_entity = (entities.get(effect_payload.get("ref"))
+                             if isinstance(effect_payload, dict) else None)
+            if effect_entity and effect_entity.get("kind") == "ticket":
+                ticket_item = current_wayfinds["tickets"].get(effect_entity["full"])
+                parent = entities.get(ticket_item.get("map")) if ticket_item else None
+                if parent:
+                    affected_maps.add(parent["full"])
+        elif event_type == "portfolio.confirmed":
+            result["confirmed"].append({"seq": event.get("seq"),
+                                        "rationale": payload.get("rationale")})
+    if gestures and affected_maps:
+        first_seq = min(event.get("seq", 0) for event in gestures)
+        last_seq = max(event.get("seq", 0) for event in gestures)
+        for map_ref in sorted(affected_maps):
+            try:
+                before = frontier_of(map_ref, seq=max(0, first_seq - 1), log=log)
+            except ValueError:
+                before = []
+            try:
+                after = frontier_of(map_ref, seq=last_seq, log=log)
+            except ValueError:
+                after = []
+            result["frontier_antes"][map_ref] = before
+            result["frontier_depois"][map_ref] = after
+    return result
+
+
+def hypothesize_claim(*, statement, origem_sessao, derivation_key, falsifier=None, log=LOG):
+    """Record a bounded rationalizer claim; absent falsifier means salience, not a debt."""
+    statement = _lens_nonblank(statement, "statement")
+    origem_sessao = _lens_nonblank(origem_sessao, "origem_sessao")
+    derivation_key = _lens_nonblank(derivation_key, "derivation_key")
+    if falsifier is not None:
+        falsifier = _validated_falsifier(falsifier)
+    ulid = _ulid()
+    payload = {"ulid": ulid, "statement": statement, "falsifier": falsifier,
+               "origem_sessao": origem_sessao, "derivation_key": derivation_key,
+               "tier": "llm_judged"}
+    return append("claim.hypothesized", f"claim:{ulid}", payload, log=log)
+
+
+def promote_claim(*, hypothesized, declared, log=LOG):
+    """Link an existing rationalizer claim to the declared hypothesis that ratified it."""
+    hypothesized = _lens_nonblank(hypothesized, "hypothesized")
+    declared = _lens_nonblank(declared, "declared")
+    claims = claims_at(log=log)
+    if hypothesized not in claims["hypothesized"]:
+        raise ValueError(f"no existing claim.hypothesized {hypothesized!r}")
+    if declared not in claims["declared"]:
+        raise ValueError(f"no existing hypothesis.declared {declared!r}")
+    payload = {"hypothesized": hypothesized, "declared": declared}
+    return append("claim.promoted", f"claim:{hypothesized}", payload, log=log)
+
+
+def raise_contest(*, alvo, evidencia, detalhe, author, operacao=None, log=LOG):
+    """Raise a contradiction backed by a real evidence grain; authority remains unchanged."""
+    detalhe = _lens_nonblank(detalhe, "detalhe")
+    author = _lens_nonblank(author, "author")
+    events = read(log=log)
+    target = _resolve_lens_ref(
+        alvo, events, operacao=operacao,
+        kinds={"atividade", "run", "arco", "ticket", "claim", "hypothesis"},
+    )
+    evidence = _resolve_lens_ref(
+        evidencia, events, operacao=target.get("operacao"),
+        kinds={"fato", "run", "atividade"},
+    )
+    if target["kind"] == "atividade":
+        state = atividades_at(log=log).get(target["full"], {}).get("estado")
+        if state in (None, "aberta", "reaberta"):
+            raise ValueError("contest `alvo` activity must be closed/curated")
+    elif target["kind"] == "run" and runs_at(log=log).get(target["full"], {}).get("fecho") is None:
+        raise ValueError("contest `alvo` run must be closed/curated")
+    elif target["kind"] == "arco" and arcos_at(log=log).get(target["full"], {}).get("fecho") is None:
+        raise ValueError("contest `alvo` arco must be closed/curated")
+    payload = {"alvo": target["ulid"], "evidencia": evidence["ulid"],
+               "detalhe": detalhe, "author": author}
+    return append("contest.raised", f"{target['kind']}:{target['ulid']}", payload, log=log)
+
+
+def adjudicate_contest(*, alvo, veredito, rationale, dispatch_id, author,
+                       sucessor=None, operacao=None, log=LOG):
+    """Adjudicate an open contest; `mantido` clears visibility without rewriting history."""
+    _lens_choice(veredito, "veredito", ("mantido", "corrigido"))
+    rationale = _lens_nonblank(rationale, "rationale")
+    dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
+    if author not in ("operador", "grill"):
+        raise ValueError("contest adjudication author must be operador or grill")
+    events = read(log=log)
+    target = _resolve_lens_ref(
+        alvo, events, operacao=operacao,
+        kinds={"atividade", "run", "arco", "ticket", "claim", "hypothesis"},
+    )
+    def _contest_is_open():
+        current_events = read(types=CONTEST_TYPES, log=log)
+        raised = [event for event in current_events if event.get("type") == "contest.raised"
+                  and isinstance(event.get("payload"), dict)
+                  and event["payload"].get("alvo") == target["ulid"]]
+        adjudicated = [event for event in current_events
+                       if event.get("type") == "contest.adjudicated"
+                       and isinstance(event.get("payload"), dict)
+                       and event["payload"].get("alvo") == target["ulid"]]
+        return bool(raised) and not (
+            adjudicated and adjudicated[-1].get("seq", -1) > raised[-1].get("seq", -1))
+
+    if not _contest_is_open():
+        raise ValueError(f"target {target['full'] or target['ulid']!r} is not contested")
+    if veredito == "corrigido" and sucessor is None:
+        raise ValueError("veredito='corrigido' requires `sucessor`")
+    if veredito == "mantido" and sucessor is not None:
+        raise ValueError("veredito='mantido' must not carry `sucessor`")
+    payload = {"alvo": target["ulid"], "veredito": veredito, "sucessor": None,
+               "rationale": rationale, "dispatch_id": dispatch_id, "author": author}
+    adjudication_tuple = (
+        "contest.adjudicated", f"{target['kind']}:{target['ulid']}", payload,
+    )
+    if veredito == "mantido":
+        def _still_open():
+            if not _contest_is_open():
+                raise ValueError("contest was already adjudicated by a concurrent writer")
+
+        return append_batch([adjudication_tuple], log=log, precondition=_still_open)[0]
+
+    if not isinstance(sucessor, dict):
+        raise ValueError("`sucessor` must be a same-batch event descriptor {type, subject, payload}")
+    successor_type = sucessor.get("type")
+    successor_subject = sucessor.get("subject")
+    successor_payload = sucessor.get("payload")
+    if (target["kind"] != "atividade" or successor_type != "atividade.closed"
+            or successor_subject != f"atividade:{target['ulid']}"
+            or not isinstance(successor_payload, dict)):
+        raise ValueError("corrected activity contest needs an atividade.closed successor descriptor")
+    successor_payload = dict(successor_payload)
+    if (successor_payload.get("ref") != target["ulid"]
+            or successor_payload.get("tier") != "asserted"
+            or successor_payload.get("author") not in ("operador", "grill")
+            or successor_payload.get("estado") not in _ACTIVITY_STATES):
+        raise ValueError("contest successor must be an asserted closure of the contested activity")
+    successor_payload["julgamento"] = _lens_nonblank(
+        successor_payload.get("julgamento"), "sucessor.julgamento")
+    successor_payload["rationale"] = _lens_nonblank(
+        successor_payload.get("rationale"), "sucessor.rationale")
+    successor_payload["dispatch_id"] = _lens_nonblank(
+        successor_payload.get("dispatch_id"), "sucessor.dispatch_id")
+    if successor_payload["estado"] == "superada_por":
+        _resolve_lens_ref(successor_payload.get("superada_por"), events,
+                          operacao=target["operacao"], kinds={"atividade"})
+    elif successor_payload.get("superada_por") is not None:
+        raise ValueError("successor `superada_por` is only valid for estado='superada_por'")
+
+    def _still_open_and_bind_successor():
+        if not _contest_is_open():
+            raise ValueError("contest was already adjudicated by a concurrent writer")
+        payload["sucessor"] = _physical_len(log) + 1
+
+    return append_batch(
+        [(successor_type, successor_subject, successor_payload), adjudication_tuple],
+        log=log, precondition=_still_open_and_bind_successor,
+    )
+
+
+def _foldable_hypothesized_claim(payload):
+    if not (
+        isinstance(payload.get("ulid"), str) and payload["ulid"]
+        and isinstance(payload.get("statement"), str) and payload["statement"].strip()
+        and isinstance(payload.get("origem_sessao"), str) and payload["origem_sessao"].strip()
+        and isinstance(payload.get("derivation_key"), str) and payload["derivation_key"].strip()
+        and payload.get("tier") == "llm_judged"
+    ):
+        return False
+    falsifier = payload.get("falsifier")
+    if falsifier is None:
+        return True
+    try:
+        return _validated_falsifier(falsifier) == falsifier
+    except ValueError:
+        return False
+
+
+def fold_claims(events):
+    """Pure claim fold over one caller-owned event snapshot; malformed rows fail dark."""
+    events = _events_with_embedded_move_effects(
+        event for event in events if isinstance(event, dict))
+    declared = fold_hypotheses([event for event in events
+                                if event.get("type") in HYPOTHESIS_TYPES])
+    for item in declared.values():
+        item.update({"contested": False, "contests": [], "adjudications": []})
+    hypothesized = {}
+    promoted = {}
+    contested = []
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event.get("type") == "claim.hypothesized" and _foldable_hypothesized_claim(payload):
+            item = dict(payload)
+            item.update({"promoted_to": None, "contested": False,
+                         "created_at": event.get("ts")})
+            hypothesized[payload["ulid"]] = item
+        elif event.get("type") == "claim.promoted":
+            source, target = payload.get("hypothesized"), payload.get("declared")
+            if source in hypothesized and target in declared:
+                hypothesized[source]["promoted_to"] = target
+                promoted[source] = target
+        elif event.get("type") == "contest.raised":
+            target = payload.get("alvo")
+            item = declared.get(target) or hypothesized.get(target)
+            if item is not None:
+                item["contested"] = True
+                item["contests"].append({**payload, "seq": event.get("seq"),
+                                          "ts": event.get("ts")})
+                if target not in contested:
+                    contested.append(target)
+        elif event.get("type") == "contest.adjudicated":
+            target = payload.get("alvo")
+            item = declared.get(target) or hypothesized.get(target)
+            if item is not None and payload.get("veredito") in ("mantido", "corrigido"):
+                item["contested"] = False
+                item["adjudications"].append({**payload, "seq": event.get("seq"),
+                                               "ts": event.get("ts")})
+                if target in contested:
+                    contested.remove(target)
+    return {"declared": declared, "hypothesized": hypothesized,
+            "promoted": promoted, "contested": contested}
+
+
+def claims_at(seq=None, ts=None, log=LOG):
+    """Fold declared and hypothesized claims, retaining promotions and contest visibility."""
+    return fold_claims(read(
+        types=CLAIM_TYPES + CONTEST_TYPES + ["move.ratified"],
+        until_seq=seq, until_ts=ts, log=log))
+
+
+def fold_presumptions(events):
+    """Pure epistemic dependency graph over one event snapshot; performs zero I/O."""
+    events = [event for event in events if isinstance(event, dict)]
+    claims = fold_claims(events)
+    session_operations = {}
+    for event in events:
+        if event.get("type") != "sessao.racionalizada":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        session = payload.get("sessao_id")
+        operations = payload.get("operacoes")
+        if (isinstance(session, str) and isinstance(operations, list)
+                and all(isinstance(operation, str) and _OPERACAO_RE.fullmatch(operation)
+                        for operation in operations)):
+            session_operations[session] = sorted(set(operations))
+    nodes = {}
+    for ulid, claim in claims["declared"].items():
+        if claim.get("falsifier") is not None:
+            nodes[f"claim:{ulid}"] = {"kind": "claim", "ref": ulid,
+                                       "eval": claim["falsifier"], "depends_on": [],
+                                       "operacoes": []}
+    for ulid, claim in claims["hypothesized"].items():
+        if claim.get("falsifier") is not None:
+            nodes[f"claim:{ulid}"] = {
+                "kind": "claim", "ref": ulid, "eval": claim["falsifier"],
+                "depends_on": [],
+                "operacoes": list(session_operations.get(claim.get("origem_sessao"), [])),
+            }
+
+    facts_by_full = {}
+    facts_by_run = {}
+    direct_facts_by_activity = {}
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event.get("type") != "fato.observed" or not _foldable_fact_observed(payload):
+            continue
+        full_ref = f"{payload['operacao']}/{payload['num']}"
+        key = f"fato:{payload['ulid']}"
+        facts_by_full[full_ref] = key
+        if payload.get("medida") is not None:
+            nodes[key] = {"kind": "fato", "ref": full_ref, "eval": payload["medida"],
+                          "body": payload["body"], "depends_on": [],
+                          "operacoes": [payload["operacao"]]}
+        if isinstance(payload.get("run"), str):
+            facts_by_run.setdefault(payload["run"], []).append(key)
+        else:
+            direct_facts_by_activity.setdefault(payload["atividade"], []).append(key)
+
+    runs = fold_runs(events)
+    run_key_by_full = {}
+    for full_ref, run in runs.items():
+        key = f"run:{run['ulid']}"
+        run_key_by_full[full_ref] = key
+        nodes[key] = {
+            "kind": "run", "ref": full_ref, "eval": run["eval"],
+            "resultado": run.get("resultado"),
+            "bears_on": (run.get("fecho") or {}).get("bears_on", []),
+            "operacoes": [run["operacao"]],
+            "depends_on": list(dict.fromkeys(
+                fact_key for fact_key in facts_by_run.get(run["ulid"], [])
+                if fact_key in nodes
+            )),
+        }
+
+    activities = fold_atividades(events)
+    activity_key_by_ulid = {}
+    activities_by_arc = {}
+    for full_ref, activity in activities.items():
+        key = f"atividade:{activity['ulid']}"
+        activity_key_by_ulid[activity["ulid"]] = key
+        dependencies = [run_key_by_full[run_ref] for run_ref in activity["runs"]
+                        if run_ref in run_key_by_full]
+        dependencies.extend(
+            fact_key for fact_key in direct_facts_by_activity.get(activity["ulid"], [])
+            if fact_key in nodes
+        )
+        nodes[key] = {
+            "kind": "atividade", "ref": full_ref,
+            "eval": activity.get("eval") or {"regua": activity["finalidade"]},
+            "estado": activity["estado"],
+            "operacoes": [activity["operacao"]],
+            "depends_on": list(dict.fromkeys(dependencies)),
+        }
+        if isinstance(activity.get("arco"), str):
+            activities_by_arc.setdefault(activity["arco"], []).append(key)
+        for bearing in activity.get("bears_on", []):
+            claim_node = nodes.get(f"claim:{bearing.get('alvo')}")
+            if claim_node is not None:
+                claim_node["operacoes"] = sorted(set(
+                    claim_node.get("operacoes", []) + [activity["operacao"]]
+                ))
+
+    wayfinds = fold_wayfinds(events)
+    for ticket in wayfinds["tickets"].values():
+        claim_node = nodes.get(f"claim:{ticket.get('inscricao')}")
+        if claim_node is not None:
+            claim_node["operacoes"] = sorted(set(
+                claim_node.get("operacoes", []) + [ticket["operacao"]]
+            ))
+
+    arcs = fold_arcos(events)
+    arc_roots = []
+    for full_ref, arc in arcs.items():
+        key = f"arco:{arc['ulid']}"
+        nodes[key] = {
+            "kind": "arco", "ref": full_ref,
+            "eval": ({"valencia": arc["valencia"], "julgamento": arc["julgamento"]}
+                     if arc.get("fecho") is not None else None),
+            "depends_on": list(dict.fromkeys(activities_by_arc.get(arc["ulid"], []))),
+            "operacoes": [arc["operacao"]],
+        }
+        arc_roots.append(key)
+
+    session_roots = []
+    for event in events:
+        if event.get("type") != "sessao.racionalizada":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        epistemic = payload.get("epistemico")
+        presumptions = epistemic.get("presuncoes") if isinstance(epistemic, dict) else None
+        if not isinstance(presumptions, list):
+            continue
+        session_identity = payload.get("rationalization_id") or payload.get("sessao_id") or event.get("seq")
+        for index, presumption in enumerate(presumptions):
+            if not isinstance(presumption, dict):
+                continue
+            text = presumption.get("texto")
+            confirms, refutes = presumption.get("confirmaria"), presumption.get("refutaria")
+            if not all(isinstance(value, str) and value.strip()
+                       for value in (text, confirms, refutes)):
+                continue
+            key = f"sessao:{session_identity}:presuncao:{index}"
+            dependency = presumption.get("depende_de")
+            depends_on = []
+            if isinstance(dependency, str):
+                if dependency in run_key_by_full:
+                    depends_on = [run_key_by_full[dependency]]
+                elif dependency in facts_by_full:
+                    depends_on = [facts_by_full[dependency]]
+            nodes[key] = {
+                "kind": "presuncao", "ref": key, "texto": text.strip(),
+                "eval": {"confirmaria": confirms.strip(), "refutaria": refutes.strip()},
+                "depends_on": depends_on,
+                "operacoes": list(session_operations.get(payload.get("sessao_id"), [])),
+            }
+            session_roots.append(key)
+
+    activity_roots = [key for ulid, key in activity_key_by_ulid.items()
+                      if ulid not in {activity["ulid"] for activity in activities.values()
+                                     if isinstance(activity.get("arco"), str)}]
+    claim_roots = [key for key, node in nodes.items() if node["kind"] == "claim"]
+    roots = list(dict.fromkeys(claim_roots + session_roots + arc_roots + activity_roots))
+    return {"nodes": nodes, "roots": roots}
+
+
+def presumptions_at(seq=None, ts=None, log=LOG):
+    """Epistemic dependency graph. Organizational metadata is deliberately never inspected."""
+    return fold_presumptions(read(until_seq=seq, until_ts=ts, log=log))
+
+
+def _foldable_activity_open(payload):
+    """Semantic read-side gate: malformed truth stays in the ledger but not in the projection."""
+    ulid, num = payload.get("ulid"), payload.get("num")
+    operation, purpose = payload.get("operacao"), payload.get("finalidade")
+    tier, author = payload.get("tier"), payload.get("author")
+    if not (isinstance(ulid, str) and ulid
+            and isinstance(num, str) and re.fullmatch(r"atv-\d+", num)
+            and isinstance(operation, str) and _OPERACAO_RE.fullmatch(operation)
+            and isinstance(purpose, str) and purpose.strip()
+            and tier in _LENS_TIERS and author in _ACTIVITY_AUTHORS):
+        return False
+    if ((tier == "asserted" and author not in ("operador", "grill"))
+            or (tier == "llm_judged" and author != "racionalizador")):
+        return False
+    if tier == "llm_judged" and not (
+            isinstance(payload.get("origem_sessao"), str) and payload["origem_sessao"].strip()
+            and isinstance(payload.get("derivation_key"), str)
+            and payload["derivation_key"].strip()):
+        return False
+    evaluation = payload.get("eval")
+    if evaluation is not None and not (
+            isinstance(evaluation, dict)
+            and isinstance(evaluation.get("regua"), str) and evaluation["regua"].strip()):
+        return False
+    type_ref = payload.get("tipo_ref")
+    return type_ref is None or (isinstance(type_ref, str) and _TIPO_REF_RE.fullmatch(type_ref))
+
+
+def _foldable_map_open(payload):
+    tier, author = payload.get("tier"), payload.get("author")
+    if not (
+        isinstance(payload.get("ulid"), str) and payload["ulid"]
+        and isinstance(payload.get("num"), str) and re.fullmatch(r"map-\d+", payload["num"])
+        and isinstance(payload.get("operacao"), str) and _OPERACAO_RE.fullmatch(payload["operacao"])
+        and all(isinstance(payload.get(field), str) and payload[field].strip()
+                for field in ("titulo", "rationale", "dispatch_id"))
+        and tier in _LENS_TIERS and isinstance(author, str) and author.strip()
+        and ((tier == "asserted" and author in ("operador", "grill"))
+             or (tier == "llm_judged" and author in ("edge", "racionalizador")))
+    ):
+        return False
+    thread = payload.get("thread")
+    return thread is None or (
+        isinstance(thread, dict)
+        and all(isinstance(thread.get(field), str) and thread[field].strip()
+                for field in ("uuid", "display"))
+    )
+
+
+def _foldable_ticket_open(payload):
+    tier, author = payload.get("tier"), payload.get("author")
+    return bool(
+        isinstance(payload.get("ulid"), str) and payload["ulid"]
+        and isinstance(payload.get("num"), str) and re.fullmatch(r"tkt-\d+", payload["num"])
+        and isinstance(payload.get("map"), str) and payload["map"]
+        and all(isinstance(payload.get(field), str) and payload[field].strip()
+                for field in ("titulo", "question", "rationale", "dispatch_id"))
+        and tier in _LENS_TIERS and isinstance(author, str) and author.strip()
+        and ((tier == "asserted" and author in ("operador", "grill"))
+             or (tier == "llm_judged" and author in ("edge", "racionalizador")))
+        and isinstance(payload.get("blocked_by", []), list)
+        and all(isinstance(ref, str) and ref for ref in payload.get("blocked_by", []))
+        and (payload.get("inscricao") is None or isinstance(payload.get("inscricao"), str))
+        and (payload.get("annotations") is None or isinstance(payload.get("annotations"), dict))
+    )
+
+
+def _foldable_run_open(payload):
+    required = (payload.get("ulid"), payload.get("num"), payload.get("operacao"))
+    if not (all(isinstance(value, str) and value for value in required)
+            and re.fullmatch(r"run-\d+", payload["num"])
+            and _OPERACAO_RE.fullmatch(payload["operacao"])
+            and payload.get("tier") in _LENS_TIERS
+            and isinstance(payload.get("atividades"), list) and payload["atividades"]
+            and all(isinstance(ref, str) and ref for ref in payload["atividades"])
+            and isinstance(payload.get("config"), dict) and payload["config"]
+            and (payload.get("leva") is None
+                 or (isinstance(payload.get("leva"), str)
+                     and payload["leva"].strip()))):
+        return False
+    evaluation = payload.get("eval")
+    if not (isinstance(evaluation, dict)
+            and isinstance(evaluation.get("metric"), str) and evaluation["metric"].strip()
+            and isinstance(evaluation.get("predicao"), str) and evaluation["predicao"].strip()):
+        return False
+    normalized = {"metric": evaluation["metric"].strip(),
+                  "predicao": evaluation["predicao"].strip()}
+    expected_hash = hashlib.sha256(json.dumps(
+        normalized, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
+    if payload.get("prediction_hash") != expected_hash:
+        return False
+    if payload["tier"] == "llm_judged" and not (
+            isinstance(payload.get("derivation_key"), str)
+            and payload["derivation_key"].strip()):
+        return False
+    return isinstance(payload.get("nao_mede", []), list)
+
+
+def _foldable_arco_open(payload):
+    tier, author = payload.get("tier"), payload.get("author")
+    return bool(
+        isinstance(payload.get("ulid"), str) and payload["ulid"]
+        and isinstance(payload.get("num"), str) and re.fullmatch(r"arc-\d+", payload["num"])
+        and isinstance(payload.get("operacao"), str) and _OPERACAO_RE.fullmatch(payload["operacao"])
+        and isinstance(payload.get("nome"), str) and payload["nome"].strip()
+        and tier in _LENS_TIERS and author in _ACTIVITY_AUTHORS
+        and ((tier == "asserted" and author in ("operador", "grill"))
+             or (tier == "llm_judged" and author == "racionalizador"))
+    )
+
+
+def _foldable_fact_observed(payload):
+    if not (
+        isinstance(payload.get("ulid"), str) and payload["ulid"]
+        and isinstance(payload.get("num"), str) and re.fullmatch(r"fat-\d+", payload["num"])
+        and isinstance(payload.get("operacao"), str) and _OPERACAO_RE.fullmatch(payload["operacao"])
+        and isinstance(payload.get("atividade"), str) and payload["atividade"]
+        and isinstance(payload.get("body"), str) and payload["body"].strip()
+        and payload.get("tier") in _LENS_TIERS
+        and (payload.get("run") is None or isinstance(payload.get("run"), str))
+        and (payload.get("leva") is None
+             or (isinstance(payload.get("leva"), str) and payload["leva"].strip()))
+    ):
+        return False
+    measurement = payload.get("medida")
+    return measurement is None or (
+        isinstance(measurement, dict) and "valor" in measurement
+        and isinstance(measurement.get("como"), str) and measurement["como"].strip()
+    )
+
+
+def _foldable_instrument_failure(payload):
+    return all(
+        isinstance(payload.get(field), str) and payload[field].strip()
+        for field in ("instrumento", "leva", "detalhe")
+    )
+
+
+def _suspect_batches(events):
+    return {
+        event["payload"]["leva"]
+        for event in events
+        if isinstance(event, dict) and event.get("type") == "instrumento.falhou"
+        and isinstance(event.get("payload"), dict)
+        and _foldable_instrument_failure(event["payload"])
+    }
+
+
+def fold_atividades(events):
+    """Pure, fail-dark activity fold; conversation-facing keys are full operation/num refs."""
+    events = _events_with_embedded_move_effects(events)
+    activities = {}
+    by_ulid = {}
+    rationalizations = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event_type == "atividade.opened":
+            if not _foldable_activity_open(payload):
+                continue
+            ulid, num = payload.get("ulid"), payload.get("num")
+            operacao, finalidade = payload.get("operacao"), payload.get("finalidade")
+            if not all(isinstance(value, str) and value for value in
+                       (ulid, num, operacao, finalidade)):
+                continue
+            full_ref = f"{operacao}/{num}"
+            item = {
+                "ref": full_ref, "ulid": ulid, "num": num, "operacao": operacao,
+                "finalidade": finalidade, "eval": payload.get("eval"),
+                "arco": payload.get("arco"), "tipo_ref": payload.get("tipo_ref"),
+                "estado": "aberta", "fechos": [], "fecho": None, "toques": [],
+                "files": [], "enderecos": [], "novo": [], "bears_on": [], "runs": [],
+                "fatos": [], "contests": [], "adjudications": [],
+                "contested": False, "admissibilidade": None, "tier": payload.get("tier"),
+                "sessoes_sem_toque": 0, "_opened_seq": event.get("seq"), "_state_events": [],
+                "_arco_events": ([{"arco": payload.get("arco"), "tier": payload.get("tier"),
+                                   "seq": event.get("seq") if isinstance(event.get("seq"), int)
+                                   else -1}] if isinstance(payload.get("arco"), str) else []),
+            }
+            activities[full_ref] = item
+            by_ulid[ulid] = item
+        elif event_type == "atividade.touched":
+            item = by_ulid.get(payload.get("ref"))
+            sessao = payload.get("sessao")
+            if item is None or not isinstance(sessao, str):
+                continue
+            touch = dict(payload)
+            touch.update({"seq": event.get("seq"), "ts": event.get("ts")})
+            item["toques"].append(touch)
+            novo = payload.get("novo")
+            if isinstance(novo, str) and novo:
+                item["novo"].append(novo)
+            paths = payload.get("files")
+            if isinstance(paths, list):
+                for path in paths:
+                    if isinstance(path, str) and path not in item["files"]:
+                        item["files"].append(path)
+        elif event_type == "atividade.closed":
+            item = by_ulid.get(payload.get("ref"))
+            if (item is None or payload.get("estado") not in _ACTIVITY_STATES
+                    or payload.get("tier") not in _LENS_TIERS):
+                continue
+            closure = dict(payload)
+            closure.update({"seq": event.get("seq") if isinstance(event.get("seq"), int) else -1,
+                            "ts": event.get("ts")})
+            item["fechos"].append(closure)
+            item["fecho"] = max(
+                item["fechos"],
+                key=lambda candidate: (
+                    1 if candidate.get("tier") == "asserted" else 0,
+                    candidate.get("seq") if isinstance(candidate.get("seq"), int) else -1,
+                ),
+            )
+            item["_state_events"].append({"estado": closure["estado"],
+                                          "tier": closure["tier"], "seq": closure["seq"]})
+            item["estado"] = max(
+                item["_state_events"],
+                key=lambda candidate: (1 if candidate["tier"] == "asserted" else 0,
+                                       candidate["seq"]),
+            )["estado"]
+        elif event_type == "atividade.reopened":
+            item = by_ulid.get(payload.get("ref"))
+            if (item is None or payload.get("tier") not in _LENS_TIERS
+                    or not isinstance(payload.get("motivo"), str)):
+                continue
+            item["_state_events"].append({
+                "estado": "reaberta", "tier": payload["tier"],
+                "seq": event.get("seq") if isinstance(event.get("seq"), int) else -1,
+            })
+            item["estado"] = max(
+                item["_state_events"],
+                key=lambda candidate: (1 if candidate["tier"] == "asserted" else 0,
+                                       candidate["seq"]),
+            )["estado"]
+        elif event_type == "atividade.bears_on":
+            item = by_ulid.get(payload.get("ref"))
+            if item is None or payload.get("valencia") not in _BEARING_VALENCES:
+                continue
+            bearing = dict(payload)
+            bearing.update({"seq": event.get("seq"), "ts": event.get("ts")})
+            item["bears_on"].append(bearing)
+        elif event_type == "run.opened":
+            if not _foldable_run_open(payload):
+                continue
+            ulid, num, operation = payload.get("ulid"), payload.get("num"), payload.get("operacao")
+            parents = payload.get("atividades")
+            if not (isinstance(ulid, str) and isinstance(num, str)
+                    and isinstance(operation, str) and isinstance(parents, list)):
+                continue
+            run_ref = f"{operation}/{num}"
+            for parent in parents:
+                item = by_ulid.get(parent)
+                if item is not None and run_ref not in item["runs"]:
+                    item["runs"].append(run_ref)
+        elif event_type == "fato.observed":
+            if not _foldable_fact_observed(payload):
+                continue
+            item = by_ulid.get(payload.get("atividade"))
+            ulid, num, operation = payload.get("ulid"), payload.get("num"), payload.get("operacao")
+            if (item is None or not isinstance(ulid, str) or not isinstance(num, str)
+                    or not isinstance(operation, str)):
+                continue
+            fact_ref = f"{operation}/{num}"
+            if fact_ref not in item["fatos"]:
+                item["fatos"].append(fact_ref)
+        elif event_type == "arco.moved":
+            item = by_ulid.get(payload.get("ref"))
+            if (item is None or not isinstance(payload.get("arco_novo"), str)
+                    or payload.get("tier") not in _LENS_TIERS):
+                continue
+            item["_arco_events"].append({
+                "arco": payload["arco_novo"], "tier": payload["tier"],
+                "seq": event.get("seq") if isinstance(event.get("seq"), int) else -1,
+            })
+            item["arco"] = max(
+                item["_arco_events"],
+                key=lambda candidate: (1 if candidate["tier"] == "asserted" else 0,
+                                       candidate["seq"]),
+            )["arco"]
+        elif event_type == "contest.raised":
+            item = by_ulid.get(payload.get("alvo"))
+            if (item is None or not isinstance(payload.get("evidencia"), str)
+                    or not isinstance(payload.get("detalhe"), str)):
+                continue
+            contest = dict(payload)
+            contest.update({"seq": event.get("seq"), "ts": event.get("ts")})
+            item["contests"].append(contest)
+            item["contested"] = True
+        elif event_type == "contest.adjudicated":
+            item = by_ulid.get(payload.get("alvo"))
+            if item is None or payload.get("veredito") not in ("mantido", "corrigido"):
+                continue
+            adjudication = dict(payload)
+            adjudication.update({"seq": event.get("seq"), "ts": event.get("ts")})
+            item["adjudications"].append(adjudication)
+            item["contested"] = False
+        elif event_type == "sessao.racionalizada":
+            operations = payload.get("operacoes")
+            session = payload.get("sessao_id")
+            if (isinstance(operations, list) and isinstance(session, str)
+                    and isinstance(event.get("seq"), int)):
+                rationalizations.append({"seq": event["seq"], "ts": event.get("ts"),
+                                         "sessao": session, "operacoes": operations})
+            organizational = payload.get("organizacional")
+            addresses = organizational.get("enderecos") if isinstance(organizational, dict) else None
+            if isinstance(addresses, list):
+                for raw_address in addresses:
+                    if not isinstance(raw_address, dict):
+                        continue
+                    activity_ref, path = raw_address.get("atividade"), raw_address.get("path")
+                    if isinstance(activity_ref, dict):
+                        op, num = activity_ref.get("operacao"), activity_ref.get("num")
+                        activity_ref = f"{op}/{num}" if isinstance(op, str) and isinstance(num, str) else None
+                    item = (by_ulid.get(activity_ref) if isinstance(activity_ref, str) else None)
+                    if item is None and isinstance(activity_ref, str):
+                        item = activities.get(activity_ref)
+                    if item is None or not (isinstance(path, str) and path.strip()):
+                        continue
+                    address = dict(raw_address)
+                    address.update({"atividade": item["ulid"], "path": path.strip(),
+                                    "stale": False, "seq": event.get("seq"),
+                                    "ts": event.get("ts"), "sessao": session})
+                    for previous in item["enderecos"]:
+                        if previous.get("path") != address["path"]:
+                            continue
+                        hash_changed = (isinstance(previous.get("sha256"), str)
+                                        and isinstance(address.get("sha256"), str)
+                                        and previous["sha256"] != address["sha256"])
+                        stat_changed = (previous.get("stat") is not None
+                                        and address.get("stat") is not None
+                                        and previous["stat"] != address["stat"])
+                        if hash_changed or stat_changed:
+                            previous["stale"] = True
+                    item["enderecos"].append(address)
+                    if address["path"] not in item["files"]:
+                        item["files"].append(address["path"])
+    session_ts = {row["sessao"]: row["ts"] for row in rationalizations}
+    for item in activities.values():
+        touched_sessions = {touch["sessao"] for touch in item["toques"]}
+        last_touch_seq = max(
+            (touch["seq"] for touch in item["toques"] if isinstance(touch.get("seq"), int)),
+            default=item.pop("_opened_seq", -1),
+        )
+        item["sessoes_sem_toque"] = sum(
+            1 for row in rationalizations
+            if row["seq"] > last_touch_seq
+            and item["operacao"] in row["operacoes"]
+            and row["sessao"] not in touched_sessions
+        )
+        for touch in item["toques"]:
+            touch["racionalizada_ts"] = session_ts.get(touch["sessao"])
+            touch["sessao_racionalizada"] = {
+                "ts": session_ts[touch["sessao"]]
+            } if touch["sessao"] in session_ts else None
+        item.pop("_state_events", None)
+        item.pop("_arco_events", None)
+    return activities
+
+
+def atividades_at(seq=None, ts=None, log=LOG):
+    """Fold activity events up to a cursor, preserving historical touches and closures."""
+    types = ATIVIDADE_TYPES + RUN_TYPES + FATO_TYPES + ARCO_TYPES + CONTEST_TYPES + ["move.ratified"]
+    return fold_atividades(read(types=types, until_seq=seq, until_ts=ts, log=log))
+
+
+def fold_runs(events):
+    """Pure run fold keyed by full operation/num refs; corrupt rows do not project."""
+    events = _events_with_embedded_move_effects(events)
+    suspect_batches = _suspect_batches(events)
+    runs = {}
+    by_ulid = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event_type == "run.opened":
+            if not _foldable_run_open(payload):
+                continue
+            ref = f"{payload['operacao']}/{payload['num']}"
+            item = dict(payload)
+            item.update({"ref": ref, "primaria": payload["atividades"][0],
+                         "fechos": [], "fecho": None, "resultado": None,
+                         "admissibilidade": None})
+            runs[ref] = item
+            by_ulid[payload["ulid"]] = item
+        elif event_type == "run.closed":
+            item = by_ulid.get(payload.get("ref"))
+            if (item is None or payload.get("tier") not in _LENS_TIERS
+                    or not isinstance(payload.get("resultado"), str)):
+                continue
+            closure = dict(payload)
+            closure.update({"seq": event.get("seq") if isinstance(event.get("seq"), int) else -1,
+                            "ts": event.get("ts")})
+            item["fechos"].append(closure)
+            item["fecho"] = max(
+                item["fechos"],
+                key=lambda candidate: (1 if candidate.get("tier") == "asserted" else 0,
+                                       candidate["seq"]),
+            )
+            item["resultado"] = item["fecho"]["resultado"]
+    for item in runs.values():
+        if item.get("leva") in suspect_batches:
+            item["admissibilidade"] = "suspeita"
+    return runs
+
+
+def runs_at(seq=None, ts=None, log=LOG):
+    """Fold run events up to a seq/UTC timestamp cursor."""
+    return fold_runs(read(types=RUN_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
+def fold_fatos(events):
+    """Pure fact fold keyed by full operation/num refs, including batch admissibility."""
+    suspect_batches = _suspect_batches(events)
+    facts = {}
+    for event in events:
+        if not isinstance(event, dict) or event.get("type") != "fato.observed":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if not _foldable_fact_observed(payload):
+            continue
+        ref = f"{payload['operacao']}/{payload['num']}"
+        item = dict(payload)
+        item.update({
+            "ref": ref,
+            "admissibilidade": (
+                "suspeita" if payload.get("leva") in suspect_batches else None
+            ),
+        })
+        facts[ref] = item
+    return facts
+
+
+def fatos_at(seq=None, ts=None, log=LOG):
+    """Fold fact events up to a seq/UTC timestamp cursor."""
+    return fold_fatos(read(types=FATO_TYPES, until_seq=seq, until_ts=ts, log=log))
+
+
+def fold_arcos(events):
+    """Pure arc fold with an amendable, tier-precedent verdict owned by each arc."""
+    events = _events_with_embedded_move_effects(events)
+    arcs = {}
+    by_ulid = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event_type == "arco.opened":
+            if not _foldable_arco_open(payload):
+                continue
+            ref = f"{payload['operacao']}/{payload['num']}"
+            item = dict(payload)
+            item.update({"ref": ref, "fechos": [], "fecho": None,
+                         "valencia": None, "julgamento": None})
+            arcs[ref] = item
+            by_ulid[payload["ulid"]] = item
+        elif event_type == "arco.closed":
+            item = by_ulid.get(payload.get("ref"))
+            if (item is None or payload.get("tier") not in _LENS_TIERS
+                    or payload.get("valencia") not in _BEARING_VALENCES):
+                continue
+            closure = dict(payload)
+            closure.update({"seq": event.get("seq") if isinstance(event.get("seq"), int) else -1,
+                            "ts": event.get("ts")})
+            item["fechos"].append(closure)
+            item["fecho"] = max(
+                item["fechos"],
+                key=lambda candidate: (1 if candidate["tier"] == "asserted" else 0,
+                                       candidate["seq"]),
+            )
+            item["valencia"] = item["fecho"]["valencia"]
+            item["julgamento"] = item["fecho"]["julgamento"]
+    return arcs
+
+
+def arcos_at(seq=None, ts=None, log=LOG):
+    """Fold arc events up to a seq/UTC timestamp cursor."""
+    return fold_arcos(read(types=ARCO_TYPES + ["move.ratified"],
+                           until_seq=seq, until_ts=ts, log=log))
+
+
+def fold_marcos(events):
+    """Latest curated stable landmark per operation; malformed pointers fail dark."""
+    entities = {entity["ulid"]: entity for entity in _lens_entities(events)}
+    landmarks = {}
+    for event in events:
+        if not isinstance(event, dict) or event.get("type") != "marco.set":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        operation, target_ulid = payload.get("operacao"), payload.get("ref")
+        target = entities.get(target_ulid)
+        if (not isinstance(operation, str) or target is None
+                or target.get("operacao") != operation):
+            continue
+        landmarks[operation] = {
+            "operacao": operation, "ref": target["full"], "ulid": target_ulid,
+            "nota": payload.get("nota"), "rationale": payload.get("rationale"),
+            "dispatch_id": payload.get("dispatch_id"), "author": payload.get("author"),
+            "seq": event.get("seq"), "ts": event.get("ts"),
+        }
+    return landmarks
+
+
+def marco_of(operacao, seq=None, ts=None, log=LOG):
+    """Return one operation's latest stable landmark, independently of computed frontier."""
+    operation = _lens_operacao(operacao)
+    return fold_marcos(read(until_seq=seq, until_ts=ts, log=log)).get(operation)
+
+
+DOC_TYPES = ["doc.injected", "doc.retired", "canon.elected", "canon.retired"]
+CANON_KINDS = ("md", "artefato", "experimento", "map")
+
+
+def fold_docs(events):
+    """Pure fold of md-to-mem events (issue #130) → {'live': [...], 'canon': [...]}. Two independent
+    tiers over the SAME log, seq order (padrão objective_at/direction_at):
+
+      - `doc.injected` abre um doc VIVO keyed by slug (body verbatim NO evento — replay/prune-safe);
+        `doc.retired` o retira da janela sem apagar (o log preserva — I2). Body vive no evento;
+        state/docs/<slug>.md é projeção.
+      - `canon.elected` marca um objeto {kind: md|artefato|experimento, ref} como canônico;
+        `canon.retired` o des-elege. Standing, não carregamento (I8): a janela lê o mark, a
+        pesquisa decide o que sobe. NENHUM TTL — duração = canônico até canon.retired.
+
+    Fail-dark sobre log corrompido: um payload não-dict simplesmente não folda (mesmo espírito de
+    fold_direction). `slug`/`ref` ausentes = não-foldável."""
+    live = {}   # slug -> doc item
+    canon = {}  # (kind, ref) -> canon item
+    for e in events:
+        t = e.get("type")
+        p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        if t == "doc.injected":
+            slug = p.get("slug")
+            if not isinstance(slug, str):
+                continue
+            live[slug] = {"slug": slug, "body": p.get("body", ""), "threads": p.get("threads") or [],
+                          "sha256": p.get("sha256"), "author": p.get("author"), "ts": e.get("ts")}
+        elif t == "doc.retired":
+            live.pop(p.get("slug"), None)
+        elif t == "canon.elected":
+            kind, ref = p.get("kind"), p.get("ref")
+            if kind not in CANON_KINDS or not isinstance(ref, str):
+                continue
+            canon[(kind, ref)] = {"kind": kind, "ref": ref, "thread": p.get("thread"),
+                                  "ts": e.get("ts")}
+        elif t == "canon.retired":
+            canon.pop((p.get("kind"), p.get("ref")), None)
+    return {"live": list(live.values()), "canon": list(canon.values())}
+
+
+def docs_at(seq=None, ts=None, log=LOG):
+    """Fold md-to-mem events up to a cursor → {'live':[...], 'canon':[...]} (issue #130). Pure:
+    replaying to a past cursor reconstructs that past — strategic versioning, as direction_at.
+    Empty → {'live': [], 'canon': []}."""
+    return fold_docs(read(types=DOC_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
 SOURCE_TYPES = ["source.signal"]
