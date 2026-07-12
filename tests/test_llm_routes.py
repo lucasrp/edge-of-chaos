@@ -85,6 +85,13 @@ class Routes(unittest.TestCase):
         self.assertTrue(rs["chat"]["subscription"])
         self.assertIn(rs["chat"]["credential"], ("assinatura", "claude CLI ausente"))
 
+    def test_grok_route_reports_subscription_not_secret(self):
+        repo = temp_repo()
+        llm_routes.set_provider("review", "grok", repo=repo, model="grok-4.5")
+        rs = {r["route"]: r for r in llm_routes.routes(repo=repo)}
+        self.assertTrue(rs["review"]["subscription"])
+        self.assertIn(rs["review"]["credential"], ("assinatura", "grok CLI ausente"))
+
 
 class SetProvider(unittest.TestCase):
     def test_switch_review_to_codex_rewrites_only_that_line(self):
@@ -144,6 +151,19 @@ class CompleterFor(unittest.TestCase):
         fn = llm_routes.completer_for("chat", repo=repo, exec_fn=fake_exec)
         self.assertEqual(fn("write"), "the completion")
         self.assertEqual(seen["prompt"], "write")
+
+    def test_grok_route_yields_grok_backed_completer(self):
+        repo = temp_repo(openai_key=None)   # SEM chave de API nenhuma — assinatura pura
+        llm_routes.set_provider("review", "grok", repo=repo, model="grok-4.5")
+        seen = {}
+
+        def fake_exec(prompt, model, max_tokens):
+            seen.update(prompt=prompt, model=model)
+            return '{"verdict": "refuted", "x": ["@handle"]}'
+
+        fn = llm_routes.completer_for("review", repo=repo, exec_fn=fake_exec)
+        self.assertEqual(fn("judge this"), '{"verdict": "refuted", "x": ["@handle"]}')
+        self.assertEqual(seen["model"], "grok-4.5")
 
     def test_api_route_without_key_raises_transport_error(self):
         repo = temp_repo(openai_key=None)
