@@ -939,26 +939,32 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         import inspect
         src = inspect.getsource(_REAL_PROJECT)
         self.assertIn("embed_current", src, "project_artefato must track embed success")
-        # the completion marker is gated on embed_current AND no unresolved distills
-        self.assertIn("embed_current and not unresolved_distills", src,
+        # hard gate: embedding current; distills are soft (pending_distills), not complete-blockers
+        self.assertIn("embed_current and not unresolved_lineage", src,
                       "the completion marker must require a current embedding")
 
-    def test_unresolved_distill_leaves_projection_incomplete(self):
-        # Codex P2: a distill ref whose cluster is not in the graph yet must leave the projection
-        # INCOMPLETE (so recovery revisits once the grill attaches the cluster), not mark it done.
+    def test_unresolved_distill_is_soft_pending_not_incomplete(self):
+        # Distills that cannot resolve (no curated Entity cluster and no Community name match)
+        # are recorded as pending_distills and retried on reproject, but must NOT strand
+        # projection_complete=false — that hid Artefatos from recall forever.
         import inspect
         src = inspect.getsource(_REAL_PROJECT)
-        self.assertIn("unresolved_distills", src,
-                      "project_artefato must track unresolved distills")
-        # the completion marker is conditional on no unresolved distills
-        self.assertIn("not unresolved_distills", src,
-                      "the completion marker must be gated on resolved distills")
+        self.assertIn("pending_distills", src,
+                      "project_artefato must record soft-pending distills")
+        self.assertIn("_distill_catalog", src,
+                      "distills resolve via catalog (Entity curated + Community)")
+        self.assertIn("Community", src,
+                      "automatic communities must be a DISTILLS resolution path")
+        # completion no longer requires distill resolution
+        done_region = src.split("COMPLETION MARKER")[-1][:500]
+        self.assertNotIn("not unresolved_distills", done_region,
+                         "soft distills must not gate projection_complete")
 
     def test_distill_resolution_uses_active_clusters_only(self):
         # Codex P2: archived/merged entities are hidden by graph_clusters, so the projection must
-        # resolve distills against ACTIVE clusters only (never link/push a retired cluster).
+        # resolve distills against ACTIVE curated clusters only (never link/push a retired cluster).
         import inspect
-        src = inspect.getsource(_REAL_PROJECT)
+        src = inspect.getsource(publisher._distill_catalog)
         self.assertIn("coalesce(e.archived,false)=false", src)
         self.assertIn("e.merged_into IS NULL", src)
 
