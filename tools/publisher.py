@@ -732,6 +732,53 @@ def _cluster_slug(label):
     return re.sub(r"[^a-z]", "", (label or "").lower())
 
 
+
+def _distill_catalog(s, g):
+    """Slug → (kind, label) for DISTILLS resolution.
+
+    Two independent catalogs (genotype, not host-specific):
+      - entity: Entity.curated_cluster (grill attach)
+      - community: Community.name (automatic communities.consolidate)
+
+    communities.consolidate never stamps curated_cluster; without the Community path,
+    every distill ref stays unresolved forever and strands projection_complete=false,
+    hiding Artefatos from recall (which filters on projection_complete=true).
+    """
+    catalog = {}
+    for r in s.run(
+        "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
+        "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
+        "RETURN DISTINCT e.curated_cluster AS l", g=g):
+        label = r["l"]
+        if label:
+            catalog[_cluster_slug(label)] = ("entity", label)
+    for r in s.run(
+        "MATCH (c:Community {group_id:$g}) WHERE c.name IS NOT NULL "
+        "RETURN c.name AS n", g=g):
+        name = r["n"]
+        if name:
+            catalog.setdefault(_cluster_slug(name), ("community", name))
+    return catalog
+
+
+def _link_distill(s, g, slug, kind, label):
+    """MERGE DISTILLS from Artefato to Entity (curated) or Community (automatic)."""
+    if kind == "entity":
+        s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$slug}),"
+            "(e:Entity {group_id:$g, curated_cluster:$label}) "
+            "WHERE coalesce(e.archived,false)=false AND e.merged_into IS NULL "
+            "MERGE (a)-[:DISTILLS]->(e)",
+            g=g, slug=slug, label=label)
+    elif kind == "community":
+        s.run(
+            "MATCH (a:Artefato {group_id:$g, slug:$slug}),"
+            "(c:Community {group_id:$g, name:$label}) "
+            "MERGE (a)-[:DISTILLS]->(c)",
+            g=g, slug=slug, label=label)
+
+
+
 def _load_openai_key():
     """Load OPENAI_API_KEY into the env if absent (Codex P1): the embedding key lives in the install
     secrets (or the ~/.edge-sandbox-kit dev fallback) and is NOT necessarily exported when a producer
@@ -1240,24 +1287,37 @@ def project_doc(payload, log=eventlog.LOG, *, driver_factory=None, identity=None
                     embed_current = True
                 except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
                     print("doc embed skipped (best-effort, will retry on recovery):", ex)
-            # DISTILLS to EXISTING active clusters only (never fabricate — a thread já validada no
-            # inject; aqui só linka se o cluster já existe no grafo, senão a curadoria pendura depois).
+            # DISTILLS to curated Entity clusters and/or automatic Communities (never fabricate).
             s.run("MATCH (d:Doc {group_id:$g, slug:$slug})-[r:DISTILLS]->() DELETE r", g=g, slug=slug)
-            labels = [r["l"] for r in s.run(
-                "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
-                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
-                "RETURN DISTINCT e.curated_cluster AS l", g=g)]
-            by_slug = {_cluster_slug(l): l for l in labels}
-            unresolved = False
+            catalog = _distill_catalog(s, g)
+            pending = []
             for ref in threads:
-                label = by_slug.get(_cluster_slug(str(ref).replace("cluster:", "")))
-                if not label:
-                    unresolved = True
+                hit = catalog.get(_cluster_slug(str(ref).replace("cluster:", "")))
+                if not hit:
+                    pending.append(str(ref))
                     continue
-                s.run("MATCH (d:Doc {group_id:$g, slug:$slug}),"
-                      "(e:Entity {group_id:$g, curated_cluster:$label}) MERGE (d)-[:DISTILLS]->(e)",
-                      g=g, slug=slug, label=label)
-            if embed_current and not unresolved:
+                kind, label = hit
+                if kind == "entity":
+                    s.run(
+                        "MATCH (d:Doc {group_id:$g, slug:$slug}),"
+                        "(e:Entity {group_id:$g, curated_cluster:$label}) "
+                        "WHERE coalesce(e.archived,false)=false AND e.merged_into IS NULL "
+                        "MERGE (d)-[:DISTILLS]->(e)",
+                        g=g, slug=slug, label=label)
+                else:
+                    s.run(
+                        "MATCH (d:Doc {group_id:$g, slug:$slug}),"
+                        "(c:Community {group_id:$g, name:$label}) "
+                        "MERGE (d)-[:DISTILLS]->(c)",
+                        g=g, slug=slug, label=label)
+            if pending:
+                s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) SET d.pending_distills=$p",
+                      g=g, slug=slug, p=pending)
+            else:
+                s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) REMOVE d.pending_distills",
+                      g=g, slug=slug)
+            # Soft distills: completion tracks embed only (pending_distills retried on reproject).
+            if embed_current:
                 s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) SET d.projection_complete=true",
                       g=g, slug=slug)
     except Exception as ex:  # noqa: BLE001 — recoverable on next reproject
@@ -1608,25 +1668,30 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                   "-[r:DISTILLS|PROPOSES|CITES|BUILDS_ON|SUPERSEDES|CONTRADICTS"
                   "|SUPPORTS|REFUTES|QUALIFIES|INCONCLUSIVE|PARA|REPORTS_ON]->() "
                   "DELETE r", g=g, slug=slug)
-            # resolve distills against ACTIVE clusters only (Codex P2): mirror graph_clusters —
-            # archived/merged entities are hidden, so a retired cluster is never linked or pushed.
-            labels = [r["l"] for r in s.run(
-                "MATCH (e:Entity {group_id:$g}) WHERE e.curated_cluster IS NOT NULL "
-                "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
-                "RETURN DISTINCT e.curated_cluster AS l", g=g)]
-            by_slug = {_cluster_slug(l): l for l in labels}
-            unresolved_distills = False
-            for ref in distills:                  # link ONLY existing active clusters (never fabricate)
-                label = by_slug.get(_cluster_slug(str(ref).replace("cluster:", "")))
-                if not label:
-                    # cluster not in the graph yet — the grill attaches it later. Mark the projection
-                    # INCOMPLETE so recovery REVISITS this slug once the cluster exists (the embed is
-                    # already set, so the revisit is a cheap edge-only re-link, not a re-embed).
-                    unresolved_distills = True
+            # resolve distills against grill-curated Entity clusters AND automatic Communities.
+            # (communities.consolidate never stamps Entity.curated_cluster — Community is the
+            # navigation organ.) Soft-pending: a still-missing ref is recorded on the node but
+            # does NOT strand projection_complete=false forever (that hid Artefatos from recall).
+            catalog = _distill_catalog(s, g)
+            pending_distills = []
+            for ref in distills:                  # link ONLY existing targets (never fabricate)
+                key = _cluster_slug(str(ref).replace("cluster:", ""))
+                hit = catalog.get(key)
+                if not hit:
+                    pending_distills.append(str(ref))
                     continue
-                s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),"
-                      "(e:Entity {group_id:$g, curated_cluster:$label}) "
-                      "MERGE (a)-[:DISTILLS]->(e)", g=g, slug=slug, label=label)
+                kind, label = hit
+                _link_distill(s, g, slug, kind, label)
+            if pending_distills:
+                s.run(
+                    "MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                    "SET a.pending_distills=$pending",
+                    g=g, slug=slug, pending=pending_distills)
+            else:
+                s.run(
+                    "MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                    "REMOVE a.pending_distills",
+                    g=g, slug=slug)
             for p in proposes:
                 body = p.get("body") if isinstance(p, dict) else None
                 if not body:
@@ -1681,17 +1746,14 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             import relate
             mentions_ok = relate.project_mentions(
                 s, g, slug, f"{intent}\n{_spec_text(spec)}") is not None
-            # (3) COMPLETION MARKER — set LAST, complete ONLY when (a) every edge write succeeded,
-            # (b) the embedding is current (a FAILED embed leaves it false → retried on recovery,
-            # Codex P2), (c) every distill ref RESOLVED, AND (d) every lineage prior RESOLVED (L4).
-            # `_graph_present_slugs` reads THIS: a node left half-projected (embed/edge outage), with
-            # an unresolved distill (cluster not in the graph yet), OR an unresolved lineage prior
-            # (out-of-order publish) is NOT present and is re-projected — so a transient embed outage,
-            # the "grill attaches the cluster later" path, and the "prior lands later" path all
-            # self-heal on the next sweep.
+            # (3) COMPLETION MARKER — set LAST. Hard gates: current embedding, mentions rebuild ok,
+            # lineage/bears/para resolved (out-of-order targets). Distills are soft: linked when a
+            # Community or curated Entity exists; otherwise stored as pending_distills and retried
+            # on reproject WITHOUT hiding the Artefato from recall (projection_complete=true is the
+            # recall filter). A failed embed still leaves complete=false so recovery retries.
             s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a.projection_complete=$done",
                   g=g, slug=slug,
-                  done=(embed_current and not unresolved_distills and not unresolved_lineage
+                  done=(embed_current and not unresolved_lineage
                         and mentions_ok and not unresolved_bears and not unresolved_para))
     except Exception as ex:  # noqa: BLE001 — a failed projection is reported, never fatal
         print("project failed (best-effort, reproject next beat):", ex)
