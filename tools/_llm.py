@@ -21,7 +21,8 @@ PROVIDER_BASE_URLS = {
 }
 
 # Providers cobrados por ASSINATURA (CLI local, sem secret_ref) — fora do registry de base_url.
-SUBSCRIPTION_PROVIDERS = ("codex", "claude")
+# O edge é MULTI-CLI: roda no codex, no claude e no grok, cada um pela sua assinatura, sem chave de API.
+SUBSCRIPTION_PROVIDERS = ("codex", "claude", "grok")
 
 # Status HTTP que são sempre transporte/bilhetagem/auth — nunca um juízo sobre o conteúdo.
 _TRANSPORT_STATUSES = (401, 403, 429)
@@ -110,6 +111,43 @@ def _claude_exec(prompt: str, model, max_tokens: int) -> str:
     return r.stdout.strip()
 
 
+# Instrução de sistema do grok como completer: mantém o -p como analista PURO que RETORNA TEXTO,
+# com o diferencial do provider — acesso NATIVO ao X ligado, para embasar o veredito adversarial.
+_GROK_COMPLETER_SYSPROMPT = (
+    "You are a text-completion endpoint with LIVE access to X (Twitter) search. Return only the "
+    "completion for the user content. When the task asks you to ground a claim, run an X search and "
+    "cite the handles/links you used. Never write files or emit tool-use syntax as text."
+)
+
+
+def _grok_exec(prompt: str, model, max_tokens: int) -> str:
+    """Uma completion via `grok --prompt-file` (single-turn headless) — assinatura, sem chave de API.
+
+    O diferencial do provider grok: acesso NATIVO ao X (busca ao vivo) fica LIGADO (jamais
+    --disable-web-search) — é o que o torna o adversário que embasa o veredito numa busca no X.
+    Prompt por arquivo (robusto p/ prompts de vários KB, como o -o do gêmeo codex). max_tokens não é
+    exposto pelo CLI — fica a cargo do modelo. Qualquer falha (binário ausente, exit != 0) é TRANSPORTE."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".grok-in", delete=False) as f:
+        f.write(prompt)
+        in_path = f.name
+    try:
+        cmd = ["grok", "--always-approve",
+               "--system-prompt-override", _GROK_COMPLETER_SYSPROMPT, "--prompt-file", in_path]
+        if model:
+            cmd += ["-m", str(model)]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if r.returncode != 0:
+            raise LLMTransportError(
+                f"grok exit {r.returncode}: {(r.stderr or r.stdout)[-300:]}")
+        return r.stdout.strip()
+    except FileNotFoundError:
+        raise LLMTransportError("grok CLI ausente no host (provider grok requer o binário)")
+    except subprocess.TimeoutExpired:
+        raise LLMTransportError("grok timeout (900s)")
+    finally:
+        Path(in_path).unlink(missing_ok=True)
+
+
 class SubscriptionClient:
     """Cliente de provider por ASSINATURA (CLI local, sem chave): completions via
     `exec_fn(prompt, model, max_tokens) -> str`, o seam injetável (testes offline).
@@ -134,12 +172,19 @@ class ClaudeClient(SubscriptionClient):
     _default_exec = staticmethod(_claude_exec)
 
 
+class GrokClient(SubscriptionClient):
+    """Provider `grok`: completions pela assinatura via `grok --prompt-file`, sem chave.
+    Acesso NATIVO ao X ligado — o adversário que embasa o veredito numa busca no X."""
+    name = "grok"
+    _default_exec = staticmethod(_grok_exec)
+
+
 def resolve_base_url(router: dict):
     """base_url explícito vence; senão deriva do provider."""
     return router.get("base_url") or PROVIDER_BASE_URLS.get(router.get("provider"))
 
 
-_SUBSCRIPTION_CLIENTS = {"codex": CodexClient, "claude": ClaudeClient}
+_SUBSCRIPTION_CLIENTS = {"codex": CodexClient, "claude": ClaudeClient, "grok": GrokClient}
 
 
 def make_client(router: dict, api_key: str):
