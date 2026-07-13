@@ -438,10 +438,20 @@ def _markdown_cell(value):
 
 
 def render(log, out=DEFAULT_VIEW):
-    """Write a deterministic Markdown view of the current wayfinder fold."""
+    """Write a deterministic Markdown view of the current wayfinder fold.
+
+    Empty fold does not overwrite a hand-authored destination (no ``<!-- GERADO``
+    marker). Generated destinations and missing files still get the stub.
+    """
     folded = eventlog.wayfinds_at(log=log)
     maps = sorted(folded["maps"].values(), key=lambda item: item["ref"])
     tickets = folded["tickets"]
+    destination = Path(out)
+    if not maps:
+        if destination.is_file():
+            existing = destination.read_text(encoding="utf-8")
+            if not existing.lstrip().startswith("<!-- GERADO"):
+                return destination
     ticket_ref_by_ulid = {item["ulid"]: item["ref"] for item in tickets.values()}
     lines = ["<!-- GERADO — edite via eventos. -->", "", "# Portfólio", ""]
     for item in maps:
@@ -466,7 +476,6 @@ def render(log, out=DEFAULT_VIEW):
             )
         lines.append("")
     rendered = "\n".join(lines).rstrip() + "\n"
-    destination = Path(out)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(rendered.encode("utf-8"))
     return destination
@@ -676,13 +685,14 @@ def portfolio_at(seq=None, ts=None, log=eventlog.LOG, top_k=10, agenda_k=5):
         for map_ref, item in sorted(wayfinds["maps"].items())
         if item.get("estado") == "ativado"
     ]
-    lane = []
+    # Open atividades own a dedicated budget so tickets/runs/facts cannot starve them.
+    open_activity_lane = []
     for activity_ref, item in activities.items():
         if item.get("estado") not in ("aberta", "reaberta"):
             continue
-        lane.append((
+        open_activity_lane.append((
             latest_by_subject.get(f"atividade:{item['ulid']}", -1),
-            "atividade", activity_ref,
+            activity_ref,
             {
                 "ref": activity_ref,
                 "finalidade": item["finalidade"],
@@ -690,6 +700,12 @@ def portfolio_at(seq=None, ts=None, log=eventlog.LOG, top_k=10, agenda_k=5):
                 "sessoes_sem_toque": item["sessoes_sem_toque"],
             },
         ))
+    open_activity_lane.sort(key=lambda row: (-row[0], row[1]))
+    open_activities = [item for _, _, item in open_activity_lane[:top_k]]
+    open_activity_refs = {item["ref"] for item in open_activities}
+
+    # Tickets / runs / facts / presumptions share a separate ordinal lane.
+    lane = []
     for ticket_ref, item in wayfinds["tickets"].items():
         lane.append((
             latest_by_subject.get(f"ticket:{item['ulid']}", -1),
@@ -740,6 +756,7 @@ def portfolio_at(seq=None, ts=None, log=eventlog.LOG, top_k=10, agenda_k=5):
         lane.append((item_seq, "presuncao", str(ref), dict(item)))
     lane.sort(key=lambda row: (-row[0], row[1], row[2]))
     visible = lane[:top_k]
+    # Perdidas = stale opens not already shown in abertas (exclusive of returned open set).
     lost_activities = [
         {
             "ref": activity_ref,
@@ -749,6 +766,7 @@ def portfolio_at(seq=None, ts=None, log=eventlog.LOG, top_k=10, agenda_k=5):
         for activity_ref, item in activities.items()
         if item.get("estado") in ("aberta", "reaberta")
         and item.get("sessoes_sem_toque", 0) > 0
+        and activity_ref not in open_activity_refs
     ]
     lost_activities.sort(key=lambda item: (-item["sessoes_sem_toque"], item["ref"]))
     ticket_ulids = {item["ulid"] for item in wayfinds["tickets"].values()}
@@ -840,7 +858,7 @@ def portfolio_at(seq=None, ts=None, log=eventlog.LOG, top_k=10, agenda_k=5):
     )
     return {
         "mapas_ativos": active_maps,
-        "atividades": [item for _, kind, _, item in visible if kind == "atividade"],
+        "atividades": open_activities,
         "atividades_perdidas": lost_activities,
         "tickets": [item for _, kind, _, item in visible if kind == "ticket"],
         "runs": [item for _, kind, _, item in visible if kind == "run"],

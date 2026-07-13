@@ -331,7 +331,8 @@ class GrokLiveSessionAnchor(unittest.TestCase):
                 "grok:019f-from-env",
             )
 
-    def test_single_active_entry_fallback_without_pid_match(self):
+    def test_single_active_entry_without_pid_match_is_none(self):
+        """Finding E: sole-entry fallback fabricated stale session_id — fail closed."""
         with tempfile.TemporaryDirectory() as tmp:
             active = Path(tmp) / "active_sessions.json"
             active.write_text(json.dumps([{
@@ -341,10 +342,7 @@ class GrokLiveSessionAnchor(unittest.TestCase):
                 "opened_at": "2026-07-11T00:00:00Z",
             }]))
             env = {"EDGE_GROK_ACTIVE_SESSIONS": str(active)}
-            self.assertEqual(
-                sessions.current_session_anchor(env),
-                "grok:019f-only",
-            )
+            self.assertIsNone(sessions.current_session_anchor(env))
 
     def test_multi_active_without_pid_match_is_ambiguous(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -374,6 +372,171 @@ class GrokLiveSessionAnchor(unittest.TestCase):
             )
 
 
+# --- M2.MIN.1: Mineração interface seam (dialogue_turns / mentee_dialogue) ---
+
+
+class DialogueTurnsThreeSurfaces(unittest.TestCase):
+    """``dialogue_turns(path, surface)`` → list[Turn(human|edge)], tools/terminals dropped.
+
+    Spec: memory/spec-mineracao-deep-module.md — three chat surfaces share one Turn shape.
+    """
+
+    def test_claude_dialogue_only_no_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "s", [
+                _msg("user", "qual o tema?"),
+                {"type": "assistant", "message": {"role": "assistant",
+                    "content": [{"type": "tool_use", "name": "Bash", "input": {}}]}},
+                {"type": "user", "message": {"role": "user",
+                    "content": [{"type": "tool_result", "content": "noise"}]}},
+                _msg("assistant", "o tema e X"),
+            ])
+            turns = sessions.dialogue_turns(p, surface="claude")
+            self.assertEqual([(t.role, t.text) for t in turns],
+                             [("human", "qual o tema?"), ("edge", "o tema e X")])
+
+    def test_codex_dialogue_only_no_function_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "c", [
+                {"type": "session_meta", "payload": {"id": "c1"}},
+                _codex_msg("user", "quero o portfolio"),
+                {"type": "response_item",
+                 "payload": {"type": "function_call", "name": "exec_command"}},
+                _codex_msg("assistant", "vou montar o brief"),
+            ])
+            turns = sessions.dialogue_turns(p, surface="codex")
+            self.assertEqual([(t.role, t.text) for t in turns],
+                             [("human", "quero o portfolio"),
+                              ("edge", "vou montar o brief")])
+
+    def test_grok_dialogue_only_no_synthetic_or_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "g", [
+                _grok_user("oi do operador"),
+                {"type": "user",
+                 "content": [{"type": "text", "text": "<system-reminder>x</system-reminder>"}],
+                 "synthetic_reason": "system_reminder"},
+                {"type": "backend_tool_call", "name": "bash"},
+                {"type": "tool_result", "content": "ok"},
+                _grok_assistant("pronto"),
+            ])
+            turns = sessions.dialogue_turns(p, surface="grok")
+            self.assertEqual([(t.role, t.text) for t in turns],
+                             [("human", "oi do operador"), ("edge", "pronto")])
+
+    def test_bad_surface_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "s", [_msg("user", "x")])
+            with self.assertRaises(ValueError) as ctx:
+                sessions.dialogue_turns(p, surface="gemini")
+            self.assertIn("surface", str(ctx.exception).lower())
+
+
+class MenteeDialogueForRationalize(unittest.TestCase):
+    """``mentee_dialogue_for_rationalize(session)`` → None | (turns, watermark).
+
+    None when not operator-facing or no human dialogue; else pre-processed turns + CAS watermark.
+    """
+
+    def test_claude_operator_returns_turns_and_watermark(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "op", [
+                _msg("user", "vamos fechar o MIN.1"),
+                {"type": "assistant", "message": {"role": "assistant",
+                    "content": [{"type": "tool_use", "name": "Bash", "input": {}}]}},
+                _msg("assistant", "ok, testes no seam"),
+            ])
+            session = sessions.Session(id="op", path=p, surface="claude")
+            packed = sessions.mentee_dialogue_for_rationalize(session)
+            self.assertIsNotNone(packed)
+            turns, watermark = packed
+            self.assertEqual([(t.role, t.text) for t in turns],
+                             [("human", "vamos fechar o MIN.1"),
+                              ("edge", "ok, testes no seam")])
+            self.assertEqual(watermark, 3)  # raw lines, including tool line
+
+    def test_claude_sidechain_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sub = Path(tmp) / "subagents"
+            sub.mkdir()
+            p = _write_session(sub, "w", [
+                _msg("user", "You are the prototype producer for this run. Ticket X."),
+                _msg("assistant", "working"),
+            ])
+            session = sessions.Session(id="w", path=p, surface="claude")
+            self.assertIsNone(sessions.mentee_dialogue_for_rationalize(session))
+
+    def test_codex_operator_returns_dialogue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "c", [
+                {"type": "session_meta",
+                 "payload": {"id": "c1", "thread_source": "user"}},
+                _codex_msg("user", "emprego do mentee"),
+                _codex_msg("assistant", "portfolio_at only"),
+            ])
+            session = sessions.Session(id="c1", path=p, surface="codex")
+            packed = sessions.mentee_dialogue_for_rationalize(session)
+            self.assertIsNotNone(packed)
+            turns, watermark = packed
+            self.assertEqual([t.role for t in turns], ["human", "edge"])
+            self.assertEqual(watermark, 3)
+
+    def test_codex_subagent_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "c", [
+                {"type": "session_meta",
+                 "payload": {"id": "c2", "thread_source": "subagent",
+                             "parent_thread_id": "parent"}},
+                _codex_msg("user", "faça o ticket longo " * 20),
+                _codex_msg("assistant", "ok"),
+            ])
+            session = sessions.Session(id="c2", path=p, surface="codex")
+            self.assertIsNone(sessions.mentee_dialogue_for_rationalize(session))
+
+    def test_grok_operator_returns_dialogue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "g1"
+            root.mkdir()
+            p = root / "chat_history.jsonl"
+            p.write_text("".join(json.dumps(o) + "\n" for o in [
+                _grok_user("que dia o virtualbox foi criado?"),
+                _grok_assistant("vou checar"),
+            ]))
+            (root / "summary.json").write_text(json.dumps({
+                "info": {"id": "g1", "cwd": "/tmp"},
+            }))
+            session = sessions.Session(id="g1", path=p, surface="grok")
+            packed = sessions.mentee_dialogue_for_rationalize(session)
+            self.assertIsNotNone(packed)
+            turns, watermark = packed
+            self.assertEqual([(t.role, t.text) for t in turns],
+                             [("human", "que dia o virtualbox foi criado?"),
+                              ("edge", "vou checar")])
+            self.assertEqual(watermark, 2)
+
+    def test_grok_worker_session_kind_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "gw"
+            root.mkdir()
+            p = root / "chat_history.jsonl"
+            p.write_text("".join(json.dumps(o) + "\n" for o in [
+                _grok_user("Wire the adapter"),
+                _grok_assistant("done"),
+            ]))
+            (root / "summary.json").write_text(json.dumps({
+                "info": {"id": "gw"},
+                "session_kind": "subagent",
+            }))
+            session = sessions.Session(id="gw", path=p, surface="grok")
+            self.assertIsNone(sessions.mentee_dialogue_for_rationalize(session))
+
+    def test_edge_only_transcript_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _write_session(Path(tmp), "edge-only", [
+                _msg("assistant", "no human ever spoke"),
+            ])
+            session = sessions.Session(id="edge-only", path=p, surface="claude")
+            self.assertIsNone(sessions.mentee_dialogue_for_rationalize(session))
 
 
 if __name__ == "__main__":

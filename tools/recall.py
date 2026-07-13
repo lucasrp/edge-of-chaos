@@ -416,6 +416,15 @@ def _validate_portfolio_snapshot(snapshot):
                 "portfolio snapshot `mapas_ativos` item `frontier` must be a list of ref lists"
             )
 
+    if "atividades" in snapshot:
+        if not isinstance(snapshot["atividades"], list):
+            raise ValueError("portfolio snapshot `atividades` must be a list")
+        if any(not isinstance(item, dict) for item in snapshot["atividades"]):
+            raise ValueError("portfolio snapshot `atividades` items must be dicts")
+        for item in snapshot["atividades"]:
+            _portfolio_text(item, "ref", "atividades")
+            _portfolio_text(item, "finalidade", "atividades")
+
     for item in snapshot["atividades_perdidas"]:
         _portfolio_text(item, "ref", "atividades_perdidas")
         _portfolio_text(item, "finalidade", "atividades_perdidas")
@@ -493,8 +502,21 @@ def compose_portfolio_recall_brief(subgraph=_AUTO, group=None, portfolio_fn=None
         lines.append(f"- **{active_map.get('ref')}** — {active_map.get('titulo', '')}")
         for layer, tickets in enumerate(active_map.get("frontier", [])):
             lines.append(f"  - Layer {layer}: {', '.join(tickets)}")
+    lines.extend(["", "## Atividades abertas"])
+    open_refs = set()
+    for activity in snapshot.get("atividades", []):
+        ref = activity.get("ref")
+        if isinstance(ref, str) and ref.strip():
+            open_refs.add(ref)
+        lines.append(
+            f"- **{activity.get('ref')}** — {activity.get('finalidade', '')}"
+        )
     lines.extend(["", "## Atividades perdidas"])
+    # Exclusive of abertas: never dual-list the same ref under both sections.
     for activity in snapshot.get("atividades_perdidas", []):
+        ref = activity.get("ref")
+        if ref in open_refs:
+            continue
         lines.append(
             f"- **{activity.get('ref')}** — {activity.get('finalidade', '')} "
             f"· {activity.get('sessoes_sem_toque')} sessões sem toque"

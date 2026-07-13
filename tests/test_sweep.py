@@ -142,9 +142,14 @@ class RunIsSerializedByTheCursorLock(unittest.TestCase):
     """Codex/Opus review B1 — cursors.json is shared mutable state on a multi-dispatch host
     (operator + heartbeat): run() must hold an exclusive flock on the cursors lockfile for the
     whole load->execute->save window, so two overlapping sweeps cannot read the same base and
-    append duplicate episode events / clobber each other's cursor advances."""
+    append duplicate episode events / clobber each other's cursor advances.
 
-    def test_run_blocks_on_an_externally_held_lock(self):
+    UX.W-sweep-lock-dark: the acquire is non-blocking + retry up to CURSORS_LOCK_WAIT_S. On
+    timeout the sweep goes honest DARK (return 0, loud print) so predispatch can still stamp —
+    identity precedes grounding; prefer swept=0 over a silent hang.
+    """
+
+    def test_run_retries_then_proceeds_when_lock_releases_within_wait(self):
         import fcntl
         import threading
         import time
@@ -158,19 +163,47 @@ class RunIsSerializedByTheCursorLock(unittest.TestCase):
             def go():
                 sweep.run(proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
                           reproject_fn=False, log=log, graph_recover_fn=False,
-                          group="test-group")
+                          group="test-group", cursors_lock_wait_s=2.0)
                 done.append(True)
             with lock.open("w") as lk:
                 fcntl.flock(lk, fcntl.LOCK_EX)
                 t = threading.Thread(target=go, daemon=True)
                 t.start()
-                time.sleep(0.5)
-                self.assertEqual(done, [], "run() must block while the cursor lock is held")
+                time.sleep(0.3)
+                self.assertEqual(done, [], "run() must wait while the cursor lock is held")
                 fcntl.flock(lk, fcntl.LOCK_UN)
             t.join(timeout=10)
             self.assertEqual(done, [True], "run() must proceed once the lock is released")
             evs = eventlog.read(types=["episode"], log=log)
             self.assertEqual(len(evs), 1)
+
+    def test_held_lock_past_wait_darks_with_swept_zero(self):
+        import fcntl
+        import io
+        import time
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            cursors_path = Path(st) / "cursors.json"
+            log = Path(st) / "log.jsonl"
+            lock = cursors_path.with_name(cursors_path.name + ".lock")
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            with lock.open("w") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)
+                out = io.StringIO()
+                t0 = time.monotonic()
+                with redirect_stdout(out):
+                    n = sweep.run(
+                        proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
+                        reproject_fn=False, log=log, graph_recover_fn=False,
+                        group="test-group", cursors_lock_wait_s=0.4)
+                elapsed = time.monotonic() - t0
+            self.assertEqual(n, 0, "lock timeout skips sweep (swept=0), does not raise")
+            self.assertLess(elapsed, 2.0, "must not hang past the wait budget")
+            self.assertIn("DARK", out.getvalue())
+            self.assertIn("cursors lock", out.getvalue())
+            self.assertEqual(eventlog.read(types=["episode"], log=log), [],
+                             "DARK skip writes nothing")
 
 
 class TruncatedTailDoesNotAdvanceTheWatermark(unittest.TestCase):

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
@@ -344,6 +345,80 @@ class BackgroundRationalizationWiring(unittest.TestCase):
             self.assertIn("systemd start returned failure", output.getvalue())
 
 
+class EmploymentRecallDefault(unittest.TestCase):
+    """UX.W-floor-employment: user-facing wakes stamp portfolio recall; ambient beat stays map-blind.
+
+    Default `recall_fn` is portfolio-aware when origin is user_requested, geometry is themed,
+    or --employment is set. Heartbeat (origin=beat, geometry=ambient, no --employment) keeps
+    compose_recall_brief so lazer/delta-style ambient paths remain map-blind.
+    """
+
+    def _run_default_recall(self, **kw):
+        """Run with recall_fn=None so the wiring under test selects the default."""
+        import recall
+        portfolio = mock.Mock(return_value="PORTFOLIO RECALL")
+        ordinary = mock.Mock(return_value="MAP-BLIND RECALL")
+        with mock.patch.object(recall, "compose_portfolio_recall_brief", portfolio), \
+             mock.patch.object(recall, "compose_recall_brief", ordinary):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                result = predispatch.run(
+                    sweep_fn=lambda: 0,
+                    briefing_fn=lambda: "B",
+                    recall_fn=None,
+                    harvest_fn=lambda: 0,
+                    probe_fn=lambda _spec: None,
+                    log=log,
+                    **kw,
+                )
+        return result, portfolio, ordinary
+
+    def test_user_requested_default_recall_is_portfolio(self):
+        result, portfolio, ordinary = self._run_default_recall(origin="user_requested")
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_themed_geometry_default_recall_is_portfolio(self):
+        result, portfolio, ordinary = self._run_default_recall(geometry="themed")
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_theme_flag_implies_themed_portfolio_recall(self):
+        # theme without explicit geometry flips geometry to themed (existing contract)
+        result, portfolio, ordinary = self._run_default_recall(theme="grounding")
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_employment_flag_forces_portfolio_on_ambient_beat(self):
+        result, portfolio, ordinary = self._run_default_recall(
+            origin="beat", geometry="ambient", employment=True)
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_ambient_beat_stays_map_blind_without_employment(self):
+        result, portfolio, ordinary = self._run_default_recall(
+            origin="beat", geometry="ambient")
+        self.assertEqual(result, ("B", "MAP-BLIND RECALL"))
+        ordinary.assert_called_once_with()
+        portfolio.assert_not_called()
+
+    def test_main_passes_employment_flag_through(self):
+        seen = {}
+
+        def fake_run(**kw):
+            seen.update(kw)
+            return "B", "R"
+
+        with mock.patch.object(predispatch, "run", fake_run), redirect_stdout(io.StringIO()):
+            predispatch.main(["--employment", "--origin", "beat"])
+        self.assertTrue(seen.get("employment"))
+        self.assertEqual(seen.get("origin"), "beat")
+
+
 class TheDriverIsPinnedInProse(unittest.TestCase):
     """Every producer's SKILL.md carries the entry snippet; the pipeline names the stamp."""
 
@@ -359,6 +434,11 @@ class TheDriverIsPinnedInProse(unittest.TestCase):
         self.assertIn("dispatch.open", pipeline)
         flat = " ".join(pipeline.lower().split())   # collapse wrapping
         self.assertIn("no wake, no publish", flat)
+
+    def test_wake_skill_passes_user_requested_origin(self):
+        # UX.W-floor-employment: operator wake is employment-bearing, not ambient beat
+        skill = (REPO / "skills" / "wake" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("--origin user_requested", skill)
 
 
 if __name__ == "__main__":

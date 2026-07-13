@@ -3794,6 +3794,7 @@ def next_experiment_id(log=LOG):
 
 
 def declare_experiment(title, *, experiment_id=None, kind="domain", hypothesis=None, scope=None, owner=None,
+                       workspace=True,
                        decision_rule=None, arms=None, status="declared", by=None,
                        relates=None, log=LOG):
     """Declare a first-class Experiment and assign its stable canonical id (#107).
@@ -3840,8 +3841,23 @@ def declare_experiment(title, *, experiment_id=None, kind="domain", hypothesis=N
         if eid in fold_experiments(read(types=EXPERIMENT_TYPES, log=log)):
             raise ValueError(f"experiment_id {eid!r} already exists")
 
-    return append_batch([("experiment.declared", f"experiment:{eid}", payload)],
-                        log=log, precondition=_unique_id)[0]
+    event = append_batch([("experiment.declared", f"experiment:{eid}", payload)],
+                         log=log, precondition=_unique_id)[0]
+    # Genotype disk workspace (experiments/<expNNN>-slug/) — phenotype root from agent.yaml.
+    # Ledger remains source of truth; folder is the re-runnable analysis unit.
+    # Only seed when writing the install's canonical log (hermetic tests use temp logs).
+    if workspace and Path(log).resolve() == Path(LOG).resolve():
+        try:
+            import experiments_cfg
+            experiments_cfg.ensure_experiment_workspace(
+                eid,
+                title=title.strip(),
+                hypothesis=payload.get("hypothesis"),
+            )
+        except Exception:
+            # Never fail the pen if the filesystem cannot be seeded (read-only CI, etc.).
+            pass
+    return event
 
 
 def curate_experiment(experiment_id, *, prose, typed, canonical_artifacts, by, relates=None, log=LOG):

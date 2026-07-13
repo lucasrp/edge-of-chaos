@@ -15,7 +15,7 @@ session finds a fresh wake). It also computes the quente window and passes `hot_
 briefing, so §5 clusters touched inside the hot window defer to the quente brief ("→ coberto no
 quente") — the wake never tells the same story twice:
 
-    tools/edge-python tools/predispatch.py
+    tools/edge-python tools/predispatch.py --origin user_requested
 
 Then build the **quente insumo** (the two-rail input the quente reader consumes — operator prompts
 verbatim + mechanical git anchors, last K=3 substantial sessions). The store resolves
@@ -36,12 +36,12 @@ Then get your briefs. Use the **Agent tool** to run the four subagents in parall
   Mundo / Atividade / Voz. May be empty — it never gates the wake.
 - **recall** (`skills/recall`) → the **memory-salient**: the salient subgraph of your own Cortex,
   rooted at space-0. Dark on a graph outage — it never gates the wake. Never fused with delta
-  (the subject boundary, ADR-0014: delta reads the world, recall reads the self). This is an
-  explicitly portfolio-reading role: ask this recall subagent to render
-  `recall.compose_portfolio_recall_brief()`, not the shared map-blind default. Its role-scoped tail
-  carries active maps/frontier, activities lost across later sessions, contested/agenda, and
-  suspect admissibility; it remains read-only and bounded. Recall is the **sole portfolio owner**
-  in this fan-out: consume that tail exactly once; assemble never appends a second copy.
+  (the subject boundary, ADR-0014: delta reads the world, recall reads the self). **Portfolio is
+  already stamped once** by the entry-driver on `--origin user_requested` via
+  `compose_portfolio_recall_brief` (in the predispatch stdout block above the fan) — that is the
+  **sole portfolio owner** on wake. Ask the recall subagent only for map-blind
+  `compose_recall_brief` (space-0 / objective / bets). Do not re-render portfolio in the fan
+  (Finding C). Assemble never appends a second copy.
 - **quente** (`skills/quente`) → the **hot threads** (o SENTIR passivo): the live threads of the
   last K substantial sessions, read from `/tmp/quente-insumo.md` (hand the path in the prompt).
   **Always a FRESH subagent, never cached** — o quente de 2h atrás já nasceu morto. Dark when the

@@ -1,15 +1,24 @@
-"""Session reader + delta — the raw layer of the measure-first spike (ADR-0004 decision A).
+"""Session reader + delta — the raw layer of the measure-learn spike (ADR-0004 decision A).
 
-A transcript is the non-lossy raw: one `.jsonl` = one session. Claude Code remains the original
-store/format; Codex and Grok are additional surfaces normalized into the same Turn(role, text)
-shape. This module discovers sessions and parses ordered dialogue deltas since a watermark. It is
-locator/offset-based, carrying no semantics (ADR-0001).
+A transcript is the non-lossy raw: one `.jsonl` = one session. **Three operator surfaces** —
+Claude Code, Codex, and Grok — normalize into the same ``Turn(role, text)`` shape.
+
+**Dialogue filter (rationalizer / quente / employment film):** the operator-visible corpus is
+exactly the Claude Code UI filter “conversation without terminals” — **user + assistant prose
+only**. Tool calls, tool results, queue/attachment noise, synthetic Grok lines, and agent-launched
+worker sessions are dropped *before* any a-posteriori cognition (racionalizador). That is the
+pre-processing step: dialogue first, then mentee-employment policy (not agent meta).
+
+Locator/offset-based; carries no domain semantics beyond surface normalization (ADR-0001).
 """
 import json
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+# Operator-facing chat surfaces the edge films. Rationalization plans over all three.
+SURFACES = ("claude", "codex", "grok")
 
 ROLES = {"user": "human", "assistant": "edge"}
 CODEX_ROLES = {"user": "human", "assistant": "edge"}
@@ -135,9 +144,9 @@ def _ancestor_pids(start_pid=None):
 def resolve_grok_live_session_id(env=None, path=None, pid=None):
     """Resolve the live Grok session_id from active_sessions.json.
 
-    Real shape: [{"session_id", "pid", "cwd", "opened_at"}, ...]. Prefer an entry
-    whose pid is this process or an ancestor; if exactly one entry exists, use it
-    carefully as a sole-entry fallback. Multiple unmatched entries → None.
+    Real shape: [{"session_id", "pid", "cwd", "opened_at"}, ...]. Return only an
+    entry whose pid is this process or an ancestor. Never invent identity from a
+    sole unmatched entry (stale PID would stamp false session_id on dispatch.open).
     """
     path = Path(path) if path is not None else grok_active_sessions_path(env)
     try:
@@ -163,8 +172,6 @@ def resolve_grok_live_session_id(env=None, path=None, pid=None):
             continue
         if ep in ancestors:
             return e["session_id"].strip()
-    if len(entries) == 1:
-        return entries[0]["session_id"].strip()
     return None
 
 
@@ -307,6 +314,10 @@ _AGENT_LAUNCH_PATTERNS = tuple(re.compile(p, re.IGNORECASE | re.DOTALL) for p in
     r"^você é (?:o|a) (?:adversarial|gate|revisor|juiz)\b",
     r"^você é um(?:a)? (?:produtor|subagente|agente)\b",
     r"^gate final do motor integrado\b",
+    # Finding A: unmarked worker tickets that lack session_meta (Codex dual-pass).
+    r"^implement\s+ticket\b",
+    r"^implement\s+the\s+ticket\b",
+    r"^report\s+back\b",
 ))
 
 
@@ -367,8 +378,15 @@ def user_session_exclusion_reason(session: Session) -> str | None:
     """
     if session.surface == "codex":
         meta = codex_session_meta(session.path)
-        if meta.get("thread_source") and meta.get("thread_source") != "user":
-            return f"codex-thread-source:{meta.get('thread_source')}"
+        # Finding A / gate P1: fail closed without authoritative operator provenance.
+        # Missing session_meta or non-user thread_source is not "probably the operator".
+        if not meta:
+            return "codex-unknown-provenance"
+        thread_source = meta.get("thread_source")
+        if thread_source != "user":
+            if isinstance(thread_source, str) and thread_source.strip():
+                return f"codex-thread-source:{thread_source}"
+            return "codex-unknown-provenance"
         if meta.get("parent_thread_id"):
             return "codex-parent-thread"
         source = meta.get("source")
@@ -418,9 +436,13 @@ def _claude_turn_from_obj(obj):
 
 
 def _is_scaffolding_turn(role, text):
-    if role != "human":
-        return False
-    return any(text.startswith(p) for p in SCAFFOLDING_PREFIXES) or looks_agent_launched_prompt(text)
+    """Drop UI/skill chrome and agent-launch prompts; apply to human and edge prose."""
+    if any(text.startswith(p) for p in SCAFFOLDING_PREFIXES):
+        return True
+    # Only human launches spawn workers; edge prose may *discuss* agents without being a launch.
+    if role == "human" and looks_agent_launched_prompt(text):
+        return True
+    return False
 
 
 def _codex_turn_from_obj(obj):
@@ -455,10 +477,21 @@ def _grok_turn_from_obj(obj):
     return Turn(role=role, text=text)
 
 
+def _normalize_surface(surface) -> str:
+    s = (surface or "claude").strip().lower()
+    if s not in SURFACES:
+        raise ValueError(f"surface must be one of {SURFACES}, got {surface!r}")
+    return s
+
+
 def _turns_from_lines(lines, surface="claude") -> list:
     """Parse raw transcript lines into ordered human/edge dialogue turns, dropping noise.
-    A corrupt/truncated line (a session written mid-sweep, a crashed writer) is dropped as
-    noise — one bad line must never kill the whole sweep."""
+
+    Drops (all surfaces): tool_use / tool_result / function_call / queue / attachment /
+    synthetic Grok / non-message Codex items / scaffolding prefixes / agent-launch human prompts.
+    A corrupt/truncated line is dropped — one bad line must never kill the whole sweep.
+    """
+    surface = _normalize_surface(surface)
     turns = []
     if surface == "codex":
         turn_from_obj = _codex_turn_from_obj
@@ -477,9 +510,70 @@ def _turns_from_lines(lines, surface="claude") -> list:
     return turns
 
 
+def dialogue_turns(path, surface="claude") -> list:
+    """Operator-visible dialogue for Claude Code / Codex / Grok (no terminals, no tools).
+
+    This is the pre-processing the racionalizador (and quente) consume: same intent as the
+    Claude Code UI filter that shows only user↔assistant chat. Returns ``Turn`` list with
+    roles ``human`` | ``edge`` only.
+    """
+    surface = _normalize_surface(surface)
+    return _turns_from_lines(
+        Path(path).read_text(errors="replace").splitlines(), surface=surface
+    )
+
+
 def read_turns(path, surface="claude") -> list:
-    """Parse a transcript into ordered human/edge dialogue turns."""
-    return _turns_from_lines(Path(path).read_text(errors="replace").splitlines(), surface=surface)
+    """Parse a transcript into ordered human/edge dialogue turns (alias of dialogue_turns)."""
+    return dialogue_turns(path, surface=surface)
+
+
+def filter_dialogue_for_rationalizer(turns) -> list:
+    """Second pass over already-parsed turns: drop residual agent-launch human lines mid-session."""
+    out = []
+    for turn in turns or []:
+        role = getattr(turn, "role", None) or (turn.get("role") if isinstance(turn, dict) else None)
+        text = getattr(turn, "text", None) or (turn.get("text") if isinstance(turn, dict) else None)
+        if not isinstance(role, str) or not isinstance(text, str) or not text.strip():
+            continue
+        role = role.lower()
+        if role not in ("human", "edge"):
+            continue
+        if _is_scaffolding_turn(role, text.strip()):
+            continue
+        if isinstance(turn, Turn):
+            out.append(turn)
+        else:
+            out.append(Turn(role=role, text=text.strip()))
+    return out
+
+
+def mentee_dialogue_for_rationalize(session: Session):
+    """Dialogue corpus for a-posteriori film, or None if this session must not feed employment.
+
+    Pipeline (all surfaces claude|codex|grok):
+      1. is_user_session — drop sidechains/subagents/worker launches
+      2. dialogue_turns / _turns_from_lines — user+assistant prose only (tools + scaffolding gone)
+      3. require ≥1 human turn
+
+    Scaffolding is filtered once inside surface adapters (gate P2: no second pass).
+    Returns ``(turns, watermark)`` where watermark is the raw line count (CAS identity), or None.
+    """
+    if not isinstance(session, Session):
+        return None
+    surface = _normalize_surface(session.surface)
+    if not is_user_session(session):
+        return None
+    path = Path(session.path)
+    try:
+        raw_lines = path.read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    watermark = len(raw_lines)
+    turns = _turns_from_lines(raw_lines, surface=surface)
+    if not turns or not any(t.role == "human" for t in turns):
+        return None
+    return turns, watermark
 
 
 @dataclass(frozen=True)

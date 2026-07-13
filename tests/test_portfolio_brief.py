@@ -73,7 +73,37 @@ class PortfolioBrief(unittest.TestCase):
                 "frontier": [[first_ref], [second_ref]],
             }])
 
-    def test_top_k_is_one_common_lane_ranked_by_latest_seq(self):
+    def test_open_atividades_have_an_independent_top_k_budget(self):
+        """Open activities must not be starved by tickets/facts sharing top_k."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            open_refs = []
+            for purpose in ("Atv-A", "Atv-B", "Atv-C"):
+                opened = eventlog.open_atividade(
+                    operacao="edge", finalidade=purpose,
+                    tier="asserted", author="operador", log=log,
+                )
+                open_refs.append(f"edge/{opened['payload']['num']}")
+            opened_map = eventlog.open_map(
+                operacao="edge", titulo="Mapa", rationale="Organizar",
+                dispatch_id="d1", author="operador", log=log,
+            )
+            map_ref = f"edge/{opened_map['payload']['num']}"
+            for index in range(5):
+                eventlog.open_ticket(
+                    map=map_ref, titulo=f"Ticket {index}", question="Q?",
+                    rationale="R", dispatch_id="d1", author="operador",
+                    tier="asserted", log=log,
+                )
+
+            brief = portfolio.portfolio_at(log=log, top_k=2, agenda_k=0)
+
+            visible_open = {item["ref"] for item in brief["atividades"]}
+            self.assertEqual(len(brief["atividades"]), 2)
+            self.assertTrue(visible_open.issubset(set(open_refs)))
+            self.assertEqual(len(brief["tickets"]), 2)
+
+    def test_open_atividades_lane_ranks_by_latest_seq_within_its_budget(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             old = eventlog.open_atividade(
@@ -81,16 +111,11 @@ class PortfolioBrief(unittest.TestCase):
                 tier="asserted", author="operador", log=log,
             )
             old_ref = f"edge/{old['payload']['num']}"
-            opened_map = eventlog.open_map(
-                operacao="edge", titulo="Mapa", rationale="Organizar",
-                dispatch_id="d1", author="operador", log=log,
+            mid = eventlog.open_atividade(
+                operacao="edge", finalidade="Atividade do meio",
+                tier="asserted", author="operador", log=log,
             )
-            map_ref = f"edge/{opened_map['payload']['num']}"
-            ticket = eventlog.open_ticket(
-                map=map_ref, titulo="Ticket recente", question="Q?", rationale="R",
-                dispatch_id="d1", author="operador", tier="asserted", log=log,
-            )
-            ticket_ref = f"edge/{ticket['payload']['num']}"
+            mid_ref = f"edge/{mid['payload']['num']}"
             current = eventlog.open_atividade(
                 operacao="edge", finalidade="Atividade atual",
                 tier="asserted", author="operador", log=log,
@@ -100,12 +125,83 @@ class PortfolioBrief(unittest.TestCase):
                 ref=current_ref, sessao="s1", novo="Mais recente",
                 tier="asserted", log=log,
             )
+            eventlog.touch_atividade(
+                ref=mid_ref, sessao="s2", novo="Meio recente",
+                tier="asserted", log=log,
+            )
 
-            brief = portfolio.portfolio_at(log=log, top_k=2, agenda_k=1)
+            brief = portfolio.portfolio_at(log=log, top_k=2, agenda_k=0)
 
-            self.assertEqual([item["ref"] for item in brief["atividades"]], [current_ref])
-            self.assertEqual([item["ref"] for item in brief["tickets"]], [ticket_ref])
+            self.assertEqual(
+                [item["ref"] for item in brief["atividades"]],
+                [mid_ref, current_ref],
+            )
             self.assertNotIn(old_ref, [item["ref"] for item in brief["atividades"]])
+
+    def test_stale_open_appears_in_at_most_one_of_abertas_or_perdidas(self):
+        """Stale open in returned abertas stays out of perdidas (exclusive)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            stale = eventlog.open_atividade(
+                operacao="edge", finalidade="Retomar o trabalho esquecido",
+                tier="asserted", author="operador", log=log,
+            )
+            stale_ref = f"edge/{stale['payload']['num']}"
+            for session, operations in (
+                ("s1", ["edge"]), ("other", ["juridico"]), ("s2", ["edge"]),
+            ):
+                eventlog.append(
+                    "sessao.racionalizada", f"sessao:{session}",
+                    {"sessao_id": session, "operacoes": operations}, log=log,
+                )
+
+            brief = portfolio.portfolio_at(log=log, top_k=5, agenda_k=0)
+
+            abertas = {item["ref"] for item in brief["atividades"]}
+            perdidas = {item["ref"] for item in brief["atividades_perdidas"]}
+            self.assertIn(stale_ref, abertas)
+            self.assertNotIn(stale_ref, perdidas)
+            self.assertEqual(abertas & perdidas, set())
+            self.assertEqual(brief["sem_mapa"], [{
+                "ref": stale_ref, "operacao": "edge", "motivo": "largada",
+            }])
+
+    def test_stale_open_truncated_from_abertas_lands_only_in_perdidas(self):
+        """Stale open outside the open budget is perdidas-only, not dual-listed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            stale = eventlog.open_atividade(
+                operacao="edge", finalidade="Esquecida e fora do orçamento",
+                tier="asserted", author="operador", log=log,
+            )
+            stale_ref = f"edge/{stale['payload']['num']}"
+            hot_refs = []
+            for purpose in ("Quente-1", "Quente-2"):
+                opened = eventlog.open_atividade(
+                    operacao="edge", finalidade=purpose,
+                    tier="asserted", author="operador", log=log,
+                )
+                ref = f"edge/{opened['payload']['num']}"
+                hot_refs.append(ref)
+                eventlog.touch_atividade(
+                    ref=ref, sessao=f"touch-{purpose}", novo="vivo",
+                    tier="asserted", log=log,
+                )
+            for session, operations in (
+                ("s1", ["edge"]), ("s2", ["edge"]),
+            ):
+                eventlog.append(
+                    "sessao.racionalizada", f"sessao:{session}",
+                    {"sessao_id": session, "operacoes": operations}, log=log,
+                )
+
+            brief = portfolio.portfolio_at(log=log, top_k=2, agenda_k=0)
+
+            abertas = {item["ref"] for item in brief["atividades"]}
+            perdidas = {item["ref"] for item in brief["atividades_perdidas"]}
+            self.assertEqual(abertas, set(hot_refs))
+            self.assertEqual(perdidas, {stale_ref})
+            self.assertEqual(abertas & perdidas, set())
 
     def test_a9_lost_activity_is_a_canonical_wake_signal_and_sem_mapa_observation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -122,18 +218,32 @@ class PortfolioBrief(unittest.TestCase):
                     "sessao.racionalizada", f"sessao:{session}",
                     {"sessao_id": session, "operacoes": operations}, log=log,
                 )
+            # Fill open budget so the stale open is excluded from abertas.
+            for purpose in ("Budget-1", "Budget-2"):
+                hot = eventlog.open_atividade(
+                    operacao="edge", finalidade=purpose,
+                    tier="asserted", author="operador", log=log,
+                )
+                hot_ref = f"edge/{hot['payload']['num']}"
+                eventlog.touch_atividade(
+                    ref=hot_ref, sessao=f"s-{purpose}", novo="vivo",
+                    tier="asserted", log=log,
+                )
 
-            brief = portfolio.portfolio_at(log=log, top_k=1, agenda_k=1)
+            brief = portfolio.portfolio_at(log=log, top_k=2, agenda_k=1)
 
+            self.assertNotIn(
+                activity_ref, [item["ref"] for item in brief["atividades"]],
+            )
             self.assertEqual(brief["atividades_perdidas"], [{
                 "ref": activity_ref,
                 "finalidade": "Retomar o trabalho esquecido",
                 "sessoes_sem_toque": 2,
             }])
-            self.assertEqual(brief["sem_mapa"], [{
-                "ref": activity_ref, "operacao": "edge", "motivo": "largada",
-            }])
-
+            self.assertIn(
+                {"ref": activity_ref, "operacao": "edge", "motivo": "largada"},
+                brief["sem_mapa"],
+            )
     def test_a25_admissibility_surfaces_only_runs_and_facts_from_the_failed_batch(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"

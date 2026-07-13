@@ -19,6 +19,7 @@ import math
 import os
 import sys
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -53,6 +54,16 @@ PREV_CONTEXT_MAX_CHARS = 120_000
 DEFAULT_MAX_SESSIONS_PER_SWEEP = 5
 DEFAULT_SWEEP_TOKEN_BUDGET = 20_000
 DEFAULT_SCENE_TURN_LIMIT = 40
+# Soft-fail park (G2): after this many soft skips (invalid_output, …) on the same session
+# watermark, the coordinator parks the session so it cannot burn the aggregate budget every
+# sweep and starve later work. Cleared on successful rationalize, watermark growth, or manual
+# delete of the side-file entry. budget_exhausted is a hard stop and does NOT count.
+SOFT_FAIL_PARK_THRESHOLD = 3
+# UX.W-sweep-lock-dark: exclusive cursors flock is non-blocking + retry up to this budget.
+# Past the wait the sweep goes honest DARK (return 0) so predispatch can still stamp —
+# identity precedes grounding; prefer swept=0 over a silent concurrent hang.
+CURSORS_LOCK_WAIT_S = 45.0
+CURSORS_LOCK_POLL_S = 0.1
 
 
 def _reexec_repo_venv():
@@ -222,9 +233,20 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
 
 # --- bounded a-posteriori rationalization (log-checkpointed; no cursor) ---
 def _substantial_for_rationalization(turns):
-    """The quente criterion, applied to the already-normalized persisted dialogue."""
+    """Substantial mentee dialogue for film (all surfaces).
+
+    Multi-turn conversations: ≥5 human turns and ≥1000 human chars (quente heritage).
+    Single long operator briefs (common on Grok): ≥1 human turn and ≥1000 human chars —
+    otherwise Grok never enters the rationalize plan despite long employment prompts.
+    """
     human = [turn for turn in turns if turn.role == "human"]
-    return len(human) >= 5 and sum(len(turn.text) for turn in human) >= 1000
+    n = len(human)
+    chars = sum(len(turn.text) for turn in human)
+    if n >= 5 and chars >= 1000:
+        return True
+    if n >= 1 and chars >= 1000:
+        return True
+    return False
 
 
 def _validate_lentes_limit(value, name, *, allow_zero=False):
@@ -320,6 +342,7 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
             continue
         checkpoints.add(rationalization_id)
 
+    # Three surfaces → same dialogue filter (user↔assistant only), then mentee session gate.
     discovered = list(sessions.list_sessions(project_dir))
     if include_codex:
         discovered.extend(sessions.list_codex_sessions(codex_dir))
@@ -327,14 +350,19 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
         discovered.extend(sessions.list_grok_sessions(grok_dir))
     pending = []
     for session in discovered:
-        if not sessions.is_user_session(session):
-            continue
         path = Path(session.path)
-        mtime = path.stat().st_mtime
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
         if floor is not None and mtime < floor:
             continue
-        turns, watermark = sessions.delta(path, 0, surface=session.surface)
-        if not turns or not _substantial_for_rationalization(turns):
+        # Pre-process: operator dialogue only (no terminals/tools) + not worker/sidechain.
+        packed = sessions.mentee_dialogue_for_rationalize(session)
+        if packed is None:
+            continue
+        turns, watermark = packed
+        if not _substantial_for_rationalization(turns):
             continue
         session_id = _cursor_id(session)
         identity = rationalization_identity(
@@ -353,7 +381,10 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
             "watermark": watermark,
             **identity,
         })
-    pending.sort(key=lambda item: (item["mtime"], item["surface"], item["id"]))
+    # Smallest dialogue first so sleep-time budget is not eaten by 1000-turn sessions
+    # before any film lands (7d drain dogfood 2026-07-13: 0 rationalized on default oldest-first).
+    pending.sort(key=lambda item: (
+        len(item["turns"]), item["mtime"], item["surface"], item["id"]))
     return pending
 
 
@@ -363,6 +394,71 @@ def _add_usage(total, addition):
         value = addition.get(field, 0)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             total[field] += value
+
+
+def _softfail_path(log):
+    """Durable soft-fail map beside the coordinator lock: ``<log>.rationalize-softfail.json``."""
+    return Path(log).with_name(Path(log).name + ".rationalize-softfail.json")
+
+
+def load_softfail_state(log):
+    """Load ``{session_id: {count, last_error, last_ts, watermark}}``; missing/corrupt → {}."""
+    path = _softfail_path(log)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_softfail_state(state, log):
+    path = _softfail_path(log)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2, sort_keys=True))
+
+
+def _softfail_entry(state, session_id):
+    entry = state.get(session_id) if isinstance(state, dict) else None
+    return entry if isinstance(entry, dict) else None
+
+
+def _softfail_is_parked(entry, watermark, threshold=SOFT_FAIL_PARK_THRESHOLD):
+    if not entry:
+        return False
+    count = entry.get("count", 0)
+    if not isinstance(count, int) or isinstance(count, bool) or count < threshold:
+        return False
+    return entry.get("watermark") == watermark
+
+
+def _record_soft_fail(state, session_id, *, watermark, error=None):
+    """Increment soft-fail count for this session@watermark (park when threshold reached).
+
+    Policy: count soft skips (``invalid_output`` and other per-session soft reasons, never
+    ``already_rationalized`` / ``budget_exhausted``). Same watermark accumulates; a new
+    watermark starts fresh (caller resets before record when watermark changed).
+    """
+    prev = _softfail_entry(state, session_id)
+    count = 0
+    if prev and prev.get("watermark") == watermark:
+        raw = prev.get("count", 0)
+        if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+            count = raw
+    entry = {
+        "count": count + 1,
+        "last_error": error,
+        "last_ts": datetime.now(timezone.utc).isoformat(),
+        "watermark": watermark,
+    }
+    state[session_id] = entry
+    return entry
+
+
+def _clear_soft_fail(state, session_id):
+    if isinstance(state, dict):
+        state.pop(session_id, None)
 
 
 def _estimated_tokens(value):
@@ -445,12 +541,35 @@ def rationalize_pending_sessions(
     usage = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "estimated_tokens": 0}
     rationalized = []
     attempted = []
+    skipped = []
     stopped_reason = None
+    softfail_dirty = False
     bounded_complete_fn = _bounded_sweep_completer(
         complete_fn, completer_factory, sweep_token_budget)
+    # Finding F: bound rationalize coordinator lock (same pattern as cursors lock-dark).
+    lock_wait_s = float(os.environ.get("EDGE_RATIONALIZE_LOCK_WAIT_S", "45"))
+    lock_poll_s = float(os.environ.get("EDGE_RATIONALIZE_LOCK_POLL_S", "0.2"))
     with coordinator_lock.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not _acquire_cursors_lock(lock, wait_s=lock_wait_s, poll_s=lock_poll_s):
+            print(
+                f"sweep: rationalize lock DARK (held >{lock_wait_s}s on {coordinator_lock}) "
+                "— backlog retained; next trigger retries",
+                flush=True,
+            )
+            return {
+                "attempted": [],
+                "rationalized": [],
+                "pending": [],
+                "usage": usage,
+                "stopped_reason": "lock_dark",
+                "skipped": [],
+            }
         try:
+            # Soft-fail park state is durable across sweeps (side file next to this lock).
+            # Policy: on soft skip (invalid_output, …) increment count@watermark; at
+            # SOFT_FAIL_PARK_THRESHOLD park (skip attempt) until watermark grows or manual
+            # clear; success clears; budget_exhausted hard-stops without counting.
+            softfail = load_softfail_state(log)
             pending = plan_rationalizations(
                 project_dir,
                 log=log,
@@ -458,8 +577,21 @@ def rationalize_pending_sessions(
                 backfill_days=backfill_days,
                 racionalizador_version=racionalizador_version,
             )
+            # Prefer non-parked so a parked oldest session cannot sit first forever.
+            def _park_key(item):
+                entry = _softfail_entry(softfail, item["id"])
+                if entry and entry.get("watermark") != item["watermark"]:
+                    return 0  # watermark grew → will unpark below
+                return 1 if _softfail_is_parked(entry, item["watermark"]) else 0
+
+            pending = sorted(
+                pending,
+                key=lambda item: (_park_key(item), item["mtime"], item["surface"], item["id"]),
+            )
             for item in pending:
-                if len(rationalized) >= max_sessions_per_sweep:
+                # Finding G: limit attempts (not only successes) so invalid_output cannot burn
+                # unbounded sessions past max_sessions_per_sweep.
+                if len(attempted) >= max_sessions_per_sweep:
                     stopped_reason = "max_sessions_per_sweep"
                     break
                 remaining = (None if sweep_token_budget is None else
@@ -467,9 +599,19 @@ def rationalize_pending_sessions(
                 if remaining == 0:
                     stopped_reason = "budget_exhausted"
                     break
-                attempted.append(item["id"])
+                sid = item["id"]
+                entry = _softfail_entry(softfail, sid)
+                # Watermark growth resets soft-fail count (unpark / fresh attempts).
+                if entry is not None and entry.get("watermark") != item["watermark"]:
+                    _clear_soft_fail(softfail, sid)
+                    softfail_dirty = True
+                    entry = None
+                if _softfail_is_parked(entry, item["watermark"]):
+                    skipped.append({"id": sid, "reason": "soft_fail_parked"})
+                    continue
+                attempted.append(sid)
                 result = rationalize_fn(
-                    item["id"],
+                    sid,
                     item["turns"],
                     bounded_complete_fn,
                     log,
@@ -484,11 +626,34 @@ def rationalize_pending_sessions(
                 _add_usage(usage, result.get("usage"))
                 reason = result.get("skipped_reason")
                 if reason == "already_rationalized":
+                    # Checkpoint already exists; drop any stale soft-fail row.
+                    if _softfail_entry(softfail, sid) is not None:
+                        _clear_soft_fail(softfail, sid)
+                        softfail_dirty = True
                     continue
-                if reason:
+                if reason == "budget_exhausted":
                     stopped_reason = reason
                     break
-                rationalized.append(item["id"])
+                if reason:
+                    # Soft per-session failure (invalid_output, …): count + keep sweeping.
+                    _record_soft_fail(
+                        softfail, sid,
+                        watermark=item["watermark"],
+                        error=result.get("error"),
+                    )
+                    softfail_dirty = True
+                    skip_entry = {"id": sid, "reason": reason}
+                    if result.get("error") is not None:
+                        skip_entry["error"] = result["error"]
+                    skipped.append(skip_entry)
+                    continue
+                # Success: clear soft-fail tracking for this session.
+                if _softfail_entry(softfail, sid) is not None:
+                    _clear_soft_fail(softfail, sid)
+                    softfail_dirty = True
+                rationalized.append(sid)
+            if softfail_dirty:
+                save_softfail_state(softfail, log)
             current_pending = plan_rationalizations(
                 project_dir,
                 log=log,
@@ -504,6 +669,7 @@ def rationalize_pending_sessions(
         "pending": [item["id"] for item in current_pending],
         "usage": usage,
         "stopped_reason": stopped_reason,
+        "skipped": skipped,
     }
 
 
@@ -821,13 +987,35 @@ def reproject_graph(log=eventlog.LOG):
         print(f"sweep: relate sync skipped ({type(e).__name__}: {e}) — semantic leg dark")
 
 
+def _acquire_cursors_lock(lk, wait_s=CURSORS_LOCK_WAIT_S, poll_s=CURSORS_LOCK_POLL_S):
+    """Exclusive cursors flock: non-blocking + retry up to wait_s (UX.W-sweep-lock-dark).
+
+    Returns True when acquired; False when the wait budget expires without the lock. Caller
+    must treat False as honest DARK (skip this sweep, return 0) so predispatch can still stamp.
+    """
+    import fcntl
+    deadline = time.monotonic() + max(0.0, float(wait_s))
+    while True:
+        try:
+            fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(poll_s)
+
+
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
         log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None,
-        grok_dir=None):
+        grok_dir=None, cursors_lock_wait_s=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
-    after Neo4j comes back still heals a publish-time-missed projection."""
+    after Neo4j comes back still heals a publish-time-missed projection.
+
+    `cursors_lock_wait_s` (default CURSORS_LOCK_WAIT_S=45) bounds how long run() retries the
+    exclusive cursors flock. On timeout: loud DARK print and return 0 (skip sweep) so a concurrent
+    holder never silently hangs the wake — identity precedes grounding (UX.W-sweep-lock-dark)."""
     # ADR-0015 preflight (codex gate): an install that has not declared who it is must not
     # write as anyone — Tier-0 episode appends and cursor advances ARE writes. Identity fails
     # loud HERE, before the delta is consumed, never mid-sweep (where a rerun would see the
@@ -841,11 +1029,18 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     # mutable state on a multi-dispatch host (operator + heartbeat): two overlapping sweeps would
     # otherwise read the same base and append duplicate episode events / clobber each other's
     # cursor advances (review B1, ADR-0008's idempotency is only real under this lock).
+    # UX.W-sweep-lock-dark: NON-BLOCKING + retry (not indefinite LOCK_EX). Past the wait budget
+    # we skip this sweep (return 0) with a loud DARK print — prefer wake continues with swept=0
+    # than a silent hang past 45s while another instance holds the cursor lock.
     import fcntl
+    lock_wait = CURSORS_LOCK_WAIT_S if cursors_lock_wait_s is None else float(cursors_lock_wait_s)
     lock_path = Path(cursors_path).with_name(Path(cursors_path).name + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("w") as lk:
-        fcntl.flock(lk, fcntl.LOCK_EX)
+        if not _acquire_cursors_lock(lk, wait_s=lock_wait):
+            print(f"sweep: cursors lock DARK (held >{lock_wait:g}s) — skipping sweep this wake "
+                  "(swept=0); identity precedes grounding; next wake retries.")
+            return 0
         try:
             cursors = load_cursors(cursors_path)
             if _codex_enabled(project_dir, codex_dir):

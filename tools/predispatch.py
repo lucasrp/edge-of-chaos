@@ -71,7 +71,7 @@ def mint_dispatch_id():
 
 def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_fn=None,
         log=eventlog.LOG, dispatch_id=None, theme=None, intent=None, geometry=None,
-        id_sink=None, origin=None, enqueue_fn=None):
+        id_sink=None, origin=None, enqueue_fn=None, employment=False):
     """The mechanical floor, in order: sweep → briefing → STAMP dispatch.open (+ emit the id to
     `id_sink`) → grounding legs (harvest → recall brief → canary) → dispatch.grounding. Returns
     (briefing_text, recall_text) for the dispatch to read. Injectable (house style) so it runs
@@ -106,7 +106,15 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     by (session anchor, dispatch interval), so no extra cursor is persisted here. Geometry:
     predispatch cannot see its caller (separate process), so it is declared — default `ambient`
     (the heartbeat entry), flipped to `themed` when a theme is declared; an explicit geometry
-    always wins."""
+    always wins.
+
+    UX.W-floor-employment — default `recall_fn` is portfolio-aware when this is an employment
+    wake: ``origin == "user_requested"``, geometry ``themed``, or ``employment=True``
+    (``--employment``). Ambient heartbeat (beat + ambient, no flag) stays map-blind
+    ``compose_recall_brief`` so lazer/delta paths never get the portfolio tail by accident.
+    ``compose_portfolio_recall_brief`` already concatenates space-0 + portfolio lanes."""
+    if geometry is None:
+        geometry = "themed" if theme else "ambient"
     if sweep_fn is None:
         import sweep as _sweep
         sweep_fn = _sweep.run
@@ -117,7 +125,11 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
         briefing_fn = lambda: _briefing.compose_briefing(hot_cutoff=_hot_cutoff())  # noqa: E731
     if recall_fn is None:
         import recall as _recall
-        recall_fn = _recall.compose_recall_brief
+        # employment stamp (UX.W-floor-employment): portfolio on user-facing wakes only
+        if (employment or origin == "user_requested" or geometry == "themed"):
+            recall_fn = _recall.compose_portfolio_recall_brief
+        else:
+            recall_fn = _recall.compose_recall_brief
     if harvest_fn is None:
         import harvest as _harvest
         harvest_fn = lambda: _harvest.harvest(log=log)   # noqa: E731 — real default (S5)
@@ -131,8 +143,6 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     briefing_text = briefing_fn()           # raises on a lobotomized identity — no stamp
     if dispatch_id is None:
         dispatch_id = mint_dispatch_id()
-    if geometry is None:
-        geometry = "themed" if theme else "ambient"
     # the stamp is IDENTITY-ONLY now (#62): harvested/ambient_rows move to the dispatch.grounding
     # event below — they had zero downstream readers on the stamp and gated nothing.
     # ticket 05 (hierarquia de ORIGEM): the dispatch DECLARES where it came from —
@@ -360,6 +370,9 @@ def main(argv=None):
                         help="who asked for this dispatch (ticket 05): user_requested = the "
                              "mentee's live cognition (first-order signal, weighs above beat); "
                              "beat = autonomous exploration (default)")
+    parser.add_argument("--employment", action="store_true",
+                        help="force portfolio-aware recall (UX.W-floor-employment) even on an "
+                             "ambient beat origin — open maps/atividades stamp into the recall brief")
     args = parser.parse_args(argv)
     dispatch_id = mint_dispatch_id()
     # machine-readable FIRST (S2, E1 + gate D2): the skill-snippet reads this exact line off
@@ -374,7 +387,8 @@ def main(argv=None):
         with contextlib.redirect_stdout(floor_out):
             briefing_text, recall_text = run(dispatch_id=dispatch_id, id_sink=real_out,
                                              theme=args.theme, intent=args.intent,
-                                             geometry=args.geometry, origin=args.origin)
+                                             geometry=args.geometry, origin=args.origin,
+                                             employment=args.employment)
     except BaseException:
         sys.stdout.write(floor_out.getvalue())
         raise
