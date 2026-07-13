@@ -27,14 +27,22 @@ O chamador te entrega UM arquivo com:
    contextualize o novo, assuma o conhecido; todo termo cunhado na janela ganha meia-frase de
    apresentação na 1ª menção), estado EXECUTADO cruzado com âncoras, decisões com o porquê,
    verbatims do operador onde o fraseado importa.
-2. **TABELA DE ESTADO por fio:** Fio · Estado · Bloqueio · Próximo passo · **Aposta viva** —
-   a coluna do risco (protege-a-aposta): o palpite falsificável em aberto, o que pode dar
-   errado. Um brief só de settled é o oco medroso do SENTIR.
-3. **ESPINHA "POR ONDE COMEÇAR":** a ordem de dependência (o que destrava o quê) + o primeiro
-   movimento recomendado com justificativa de 1 linha — **ordenado por onde a aposta viva
-   está**, não só pelo que está resolvido.
-4. **Verbatims que importam** — as frases do operador que o agente precisa segurar cruas.
-5. **Glossário da janela** — termos cunhados no período; **entrada sem âncora na fonte sai
+2. **TABELA DE ESTADO por fio:** Fio · Estado · Bloqueio · Próximo passo · **Aposta viva** ·
+   **clear** — a coluna do risco (protege-a-aposta) **e** o teste de finalização:
+   - **Aposta viva:** o palpite falsificável em aberto, o que pode dar errado. Um brief só de
+     settled é o oco medroso do SENTIR.
+   - **clear:** `PASS` \| `FAIL` — *"se o operador der clear nessa sessão agora, perde estado
+     operacional que só viveu no chat?"* `FAIL` = sessão **truncada** (parou no meio: eval,
+     batch, skill, merge, "continue" sem âncora de done). `PASS` = settled, parked explícito,
+     ou já durável em git/eventlog/blog/kernel. **Não confunda FAIL com aposta aberta saudável.**
+3. **SESSÕES TRUNCADAS (bloco obrigatório se houver FAIL):** lista curta e **incisiva** no topo
+   do brief — sessão/fio · o que estava no meio · o que falta pra clear passar (retomar ou
+   abandonar explícito). O wake **copia essa dureza** pro principal; não amacie aqui.
+4. **ESPINHA "POR ONDE COMEÇAR":** a ordem de dependência (o que destrava o quê) + o primeiro
+   movimento recomendado com justificativa de 1 linha — **FAIL/truncada primeiro**, depois onde
+   a aposta viva está. Truncation outranks a shiny new thread.
+5. **Verbatims que importam** — as frases do operador que o agente precisa segurar cruas.
+6. **Glossário da janela** — termos cunhados no período; **entrada sem âncora na fonte sai
    marcada "(inferido)"**, nunca afirmada (a lição do X-first).
 
 ## Regras duras
@@ -42,4 +50,6 @@ O chamador te entrega UM arquivo com:
 - Zero invenção; ambíguo = marcado. O que a voz diz e o git não mostra = "não confirmado".
 - NUNCA reaproveite um brief anterior (o quente de 2h atrás já nasceu morto — E0 provou).
 - Não repita o que o FRIO possui (regras vigentes, Objective, roster) — só deltas.
+- **Sessão truncada não é eufemismo.** Se clear=FAIL, diga TRUNCADA / clear não passa — não
+  "em andamento" genérico.
 - Sua mensagem final = o brief, nada mais (o wake a injeta direto no principal).
