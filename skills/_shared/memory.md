@@ -42,8 +42,11 @@ with drv.session() as s:
 
 The graph has an **origin**: the `:Genesis` node (`space:0`), which **is** the edge's identity — its
 **method and personality** (the genotype tattoos, `memory/method.md` + `memory/personality.md`). This is
-where you **wake**: every recall begins at space-0 (*who am I, what is my method*) and navigates **out**
-from there. Everything plugs in through the **Objective hub**: `(:Genesis)-[:GROUNDS]->(:Objective)`, the
+where you **wake**: the default push begins at space-0 (*who am I, what is my method*) and navigates **out**.
+That is **not** the only door — for a free-text “where is X?” use **common semantic search**
+(`tools/recall.py` `semantic_search` / `compose_semantic_brief`) over Artefato embeddings, then
+surf from a hit. Dual entry (operator 2026-07-13): space-0 on wake; semantic jump on demand.
+From space-0, everything plugs in through the **Objective hub**: `(:Genesis)-[:GROUNDS]->(:Objective)`, the
 active steers `(:Objective)-[:ANCHORS]->(:Direction)`, and **every Artefato `-[:SERVES]->` the Objective**
 (then hangs its clusters via `DISTILLS`, its candidate steers via `PROPOSES`, its sources via `CITES`). So
 from space-0 you reach *everything* through the Objective — a fresh report is reachable from identity even
@@ -108,8 +111,10 @@ RETURN o.body, collect(DISTINCT d.body), collect(DISTINCT a.slug), collect(DISTI
 
 **Semantic entry** (when you know only the gist, not the cluster). Two ways:
 
-- **Your own Artefatos, by content** — each `:Artefato` you project carries an `embedding` (see
-  *Project*). Embed the gist with the **same model** and rank by cosine — recall a past report even when
+- **Your own Artefatos, by content (common semantic entry)** — prefer the genotype tool
+  `recall.semantic_search("<gist>")` / `compose_semantic_brief(...)` (same `text-embedding-3-small`
+  as *Project*). Manual path: each `:Artefato` carries an `embedding`; embed the gist and rank by
+  cosine — recall a past report even when
   you don't know its cluster (the install's OpenAI key is loaded):
 
 ```python

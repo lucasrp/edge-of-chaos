@@ -195,5 +195,56 @@ class TheThreeBriefFanIsPinnedInProse(unittest.TestCase):
         self.assertIn("adr-0014", skill)  # it points to where the leg went
 
 
+class SemanticSearchIsACommonGraphEntry(unittest.TestCase):
+    """Dual entry (operator 2026-07-13): wake defaults at space-0, but any task may jump in via
+    common semantic search over projected Artefato embeddings — not only navigate from Genesis."""
+
+    def test_semantic_artefatos_query_is_complete_with_embedding(self):
+        self.assertTrue(hasattr(recall, "SEMANTIC_ARTEFATOS_QUERY"))
+        q = recall.SEMANTIC_ARTEFATOS_QUERY
+        self.assertIn(":Artefato", q)
+        self.assertIn("group_id:$g", q)
+        self.assertIn("a.embedding IS NOT NULL", q)
+        self.assertIn("projection_complete = true", q)
+        self.assertIn("RETURN a.slug", q)
+
+    def test_semantic_search_ranks_by_cosine_with_injected_embedder(self):
+        # Unit vectors: query matches "hit" exactly; "miss" is orthogonal.
+        corpus = [
+            {"slug": "hit", "kernel": "graph entry semantic", "embedding": [1.0, 0.0, 0.0]},
+            {"slug": "miss", "kernel": "unrelated noise", "embedding": [0.0, 1.0, 0.0]},
+        ]
+
+        def embed_fn(_text):
+            return [1.0, 0.0, 0.0]
+
+        hits = recall.semantic_search(
+            "where is graph entry",
+            group="test-group",
+            limit=2,
+            embed_fn=embed_fn,
+            corpus=corpus,
+        )
+        self.assertIsNotNone(hits)
+        self.assertEqual(hits[0]["slug"], "hit")
+        self.assertGreater(hits[0]["score"], 0.99)
+        self.assertEqual(hits[1]["slug"], "miss")
+        self.assertLess(hits[1]["score"], 0.1)
+
+    def test_semantic_search_dark_without_query_or_corpus(self):
+        self.assertIsNone(recall.semantic_search("", group="g", corpus=[]))
+        self.assertIsNone(recall.semantic_search("x", group="g", corpus=[]))
+        self.assertIsNone(recall.semantic_search(None, group="g", corpus=[{"slug": "a", "embedding": [1.0]}]))
+
+    def test_compose_semantic_brief_renders_hits_and_dark(self):
+        hits = [{"slug": "hit-report", "kernel": "open: dual entry", "score": 0.91}]
+        text = recall.compose_semantic_brief("dual entry", hits=hits)
+        self.assertIn("semantic", text.lower())
+        self.assertIn("hit-report", text)
+        self.assertIn("0.91", text)
+        dark = recall.compose_semantic_brief("anything", hits=None)
+        self.assertIn("dark", dark.lower())
+
+
 if __name__ == "__main__":
     unittest.main()
