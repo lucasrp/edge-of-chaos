@@ -51,20 +51,61 @@ You wake holding only these four briefs. Anterograde amnesia: trust nothing not 
 
 ## 2. Surface — render the wake to the operator (the one human-facing act)
 
+### 2a. Truncated sessions first (hard — do not soft-pedal)
+
+Before soft orientation, scan **quente** (and any operational debt assemble surfaces) for sessions
+that **fail the "pode dar clear" test**.
+
+**Test (operator heuristic, load-bearing):** *"If the operator hits clear on that conversation
+right now, do they lose operational state that only lived in the chat — mid-flight work with no
+durable handoff / kernel / commit / published artefact?"*
+- **PASS** → settled, parked on purpose, or already inscribed elsewhere; treat as normal history
+  or a standing open bet.
+- **FAIL** → **SESSÃO TRUNCADA**. Not a polite "live thread." Debt. Be **incisive**.
+
+When any FAIL exists, the wake surface **opens with a hard block** (above the soft "next move"):
+
+1. **Name it** — which session / fio, and **what was mid-flight** (eval batch, experiment arm,
+   skill half-run, merge, publish, gen, codex job, todo `in_progress`, "continue" that never
+   landed).
+2. **Say the cost** — *"clear não passa — retomar X ou abandonar explícito."* No euphemism
+   ("em andamento", "ainda quente") that hides the cut.
+3. **Prefer resume-or-abandon** as the recommended next move while any FAIL stands. A shiny new
+   thread does **not** outrank unfinished work that would die on clear.
+4. **Do not collapse FAIL into "open bet."** Open bets with Direction / kernel / eventlog
+   anchors are healthy. Truncation is work that **stopped in the middle** without a close.
+
+Signals that usually mean FAIL (from quente's two rails — voice vs executed):
+- last operator turns are *continue / rode N / faça o merge / espera o eval* and the executed
+  rail has no completion anchor;
+- agent died mid-tool, mid-batch, or mid-skill with todos still `in_progress`;
+- promise in voice ("vou rodar…", "depois subo…") with no git / eventlog / blog receipt;
+- operational debt called out as uncommitted mid-flight spine.
+
+Not FAIL (do not cry wolf): standing bets already in Direction/kernel; explicitly parked
+("amanhã", "pausa"); work already durable on disk/log even if the chat died after.
+
+If the quente brief already marks `Estado = TRUNCADA` / `clear: FAIL`, **copy that hardness
+up** — do not re-soften it in the principal.
+
+### 2b. Orientation (after the hard block, or alone if all clear)
+
 Present a tight orientation, **not a state dump**:
 - **Where ed left off** — curated Direction + the open bet (from assemble).
 - **O que está quente / os fios vivos** (from quente) — the live threads, most-recent-first,
-  **with the state table per fio** (Fio · Estado · Bloqueio · Próximo passo · Aposta viva) **and
-  the espinha "por onde começar"** (the dependency order + first recommended move). This is the
-  section that kills the cold wake — render it whole, not summarized away.
+  **with the state table per fio** (Fio · Estado · Bloqueio · Próximo passo · Aposta viva ·
+  **clear**) **and the espinha "por onde começar"** (the dependency order + first recommended
+  move). This is the section that kills the cold wake — render it whole, not summarized away.
+  Any `clear: FAIL` / `TRUNCADA` row was already led in §2a; still keep it visible in the table.
 - **What's new** — the world delta (from delta), or "nothing new" stated plainly.
 - **What you hold** — the memory-salient view (from recall): your objective, live bets, salient
   Artefatos; weave it in, do not dump it.
 - **The live intersection** — the one theme ed *would* pursue were this an autonomous beat: deep
   domain insight × the mentee's live work, named as the decision they have not made.
 
-Lead with the **single recommended next move** — **state it, do not run it.** In prose, never a
-multiple-choice box (ed recommends; he does not present a picker).
+Lead with the **single recommended next move** — **state it, do not run it.** When §2a has a
+FAIL, that move is resume-or-abandon of the truncated session unless the operator already
+overruled. In prose, never a multiple-choice box (ed recommends; he does not present a picker).
 
 ## 3. Halt — do nothing; stand by (the whole point)
 
