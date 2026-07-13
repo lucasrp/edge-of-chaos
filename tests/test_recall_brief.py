@@ -68,6 +68,28 @@ class RecallSubgraphLivesInRecallModule(unittest.TestCase):
         # standalone inventory stays available through cortex_assets.
         self.assertIn("MATCH (p:Artefato {group_id:$g})-[:HAS_ASSET]->(a)", recall.ASSETS_QUERY)
 
+    def test_atividade_query_is_open_employment_spine_from_graph(self):
+        """Agentic cortex-as-graph: open Atividade nodes ride the salient push (not only portfolio_at).
+
+        Seam: ATIVIDADES_QUERY constant + recall_subgraph execution (same pattern as ARTEFATOS).
+        Open/reaberta only — abandonada/cumprida stay out of the default spine.
+        """
+        self.assertTrue(hasattr(recall, "ATIVIDADES_QUERY"))
+        self.assertTrue(hasattr(recall, "RECALL_ATIVIDADE_LIMIT"))
+        self.assertGreaterEqual(recall.RECALL_ATIVIDADE_LIMIT, 1)
+        self.assertLessEqual(recall.RECALL_ATIVIDADE_LIMIT, 16)
+        q = recall.ATIVIDADES_QUERY
+        self.assertIn(":Atividade", q)
+        self.assertIn("group_id:$g", q)
+        self.assertIn("aberta", q)
+        self.assertIn("reaberta", q)
+        self.assertIn("LIMIT $lim", q)
+        self.assertIn("finalidade", q)
+        import inspect
+        src = inspect.getsource(recall.recall_subgraph)
+        self.assertIn("s.run(_q(ATIVIDADES_QUERY)", src,
+                      "recall_subgraph must execute ATIVIDADES_QUERY (graph employment spine)")
+
 
 class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
     """`compose_recall_brief` renders the memory-salient brief — a standalone surface, peer to the
@@ -86,6 +108,8 @@ class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
             "assets": [{"slug": "experiment-final-report-html", "kind": "html",
                         "parent_slug": "experiment-final-report",
                         "page": "blog/entries/experiment-final-report.html"}],
+            "atividades": [{"ref": "edge/atv-021", "num": "atv-021", "estado": "aberta",
+                            "finalidade": "retomar assemble em artefatos", "tier": "llm_judged"}],
         }
         text = recall.compose_recall_brief(subgraph=sub)
         low = text.lower()
@@ -98,6 +122,9 @@ class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
         self.assertIn("exp040", text)                           # a native Experiment
         self.assertIn("experiment-final-report-html", text)      # a generated asset companion
         self.assertIn("memory.md", low)                        # recall-MORE-on-demand affordance
+        self.assertIn("atv-021", text)                         # graph employment spine
+        self.assertIn("retomar assemble em artefatos", text)
+        self.assertIn("atividade", low)
 
     def test_dark_graph_renders_an_honest_marker_not_a_crash(self):
         text = recall.compose_recall_brief(subgraph=None)

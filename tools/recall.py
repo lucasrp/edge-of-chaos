@@ -24,6 +24,7 @@ import _identity  # noqa: E402
 RECALL_ARTEFATO_LIMIT = 8
 RECALL_EXPERIMENT_LIMIT = 6
 RECALL_ASSET_LIMIT = 8
+RECALL_ATIVIDADE_LIMIT = 8
 
 # The recall cyphers as module constants — the runtime artifacts the salience guards live in
 # (cap, recency order, complete-projections-only, retired-cluster filter), testable as
@@ -56,12 +57,20 @@ ASSETS_QUERY = (
     "RETURN a.slug AS slug, a.asset_kind AS kind, a.asset_role AS role, a.page AS page, "
     "a.skill AS skill, p.slug AS parent_slug "
     "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim")
+# Employment spine from the projected graph (project_lentes), not the eventlog fold.
+# Only open/reaberta — abandonada/cumprida stay out of the default agent push.
+# Display ref prefers operacao/num (fold shape edge/atv-NNN) over raw atividade:ulid.
+ATIVIDADES_QUERY = (
+    "MATCH (a:Atividade {group_id:$g}) "
+    "WHERE a.estado IN ['aberta', 'reaberta'] "
+    "RETURN a.ref AS raw_ref, a.num AS num, a.operacao AS operacao, "
+    "a.finalidade AS finalidade, a.estado AS estado, a.tier AS tier "
+    "ORDER BY coalesce(a.num,'') DESC LIMIT $lim")
 CLUSTERS_QUERY = (
     "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
     "WHERE a.slug IN $slugs AND e.curated_cluster IS NOT NULL "
     "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
     "RETURN DISTINCT e.curated_cluster AS l ORDER BY l")
-
 # The SURF query — the topology read a SELECT cannot do (Cortex-v1 brick-1, schema report
 # `the-graph-you-filled-like-a-list`, move 2). From the seed Artefatos it walks ONLY the typed
 # associative peer web — BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES|SUPPORTS|REFUTES|
@@ -218,10 +227,13 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
     remembering to recall (the dormant g.search() tale).
 
     Returns a dict
-    ``{"codename","voice","objective","bets":[...],"artefatos":[{"slug","kernel"}],"clusters":[...]}``
+    ``{"codename","voice","objective","bets":[...],"artefatos":[...],"clusters":[...],
+    "experiments":[...],"assets":[...],"atividades":[{"ref","num","finalidade","estado",...}]}``
     on success; **None** on a genuine degrade — no group, the neo4j driver absent, or the graph
     unreachable. NEVER raises (CONTRACT C1, ADR-0011: a transient outage darkens only this leg).
-    The recall cypher is the space-0 traversal from `skills/_shared/memory.md`."""
+    ``atividades`` are open/reaberta nodes from the projected graph (employment spine) — cortex as
+    graph for the agent, not only portfolio_at ledger. The recall cypher is the space-0 traversal
+    from `skills/_shared/memory.md`."""
     if not group:
         return None
     try:
@@ -232,7 +244,8 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
             head = s.run(_q(SPINE_QUERY), g=group).single()
             if head is None:
                 return {"codename": None, "voice": None, "objective": None,
-                        "bets": [], "artefatos": [], "clusters": []}
+                        "bets": [], "artefatos": [], "clusters": [],
+                        "experiments": [], "assets": [], "atividades": []}
             # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
             # SERVES. The salience guards (complete-projections-only, recency order, the cap,
             # the retired-cluster filter) live in the module-level query constants above.
@@ -248,6 +261,11 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                 assets = s.run(_q(ASSETS_QUERY), g=group, lim=RECALL_ASSET_LIMIT).data()
             except Exception:
                 assets = []
+            try:
+                atividades = s.run(_q(ATIVIDADES_QUERY), g=group,
+                                   lim=RECALL_ATIVIDADE_LIMIT).data()
+            except Exception:
+                atividades = []
             return {
                 "codename": head["codename"], "voice": head["voice"],
                 "objective": head["objective"], "bets": [b for b in head["bets"] if b],
@@ -262,10 +280,31 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                             "page": a.get("page"), "skill": a.get("skill"),
                             "parent_slug": a.get("parent_slug")}
                            for a in assets if a.get("slug")],
+                "atividades": [_atividade_row(a) for a in atividades],
             }
     except Exception:
         return None
 
+
+def _atividade_row(row):
+    """Normalize a projected Atividade row for the agentic brief."""
+    num = row.get("num")
+    operacao = row.get("operacao")
+    if isinstance(operacao, str) and operacao.strip() and isinstance(num, str) and num.strip():
+        ref = f"{operacao.strip()}/{num.strip()}"
+    elif isinstance(num, str) and num.strip():
+        ref = num.strip()
+    else:
+        raw = row.get("raw_ref")
+        ref = raw.strip() if isinstance(raw, str) and raw.strip() else None
+    return {
+        "ref": ref,
+        "num": num,
+        "operacao": operacao,
+        "finalidade": row.get("finalidade"),
+        "estado": row.get("estado"),
+        "tier": row.get("tier"),
+    }
 
 def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
     """SURF the associative peer web from `seeds` — the multi-hop topology read a SELECT cannot do
@@ -380,8 +419,20 @@ def compose_recall_brief(subgraph=_AUTO, group=None):
         parts.append("- **Generated Artefato assets (HTML/JS/data companions):**\n" + "\n".join(lines))
     else:
         parts.append("- **Generated Artefato assets:** _none projected yet_")
+    # Graph employment spine (project_lentes Atividade nodes) — agentic cortex-as-graph.
+    # Distinct from portfolio_at lanes: this is Neo4j, map-blind recall still carries it.
+    atividades = subgraph.get("atividades") or []
+    if atividades:
+        lines = []
+        for a in atividades:
+            label = a.get("ref") or a.get("num") or "?"
+            fin = a.get("finalidade") or "_sem finalidade_"
+            estado = f" · {a.get('estado')}" if a.get("estado") else ""
+            lines.append(f"  - **{label}** — {fin}{estado}")
+        parts.append("- **Open Atividades (graph employment spine):**\n" + "\n".join(lines))
+    else:
+        parts.append("- **Open Atividades (graph employment spine):** _none open in graph_")
     return "\n".join(parts) + "\n"
-
 
 def _portfolio_text(item, key, lane):
     value = item.get(key)
