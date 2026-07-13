@@ -27,20 +27,25 @@ O chamador te entrega UM arquivo com:
    contextualize o novo, assuma o conhecido; todo termo cunhado na janela ganha meia-frase de
    apresentação na 1ª menção), estado EXECUTADO cruzado com âncoras, decisões com o porquê,
    verbatims do operador onde o fraseado importa.
-2. **TABELA DE ESTADO por fio:** Fio · Estado · Bloqueio · Próximo passo · **Aposta viva** ·
-   **clear** — a coluna do risco (protege-a-aposta) **e** o teste de finalização:
+2. **TABELA DE ESTADO por fio:** Fio · **Atividade** (finalidade / ref se houver) · Estado ·
+   Bloqueio · Próximo passo · **Aposta viva** · **clear** — risco **e** teste de finalização:
    - **Aposta viva:** o palpite falsificável em aberto, o que pode dar errado. Um brief só de
      settled é o oco medroso do SENTIR.
-   - **clear:** `PASS` \| `FAIL` — *"se o operador der clear nessa sessão agora, perde estado
-     operacional que só viveu no chat?"* `FAIL` = sessão **truncada** (parou no meio: eval,
-     batch, skill, merge, "continue" sem âncora de done). `PASS` = settled, parked explícito,
-     ou já durável em git/eventlog/blog/kernel. **Não confunda FAIL com aposta aberta saudável.**
-3. **SESSÕES TRUNCADAS (bloco obrigatório se houver FAIL):** lista curta e **incisiva** no topo
-   do brief — sessão/fio · o que estava no meio · o que falta pra clear passar (retomar ou
-   abandonar explícito). O wake **copia essa dureza** pro principal; não amacie aqui.
+   - **clear:** `PASS` \| `FAIL` — *"se o operador der clear agora, perde uma **Atividade**
+     ainda no meio do voo (estado operacional que só viveu no chat)?"*  
+     `FAIL` = **Atividade inacabada** (parou no meio: eval, batch, skill, merge, "continue"
+     sem âncora de done / close). `PASS` = settled, parked explícito, ou já durável em
+     git/eventlog/blog/kernel/portfolio.  
+     **O objeto do FAIL é a Atividade, não o fio.** Fio = narrativa de calor; Atividade =
+     employment (finalidade + estado). Não confunda FAIL com aposta aberta saudável nem com
+     "thread quente".
+3. **ATIVIDADES INACABADAS (bloco obrigatório se houver FAIL):** lista curta e **incisiva** no
+   topo do brief — Atividade (finalidade/ref) · o que estava no meio · o que falta pra clear
+   passar (retomar ou fechar/abandonar explícito). Sessão só como cena, se útil. O wake
+   **copia essa dureza** pro principal; não amacie nem rebatize como "fio".
 4. **ESPINHA "POR ONDE COMEÇAR":** a ordem de dependência (o que destrava o quê) + o primeiro
-   movimento recomendado com justificativa de 1 linha — **FAIL/truncada primeiro**, depois onde
-   a aposta viva está. Truncation outranks a shiny new thread.
+   movimento recomendado com justificativa de 1 linha — **Atividade inacabada (clear=FAIL)
+   primeiro**, depois onde a aposta viva está. Inacabada outranks a shiny new thread.
 5. **Verbatims que importam** — as frases do operador que o agente precisa segurar cruas.
 6. **Glossário da janela** — termos cunhados no período; **entrada sem âncora na fonte sai
    marcada "(inferido)"**, nunca afirmada (a lição do X-first).
@@ -50,6 +55,6 @@ O chamador te entrega UM arquivo com:
 - Zero invenção; ambíguo = marcado. O que a voz diz e o git não mostra = "não confirmado".
 - NUNCA reaproveite um brief anterior (o quente de 2h atrás já nasceu morto — E0 provou).
 - Não repita o que o FRIO possui (regras vigentes, Objective, roster) — só deltas.
-- **Sessão truncada não é eufemismo.** Se clear=FAIL, diga TRUNCADA / clear não passa — não
-  "em andamento" genérico.
+- **Atividade inacabada não é eufemismo e não é fio.** Se clear=FAIL, diga ATIVIDADE
+   INACABADA / clear não passa — não "em andamento", não "fio vivo".
 - Sua mensagem final = o brief, nada mais (o wake a injeta direto no principal).

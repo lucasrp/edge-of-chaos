@@ -51,60 +51,65 @@ You wake holding only these four briefs. Anterograde amnesia: trust nothing not 
 
 ## 2. Surface — render the wake to the operator (the one human-facing act)
 
-### 2a. Truncated sessions first (hard — do not soft-pedal)
+### 2a. Atividades inacabadas first (hard — do not soft-pedal)
 
-Before soft orientation, scan **quente** (and any operational debt assemble surfaces) for sessions
-that **fail the "pode dar clear" test**.
+The unit is **Atividade** (employment: finalidade + estado), **not** a chat thread / fio.
+Before soft orientation, scan **portfolio / open Atividades** (predispatch recall block + graph),
+**quente**, and any operational debt assemble surfaces for work that **fails the "pode dar
+clear" test**.
 
 **Test (operator heuristic, load-bearing):** *"If the operator hits clear on that conversation
-right now, do they lose operational state that only lived in the chat — mid-flight work with no
-durable handoff / kernel / commit / published artefact?"*
-- **PASS** → settled, parked on purpose, or already inscribed elsewhere; treat as normal history
-  or a standing open bet.
-- **FAIL** → **SESSÃO TRUNCADA**. Not a polite "live thread." Debt. Be **incisive**.
+right now, do they lose an Atividade still mid-flight — operational state that only lived in
+the chat, with no durable close (commit / published artefact / kernel / portfolio close)?"*
+- **PASS** → Atividade settled, parked on purpose, or already durable; treat as normal history
+  or a standing open bet with anchors.
+- **FAIL** → **ATIVIDADE INACABADA**. Not a polite "fio quente." Debt. Be **incisive**.
 
 When any FAIL exists, the wake surface **opens with a hard block** (above the soft "next move"):
 
-1. **Name it** — which session / fio, and **what was mid-flight** (eval batch, experiment arm,
-   skill half-run, merge, publish, gen, codex job, todo `in_progress`, "continue" that never
-   landed).
-2. **Say the cost** — *"clear não passa — retomar X ou abandonar explícito."* No euphemism
-   ("em andamento", "ainda quente") that hides the cut.
-3. **Prefer resume-or-abandon** as the recommended next move while any FAIL stands. A shiny new
-   thread does **not** outrank unfinished work that would die on clear.
-4. **Do not collapse FAIL into "open bet."** Open bets with Direction / kernel / eventlog
-   anchors are healthy. Truncation is work that **stopped in the middle** without a close.
+1. **Name the Atividade** — finalidade (or best label), ref if known (`atv:…` / portfolio), and
+   **what was mid-flight** (eval batch, experiment arm, skill half-run, merge, publish, gen,
+   codex job, todo `in_progress`, "continue" that never landed). Session/chat is only the
+   *scene* where it died — not the noun you report.
+2. **Say the cost** — *"clear não passa — retomar a Atividade X ou abandonar/fechar explícito."*
+   No euphemism ("em andamento", "ainda quente", "fio vivo") that hides the cut.
+3. **Prefer resume-or-close** as the recommended next move while any FAIL stands. A shiny new
+   Atividade or thread does **not** outrank unfinished employment that would die on clear.
+4. **Do not collapse FAIL into "open bet" or "fio."** Open bets / open Atividades with
+   Direction / kernel / eventlog / portfolio anchors are healthy. Inacabada = work that
+   **stopped in the middle** without a close of that Atividade.
 
-Signals that usually mean FAIL (from quente's two rails — voice vs executed):
+Signals that usually mean FAIL (portfolio + quente rails — voice vs executed):
+- open / reaberta Atividade whose last touch left mid-step with no completion anchor;
 - last operator turns are *continue / rode N / faça o merge / espera o eval* and the executed
-  rail has no completion anchor;
-- agent died mid-tool, mid-batch, or mid-skill with todos still `in_progress`;
-- promise in voice ("vou rodar…", "depois subo…") with no git / eventlog / blog receipt;
-- operational debt called out as uncommitted mid-flight spine.
+  rail has no done receipt for that Atividade;
+- agent died mid-tool, mid-batch, or mid-skill with todos still `in_progress` on that work;
+- promise in voice ("vou rodar…", "depois subo…") with no git / eventlog / blog / portfolio close.
 
-Not FAIL (do not cry wolf): standing bets already in Direction/kernel; explicitly parked
-("amanhã", "pausa"); work already durable on disk/log even if the chat died after.
+Not FAIL (do not cry wolf): standing bets already in Direction/kernel; Atividades parked
+("amanhã", "pausa"); work already durable on disk/log/portfolio even if the chat died after.
 
-If the quente brief already marks `Estado = TRUNCADA` / `clear: FAIL`, **copy that hardness
-up** — do not re-soften it in the principal.
+If quente already marks `clear: FAIL` / **ATIVIDADE INACABADA**, or portfolio lists open work
+with no close, **copy that hardness up** — do not re-soften it in the principal, and do not
+reframe it as a "fio".
 
 ### 2b. Orientation (after the hard block, or alone if all clear)
 
 Present a tight orientation, **not a state dump**:
 - **Where ed left off** — curated Direction + the open bet (from assemble).
-- **O que está quente / os fios vivos** (from quente) — the live threads, most-recent-first,
-  **with the state table per fio** (Fio · Estado · Bloqueio · Próximo passo · Aposta viva ·
-  **clear**) **and the espinha "por onde começar"** (the dependency order + first recommended
-  move). This is the section that kills the cold wake — render it whole, not summarized away.
-  Any `clear: FAIL` / `TRUNCADA` row was already led in §2a; still keep it visible in the table.
+- **O que está quente / os fios vivos** (from quente) — heat narrative of recent sessions,
+  **with the state table** (including **clear** and any **Atividade** link) **and the espinha
+  "por onde começar"**. Fios are *how heat is told*; unfinished employment is named as
+  **Atividade**. Any `clear: FAIL` / Atividade inacabada was already led in §2a; keep it
+  visible in the table without calling it a thread.
 - **What's new** — the world delta (from delta), or "nothing new" stated plainly.
-- **What you hold** — the memory-salient view (from recall): your objective, live bets, salient
-  Artefatos; weave it in, do not dump it.
+- **What you hold** — the memory-salient view (from recall): your objective, live bets, open
+  Atividades, salient Artefatos; weave it in, do not dump it.
 - **The live intersection** — the one theme ed *would* pursue were this an autonomous beat: deep
   domain insight × the mentee's live work, named as the decision they have not made.
 
 Lead with the **single recommended next move** — **state it, do not run it.** When §2a has a
-FAIL, that move is resume-or-abandon of the truncated session unless the operator already
+FAIL, that move is resume-or-close of the unfinished **Atividade** unless the operator already
 overruled. In prose, never a multiple-choice box (ed recommends; he does not present a picker).
 
 ## 3. Halt — do nothing; stand by (the whole point)
