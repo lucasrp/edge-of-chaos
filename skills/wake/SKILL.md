@@ -51,66 +51,80 @@ You wake holding only these four briefs. Anterograde amnesia: trust nothing not 
 
 ## 2. Surface — render the wake to the operator (the one human-facing act)
 
-### 2a. Atividades inacabadas first (hard — do not soft-pedal)
+### 2a. Session liveness first — then inacabada vs ongoing
 
 The unit is **Atividade** (employment: finalidade + estado), **not** a chat thread / fio.
-Before soft orientation, scan **portfolio / open Atividades** (predispatch recall block + graph),
-**quente**, and any operational debt assemble surfaces for work that **fails the "pode dar
-clear" test**.
+Before soft orientation, classify work from **quente** + portfolio against **session liveness**.
+The current session is often the most relevant heat — that is correct — but the operator is
+**already executing it**. Do not hijack that relevance into "debt to resume."
 
-**Test (operator heuristic, load-bearing):** *"If the operator hits clear on that conversation
-right now, do they lose an Atividade still mid-flight — operational state that only lived in
-the chat, with no durable close (commit / published artefact / kernel / portfolio close)?"*
-- **PASS** → Atividade settled, parked on purpose, or already durable; treat as normal history
-  or a standing open bet with anchors.
-- **FAIL** → **ATIVIDADE INACABADA**. Not a polite "fio quente." Debt. Be **incisive**.
+#### Two different signals (do not collapse them)
 
-When any FAIL exists, the wake surface **opens with a hard block** (above the soft "next move"):
+| Label | When | What it means | Surface |
+|-------|------|---------------|---------|
+| **ONGOING** | The session that carries the Atividade is **still open** (live / current / not closed) | Operator is already in it. Relevance yes; **not** unfinished debt. | **Acknowledge** in orientation: name the Atividade, keep it in mind when choosing next move. **Do not** open the hard "clear não passa" block for it. **Do not** recommend "retomar" as if the work were abandoned. |
+| **INACABADA** | The session that carried the Atividade is **closed** (often days ago) and the employment never got a durable close | Mid-flight work died with the chat. Debt. | Hard block (§2a-hard). *clear não passa* for **that** dead session's residue. |
 
-1. **Name the Atividade** — finalidade (or best label), ref if known (`atv:…` / portfolio), and
-   **what was mid-flight** (eval batch, experiment arm, skill half-run, merge, publish, gen,
-   codex job, todo `in_progress`, "continue" that never landed). Session/chat is only the
-   *scene* where it died — not the noun you report.
-2. **Say the cost** — *"clear não passa — retomar a Atividade X ou abandonar/fechar explícito."*
-   No euphemism ("em andamento", "ainda quente", "fio vivo") that hides the cut.
-3. **Prefer resume-or-close** as the recommended next move while any FAIL stands. A shiny new
-   Atividade or thread does **not** outrank unfinished employment that would die on clear.
-4. **Do not collapse FAIL into "open bet" or "fio."** Open bets / open Atividades with
-   Direction / kernel / eventlog / portfolio anchors are healthy. Inacabada = work that
-   **stopped in the middle** without a close of that Atividade.
+**Inacabada requires a dead/closed session.** Open session ⇒ at most **ONGOING**, never INACABADA.
+Closed session + mid-flight employment without durable close ⇒ **INACABADA**.
+Settled / parked / durable ⇒ neither (normal history / standing bet).
 
-Signals that usually mean FAIL (portfolio + quente rails — voice vs executed):
-- open / reaberta Atividade whose last touch left mid-step with no completion anchor;
-- last operator turns are *continue / rode N / faça o merge / espera o eval* and the executed
-  rail has no done receipt for that Atividade;
-- agent died mid-tool, mid-batch, or mid-skill with todos still `in_progress` on that work;
-- promise in voice ("vou rodar…", "depois subo…") with no git / eventlog / blog / portfolio close.
+#### §2a-hard — only INACABADA (clear FAIL on a closed session)
 
-Not FAIL (do not cry wolf): standing bets already in Direction/kernel; Atividades parked
-("amanhã", "pausa"); work already durable on disk/log/portfolio even if the chat died after.
+**Test (only applies to closed sessions):** *"If someone cleared that **already-closed**
+conversation's residue, would they lose an Atividade that never got a durable close
+(commit / artefact / kernel / portfolio close)?"*
+- **PASS** → settled, parked, or durable.
+- **FAIL** → **ATIVIDADE INACABADA**. Incisive. Not "fio quente." Not "ongoing."
 
-If quente already marks `clear: FAIL` / **ATIVIDADE INACABADA**, or portfolio lists open work
-with no close, **copy that hardness up** — do not re-soften it in the principal, and do not
-reframe it as a "fio".
+When any INACABADA exists, open the surface with a hard block (above soft next-move):
 
-### 2b. Orientation (after the hard block, or alone if all clear)
+1. **Name the Atividade** — finalidade, ref if known; what was mid-flight. Session is the
+   *closed scene*, not the noun.
+2. **Say the cost** — *"sessão fechada sem close da Atividade — clear não passa; retomar X ou
+   abandonar/fechar explícito."*
+3. **Prefer resume-or-close of INACABADA** over shiny new work — **unless** the operator is
+   already in an **ONGOING** session whose live employment is the right focus (then next move
+   serves the ongoing; inacabadas stay listed as debt, not the hijack of attention).
+4. **Do not collapse** INACABADA into open bet, fio, or ONGOING.
+
+#### §2a-ongoing — acknowledge, do not sequester
+
+When quente/predispatch show **ONGOING** Atividade(s) (open session = most relevant heat):
+
+1. **Name them plainly** as ongoing — *"você já está nisto: …"*
+2. **Hold them as context** for the recommended next move (prefer moves that serve or
+   consciously pause that employment — not a cold jump that pretends it does not exist).
+3. **Never** re-label ongoing as inacabada / clear-FAIL / "retomar".
+4. Ongoing is **information for choice**, not a second hard-debt block.
+
+Signals of **closed-session INACABADA**: last turns mid-step, no done receipt, session no
+longer open, no durable close.
+Signals of **ONGOING**: session still open / is the wake host or a live concurrent session;
+operator still driving that employment.
+Not debt: parked ("amanhã"), durable on disk/log, Direction/kernel standing bets.
+
+If quente marks `sessão: aberta → ongoing` vs `sessão: fechada → clear FAIL`, **copy that
+split up** — do not re-soften inacabada or re-harden ongoing.
+
+### 2b. Orientation (after §2a)
 
 Present a tight orientation, **not a state dump**:
 - **Where ed left off** — curated Direction + the open bet (from assemble).
-- **O que está quente / os fios vivos** (from quente) — heat narrative of recent sessions,
-  **with the state table** (including **clear** and any **Atividade** link) **and the espinha
-  "por onde começar"**. Fios are *how heat is told*; unfinished employment is named as
-  **Atividade**. Any `clear: FAIL` / Atividade inacabada was already led in §2a; keep it
-  visible in the table without calling it a thread.
+- **O que está quente** (from quente) — heat narrative with state table (**Atividade · sessão
+  aberta|fechada · ongoing|inacabada|settled · clear**). Fios = how heat is told; employment =
+  Atividade. Ongoing acknowledged; inacabada already led if any.
 - **What's new** — the world delta (from delta), or "nothing new" stated plainly.
-- **What you hold** — the memory-salient view (from recall): your objective, live bets, open
-  Atividades, salient Artefatos; weave it in, do not dump it.
-- **The live intersection** — the one theme ed *would* pursue were this an autonomous beat: deep
-  domain insight × the mentee's live work, named as the decision they have not made.
+- **What you hold** — recall: objective, live bets, open Atividades, salient Artefatos; weave,
+  do not dump.
+- **The live intersection** — the one theme ed *would* pursue as autonomous beat: deep domain
+  insight × mentee's live work, named as the decision not yet made — **with ongoing employment
+  held in mind**.
 
-Lead with the **single recommended next move** — **state it, do not run it.** When §2a has a
-FAIL, that move is resume-or-close of the unfinished **Atividade** unless the operator already
-overruled. In prose, never a multiple-choice box (ed recommends; he does not present a picker).
+Lead with the **single recommended next move** — **state it, do not run it.**  
+Priority: serve/acknowledge **ONGOING** when that is where the operator already is; only push
+resume-or-close of **INACABADA** as the lead when no live session owns the focus (or the
+operator overrules). In prose, never a multiple-choice box.
 
 ## 3. Halt — do nothing; stand by (the whole point)
 
