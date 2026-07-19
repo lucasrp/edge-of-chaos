@@ -71,11 +71,16 @@ def mint_dispatch_id():
 
 def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_fn=None,
         log=eventlog.LOG, dispatch_id=None, theme=None, intent=None, geometry=None,
-        id_sink=None, origin=None, enqueue_fn=None):
-    """The mechanical floor, in order: sweep → briefing → STAMP dispatch.open (+ emit the id to
-    `id_sink`) → grounding legs (harvest → recall brief → canary) → dispatch.grounding. Returns
-    (briefing_text, recall_text) for the dispatch to read. Injectable (house style) so it runs
-    offline in tests; real runs use the genotype tools.
+        id_sink=None, origin=None, enqueue_fn=None, employment=False, ready_fn=None,
+        drain_fn=None):
+    """The mechanical floor, in order: budgeted Assemble drain → ready gate → sweep →
+    briefing → STAMP dispatch.open (+ emit the id to `id_sink`) → grounding legs →
+    dispatch.grounding. Returns (briefing_text, recall_text). Injectable for tests.
+
+    ASSEMBLE (tkt-002/003/004, R1=C) — open path tries budgeted ``drain_fn`` then
+    ``ready_fn`` (default assert_ready). Worker recovers remainder offline. Quality > latency:
+    open pending after drain still blocks stamp. Inject ``ready_fn=lambda: None`` and
+    ``drain_fn=lambda: None`` in hermetic tests that do not exercise Assemble.
 
     IDENTITY PRECEDES GROUNDING (#62) — the identity is minted, stamped and emitted BEFORE any
     O(store) grounding leg, so a slow/blocking/dark harvest can never delay or swallow the id.
@@ -99,14 +104,29 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     S2 (E1) — the stamp now carries the dispatch's IDENTITY + SESSION ANCHOR: `dispatch_id`
     (minted here when not handed in; main() mints and prints it machine-readable, because the
     live path is CLI → skill-snippet across processes and an in-process return does not cross),
-    `session_id` (Claude session id or `codex:<CODEX_THREAD_ID>` when present, else null —
+    `session_id` (Claude session id, `codex:<id>`, or `grok:<GROK_SESSION_ID>` when present, else null —
     never fabricated), and the
     optional DECLARED fields theme/intent/geometry (attribution tier `declared`). The MONOTONIC
     anchor is the dispatch.open event's own `seq` (stamped by append) — S4's harvest maps rows
     by (session anchor, dispatch interval), so no extra cursor is persisted here. Geometry:
     predispatch cannot see its caller (separate process), so it is declared — default `ambient`
     (the heartbeat entry), flipped to `themed` when a theme is declared; an explicit geometry
-    always wins."""
+    always wins.
+
+    UX.W-floor-employment — default `recall_fn` is portfolio-aware when this is an employment
+    wake: ``origin == "user_requested"``, geometry ``themed``, or ``employment=True``
+    (``--employment``). Ambient heartbeat (beat + ambient, no flag) stays map-blind
+    ``compose_recall_brief`` so lazer/delta paths never get the portfolio tail by accident.
+    ``compose_portfolio_recall_brief`` already concatenates space-0 + portfolio lanes."""
+    if geometry is None:
+        geometry = "themed" if theme else "ambient"
+    if drain_fn is None:
+        import assemble_drain as _assemble_drain
+        # R1=C: budgeted open attempt; remainder is worker territory
+        drain_fn = lambda: _assemble_drain.drain(log=log, budget=20)  # noqa: E731
+    if ready_fn is None:
+        import assemble_ready as _assemble_ready
+        ready_fn = lambda: _assemble_ready.assert_ready(log=log)  # noqa: E731
     if sweep_fn is None:
         import sweep as _sweep
         sweep_fn = _sweep.run
@@ -117,12 +137,19 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
         briefing_fn = lambda: _briefing.compose_briefing(hot_cutoff=_hot_cutoff())  # noqa: E731
     if recall_fn is None:
         import recall as _recall
-        recall_fn = _recall.compose_recall_brief
+        # employment stamp (UX.W-floor-employment): portfolio on user-facing wakes only
+        if (employment or origin == "user_requested" or geometry == "themed"):
+            recall_fn = _recall.compose_portfolio_recall_brief
+        else:
+            recall_fn = _recall.compose_recall_brief
     if harvest_fn is None:
         import harvest as _harvest
         harvest_fn = lambda: _harvest.harvest(log=log)   # noqa: E731 — real default (S5)
     if probe_fn is None:
         probe_fn = _default_probe
+    # ASSEMBLE (R1=C): budgeted drain then ready gate — before sweep/stamp.
+    drain_fn()
+    ready_fn()
     # IDENTITY PRECEDES GROUNDING (#62): only a raising SWEEP or BRIEFING aborts before the stamp
     # (a dispatch that could not wake must not look woken). Everything the identity needs runs
     # FIRST; the O(store) grounding legs run AFTER the id is minted, stamped and emitted, so a
@@ -131,8 +158,6 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
     briefing_text = briefing_fn()           # raises on a lobotomized identity — no stamp
     if dispatch_id is None:
         dispatch_id = mint_dispatch_id()
-    if geometry is None:
-        geometry = "themed" if theme else "ambient"
     # the stamp is IDENTITY-ONLY now (#62): harvested/ambient_rows move to the dispatch.grounding
     # event below — they had zero downstream readers on the stamp and gated nothing.
     # ticket 05 (hierarquia de ORIGEM): the dispatch DECLARES where it came from —
@@ -360,6 +385,9 @@ def main(argv=None):
                         help="who asked for this dispatch (ticket 05): user_requested = the "
                              "mentee's live cognition (first-order signal, weighs above beat); "
                              "beat = autonomous exploration (default)")
+    parser.add_argument("--employment", action="store_true",
+                        help="force portfolio-aware recall (UX.W-floor-employment) even on an "
+                             "ambient beat origin — open maps/atividades stamp into the recall brief")
     args = parser.parse_args(argv)
     dispatch_id = mint_dispatch_id()
     # machine-readable FIRST (S2, E1 + gate D2): the skill-snippet reads this exact line off
@@ -374,11 +402,29 @@ def main(argv=None):
         with contextlib.redirect_stdout(floor_out):
             briefing_text, recall_text = run(dispatch_id=dispatch_id, id_sink=real_out,
                                              theme=args.theme, intent=args.intent,
-                                             geometry=args.geometry, origin=args.origin)
+                                             geometry=args.geometry, origin=args.origin,
+                                             employment=args.employment)
     except BaseException:
         sys.stdout.write(floor_out.getvalue())
         raise
     sys.stdout.write(floor_out.getvalue())
+    # Dual graph entry on employment wakes (operator 2026-07-13): space-0/portfolio recall
+    # already landed; append semantic jump seeded by standing objective so wake *uses* cortex
+    # embeddings (assemble/project work), not only recency push. Ambient beat stays map-blind
+    # and skips this — degrade-dark inside enrich.
+    employment_wake = bool(
+        args.employment or args.origin == "user_requested" or args.geometry == "themed"
+        or (args.geometry is None and args.theme)
+    )
+    if employment_wake:
+        try:
+            import recall as _recall
+            import eventlog as _eventlog
+            recall_text = _recall.enrich_recall_with_objective_semantic(
+                recall_text, log=_eventlog.LOG)
+        except Exception as e:  # noqa: BLE001 — never gate the wake print
+            print(f"predispatch: semantic enrich DARK ({type(e).__name__}: {e})",
+                  file=sys.stderr)
     print(briefing_text)
     print("\n\n---\n")
     print(recall_text)

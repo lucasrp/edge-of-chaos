@@ -217,8 +217,43 @@ the world — pass the adversarial judge before they compose into the wiki.
 What the mentee **does** — code, commits, docs, transcripts, whatever they leave. **Observed,
 not directed**: it shows what the mentee actually does, not something said to the edge. The
 mentee need not even work in Claude Code. Yields `hypothesis` about domain and intent. The
-reborn `signals` leg, scoped to the mentee.
-*Avoid*: obra, work, rastro, trace, ingest, signals, operator pressure
+reborn `signals` leg, scoped to the mentee. *(Lens-grain sense: an **Atividade** node/event is a
+**mentee employment** unit — often produced by **Mineração** from sessions, not agent-runtime
+meta.)* **Expanded use of the episteme:** Atividade is the broad employment case (finalidade +
+lifecycle + toques). A **proper subset** is **experimental** — see **Experiment** — still an
+Atividade, but under a provenance rite and eval, managed by **`/ed-experiment`** (not by film
+alone). Ordinary employment Atividades need not be experiments.
+*Avoid*: obra, work, rastro, trace, ingest, signals, operator pressure, agent loop, subagent job
+
+**Experiment / Experimento**:
+An **Atividade** (subset, not a sibling free-floating default) that (1) follows a **specific
+provenance rite** — chains prior experiments/claims (qualifies / refutes / supersedes /
+pré-registro before outcome) and (2) **produces an eval** (may be biased; still an eval). The
+experiment **generates knowledge** (claims, bearings, curated reading), not only “job done.”
+**Managed by `/ed-experiment`** (`skills/experiment/SKILL.md`): hypothesis, arms, runs, eval,
+observations, bearings, curated-first cortex reads, close via `/report` → `experiment.curated`.
+Film/Mineração may open a plain employment Atividade; **promoting or running it as experiment is
+the experiment skill’s contract**, not the racionalizador’s.
+**Entry freeze (operator 2026-07-13):** mint/run only when the **user determines** via
+`/ed-experiment` **directly or indirectly** (accepts mentor experiment-mode). No auto-promote of
+smokes, draft lab trees, or “has eval ⇒ experiment” — deferred.
+**Disk genotype:** `experiments/<expNNN>-<slug>/` under `edge_home` (see `experiments/README.md`,
+`tools/experiments_cfg.py`); phenotype may override `agent.yaml experiments.root` (Roberto’s
+pre-episteme `writing/exp*` is override debt until migration). Ledger id remains `expNNN`.
+*Avoid*: every Atividade is an experiment, experiment without eval, silent overwrite of prior
+experiments, agent-meta “adversarial review” as experiment, second hardcoded experiment tree
+outside genotype resolution, auto-declare smoke/canary/draft-exp without user skill determination
+
+**Mineração / Mining**:
+The a-posteriori pipeline that turns **operator session stores** (Claude Code, Codex, Grok) into
+**durable ledger (and graph) product** — never a live re-read of raw JSONL at assemble time.
+Pre-process: **dialogue only** (user↔assistant prose — the Claude Code “conversation without
+terminals” filter; tools/terminals dropped) and **operator-facing sessions only** (no sidechain /
+subagent / worker-launch). Then film/rationalize and related pens write the log; **Atividade**
+opens only for **mentee employment**, not mentor/agent tooling. **Assemble, briefing, and wake
+consume what mining produced** (folds / portfolio / cortex projections) — they do **not** open
+session files to “see what happened.”
+*Avoid*: assemble-reads-sessions, live transcript dump into briefing, agent-meta as employment
 
 **Voz / Voice**:
 What the mentee **directs** at the edge — correction and language. **Directed, not
@@ -425,19 +460,32 @@ Theme-choice and production live here, never in the beat.
 *Avoid*: generator, template, cognition (every subagent is one; this is the Artefato-yielding kind)
 
 **Assemble / Consolidação prévia**:
-The opening primitive (**blocking**). It runs the **digestion sweep to currency** — an idempotent,
-cursor-guarded pass over the **transcript store** (every operator session since the cursor, *not
-just beats*) that runs the **full pipeline**: append raw episodes → distil handoffs → run
-**zep/Graphiti extraction** (incremental, on the delta) → **re-project** the wiki and **Direction**.
-So at every dispatch entry the **non-curated (hypothesis / `proposed`) tier is current — ambiguous
-and `contested` items included** (flagged, not hidden). It **defers only curation** to the grill:
-promotion (hypothesis→curated, `proposed`→`set`) and cleanup of the ambiguous. **The Zep-failure
-guard is the tier boundary**: extraction only ever writes the **non-curated** tier, never asserts a
-vent as a curated decision. Then it hands the loop a **state digest**. **Keyed on the store, not on
-any skill**: a session that ran no ed skill is still brought current at the next trigger.
-**Triggers** (same idempotent sweep, pluggable): the heartbeat dispatch, **any standalone ed skill
-at entry**, and `/load`. The loop blocks until it lands.
-*Avoid*: load (the trigger, not the primitive), context-gather, preflight
+**Operator (mentor 2026-07-13):** Assemble is what makes Edge **ready for wake** — the **cortex
+state update**, including **heavy consolidation**. Conscious tradeoff: **quality over latency**
+(not a light briefing-only tattoo). **Relational curation / durable package / pending drain are
+blocking for wake** — not deferred to background after open. **`assembly_pending` / readiness bits
+are log events and folds only** (operator: *the log is always the sole source of truth* —
+ADR-0006; graph is projection). Skill path today still centers briefing + pull-at-open sweep;
+the product bar is fuller readiness — see 01a and `state/wayfinds/operator-specs-30d-audit.md` S30.A*.
+**Pending queue (log-truth):** open assembly work folds only from ledger events
+`assembly.pending` / `assembly.done` / `assembly.failed`; **predispatch** calls
+`assemble_ready.assert_ready` before stamp (fails closed — `tools/assemble_ready.py`, tkt-002).
+The opening primitive (**blocking**) that orients the agent from **already-mined durable state**
+(briefing / folds / projections — the products of **Mineração** and related pens), not by
+re-parsing live session JSONL for employment. It also runs the **digestion sweep to currency** —
+an idempotent, cursor-guarded pass over the **transcript store** (every operator session since the
+cursor, *not just beats*) that runs the **full pipeline**: append raw episodes → distil handoffs →
+run **zep/Graphiti extraction** (incremental, on the delta) → **re-project** the wiki and
+**Direction**. So at every dispatch entry the **non-curated (hypothesis / `proposed`) tier is
+current — ambiguous and `contested` items included** (flagged, not hidden). It **defers only
+Voz/prescription** to the **mentor**: promotion (hypothesis→curated, `proposed`→`set`) and cleanup of the
+ambiguous. **The Zep-failure guard is the tier boundary**: extraction only ever writes the
+**non-curated** tier, never asserts a vent as a curated decision. Then it hands the loop a **state
+digest**. **Keyed on the store, not on any skill**: a session that ran no ed skill is still brought
+current at the next trigger. **Triggers** (same idempotent sweep, pluggable): the heartbeat
+dispatch, **any standalone ed skill at entry**, and `/load`. The loop blocks until it lands.
+*Avoid*: load (the trigger, not the primitive), context-gather, preflight, “assemble opens ~/.claude”,
+treating Assemble as briefing-only when wake readiness still requires cortex currency
 
 **Consolidate / Consolidação posterior** *(dissolved — ADR-0008)*:
 The old closing subagent is **absorbed**: *archive raw* → the pull-at-open **digestion sweep**

@@ -9,7 +9,11 @@ briefing §7): the briefing returns to its four parts; this module owns the leg.
 
 The push seeds; navigation deepens (ADR-0011 reaffirmed): the brief is the mechanical salience
 push — on-demand Cortex navigation stays the loop's own judgment (`skills/_shared/memory.md`).
-Degrade contract unchanged (CONTRACT C1): a dark graph yields an honest marker, never a crash.
+
+**Dual graph entry (operator 2026-07-13):** wake still opens at **space-0** (structural push).
+That is not the only door — any task may jump in via **common semantic search**
+(`semantic_search` / `compose_semantic_brief`) over projected Artefato embeddings. Degrade
+contract unchanged (CONTRACT C1): a dark graph/embedder yields an honest marker, never a crash.
 """
 import os
 import sys
@@ -18,13 +22,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _identity  # noqa: E402
+import cortex  # noqa: E402
 
 # The SALIENT slice — cap the artefatos in the brief so it does not grow with the whole corpus
 # (Codex P2). A small, most-recent slice; recall MORE on demand.
 RECALL_ARTEFATO_LIMIT = 8
 RECALL_EXPERIMENT_LIMIT = 6
 RECALL_ASSET_LIMIT = 8
-
+RECALL_ATIVIDADE_LIMIT = 8
+SEMANTIC_SEARCH_LIMIT = 8
+SEMANTIC_EMBED_MODEL = "text-embedding-3-small"  # same model as publisher project_artefato
 # The recall cyphers as module constants — the runtime artifacts the salience guards live in
 # (cap, recency order, complete-projections-only, retired-cluster filter), testable as
 # interfaces rather than by grepping function source (review: a comment satisfied the old
@@ -56,12 +63,20 @@ ASSETS_QUERY = (
     "RETURN a.slug AS slug, a.asset_kind AS kind, a.asset_role AS role, a.page AS page, "
     "a.skill AS skill, p.slug AS parent_slug "
     "ORDER BY coalesce(a.projected_at,'') DESC, a.slug LIMIT $lim")
+# Employment spine from the projected graph (project_lentes), not the eventlog fold.
+# Only open/reaberta — abandonada/cumprida stay out of the default agent push.
+# Display ref prefers operacao/num (fold shape edge/atv-NNN) over raw atividade:ulid.
+ATIVIDADES_QUERY = (
+    "MATCH (a:Atividade {group_id:$g}) "
+    "WHERE a.estado IN ['aberta', 'reaberta'] "
+    "RETURN a.ref AS raw_ref, a.num AS num, a.operacao AS operacao, "
+    "a.finalidade AS finalidade, a.estado AS estado, a.tier AS tier "
+    "ORDER BY coalesce(a.num,'') DESC LIMIT $lim")
 CLUSTERS_QUERY = (
     "MATCH (a:Artefato {group_id:$g})-[:DISTILLS]->(e:Entity {group_id:$g}) "
     "WHERE a.slug IN $slugs AND e.curated_cluster IS NOT NULL "
     "AND coalesce(e.archived,false)=false AND e.merged_into IS NULL "
     "RETURN DISTINCT e.curated_cluster AS l ORDER BY l")
-
 # The SURF query — the topology read a SELECT cannot do (Cortex-v1 brick-1, schema report
 # `the-graph-you-filled-like-a-list`, move 2). From the seed Artefatos it walks ONLY the typed
 # associative peer web — BUILDS_ON|SUPERSEDES|CONTRADICTS|RELATES_TO|CITES|SUPPORTS|REFUTES|
@@ -112,9 +127,14 @@ SURF_BRIDGE_QUERY = (
     "RETURN n.slug AS slug, n.kernel AS kernel, labels(n) AS labels, "
     "min(length(p)) AS hops, collect(DISTINCT c.name) AS via "
     "ORDER BY hops, slug")
+# Common semantic entry — complete Artefatos with content embedding (publisher project).
+SEMANTIC_ARTEFATOS_QUERY = (
+    "MATCH (a:Artefato {group_id:$g}) "
+    "WHERE a.projection_complete = true AND a.embedding IS NOT NULL "
+    "AND coalesce(a.kind,'published') <> 'asset' "
+    "RETURN a.slug AS slug, a.kernel AS kernel, a.embedding AS embedding")
 
 _AUTO = object()
-
 # N1/R3 — the bounded-latency budget (seconds). Every cortex_* read rides a driver opened with these
 # timeouts, so a slow/absent graph DARKENS within the budget instead of blocking the standing server
 # (Mem0 async-default; CONTRACT C1: name the dark leg, never block the beat). The dark marker IS the
@@ -218,10 +238,13 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
     remembering to recall (the dormant g.search() tale).
 
     Returns a dict
-    ``{"codename","voice","objective","bets":[...],"artefatos":[{"slug","kernel"}],"clusters":[...]}``
+    ``{"codename","voice","objective","bets":[...],"artefatos":[...],"clusters":[...],
+    "experiments":[...],"assets":[...],"atividades":[{"ref","num","finalidade","estado",...}]}``
     on success; **None** on a genuine degrade — no group, the neo4j driver absent, or the graph
     unreachable. NEVER raises (CONTRACT C1, ADR-0011: a transient outage darkens only this leg).
-    The recall cypher is the space-0 traversal from `skills/_shared/memory.md`."""
+    ``atividades`` are open/reaberta nodes from the projected graph (employment spine) — cortex as
+    graph for the agent, not only portfolio_at ledger. The recall cypher is the space-0 traversal
+    from `skills/_shared/memory.md`."""
     if not group:
         return None
     try:
@@ -232,7 +255,8 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
             head = s.run(_q(SPINE_QUERY), g=group).single()
             if head is None:
                 return {"codename": None, "voice": None, "objective": None,
-                        "bets": [], "artefatos": [], "clusters": []}
+                        "bets": [], "artefatos": [], "clusters": [],
+                        "experiments": [], "assets": [], "atividades": []}
             # salient Artefatos (MOST RECENT, capped) + the clusters they DISTILL — reached via
             # SERVES. The salience guards (complete-projections-only, recency order, the cap,
             # the retired-cluster filter) live in the module-level query constants above.
@@ -248,6 +272,11 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                 assets = s.run(_q(ASSETS_QUERY), g=group, lim=RECALL_ASSET_LIMIT).data()
             except Exception:
                 assets = []
+            try:
+                atividades = s.run(_q(ATIVIDADES_QUERY), g=group,
+                                   lim=RECALL_ATIVIDADE_LIMIT).data()
+            except Exception:
+                atividades = []
             return {
                 "codename": head["codename"], "voice": head["voice"],
                 "objective": head["objective"], "bets": [b for b in head["bets"] if b],
@@ -262,10 +291,31 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
                             "page": a.get("page"), "skill": a.get("skill"),
                             "parent_slug": a.get("parent_slug")}
                            for a in assets if a.get("slug")],
+                "atividades": [_atividade_row(a) for a in atividades],
             }
     except Exception:
         return None
 
+
+def _atividade_row(row):
+    """Normalize a projected Atividade row for the agentic brief."""
+    num = row.get("num")
+    operacao = row.get("operacao")
+    if isinstance(operacao, str) and operacao.strip() and isinstance(num, str) and num.strip():
+        ref = f"{operacao.strip()}/{num.strip()}"
+    elif isinstance(num, str) and num.strip():
+        ref = num.strip()
+    else:
+        raw = row.get("raw_ref")
+        ref = raw.strip() if isinstance(raw, str) and raw.strip() else None
+    return {
+        "ref": ref,
+        "num": num,
+        "operacao": operacao,
+        "finalidade": row.get("finalidade"),
+        "estado": row.get("estado"),
+        "tier": row.get("tier"),
+    }
 
 def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
     """SURF the associative peer web from `seeds` — the multi-hop topology read a SELECT cannot do
@@ -322,15 +372,243 @@ def surf_subgraph(seeds, group=None, uri=None, user=None, password=None):
 
 BANNER = ("<!-- generated by tools/recall.py — the memory-salient brief (ADR-0014); "
           "the push seeds, navigation deepens -->")
+SEMANTIC_BANNER = ("<!-- generated by tools/recall.py — common semantic entry (not space-0); "
+                   "query → ranked Artefatos by embedding cosine -->")
 
 
-def compose_recall_brief(subgraph=_AUTO, group=None):
+def _default_embed_fn(text):
+    """Best-effort OpenAI embedder (same model as project_artefato). Raises on hard failure so
+    callers can darken; never invents a vector.
+
+    Loads the install's ``secrets/`` into the env (same seam as sweep/publisher) so a paid
+    OpenAI key in ``secrets/openai.env`` is visible without requiring the caller to export it.
+    """
+    try:
+        import _secrets
+        _secrets.load_env(_identity._env_dir(_identity.AGENT_YAML))
+    except Exception:
+        pass  # env may already hold OPENAI_API_KEY; OpenAI() still fails loud if missing
+    from openai import OpenAI
+    return OpenAI().embeddings.create(
+        model=SEMANTIC_EMBED_MODEL, input=text,
+    ).data[0].embedding
+
+def _read_semantic_corpus(group, uri=None, user=None, password=None):
+    """Load (slug, kernel, embedding) rows for semantic_search. None on degrade."""
+    if not group:
+        return None
+    try:
+        with _session(group, uri, user, password) as s:
+            if s is None:
+                return None
+            rows = s.run(_q(SEMANTIC_ARTEFATOS_QUERY), g=group).data()
+            out = []
+            for r in rows:
+                emb = r.get("embedding")
+                if not emb or not isinstance(emb, (list, tuple)):
+                    continue
+                slug = r.get("slug")
+                if not isinstance(slug, str) or not slug.strip():
+                    continue
+                out.append({
+                    "slug": slug.strip(),
+                    "kernel": r.get("kernel"),
+                    "embedding": list(emb),
+                })
+            return out
+    except Exception:
+        return None
+
+
+def semantic_search(query, *, group=None, limit=SEMANTIC_SEARCH_LIMIT,
+                    embed_fn=None, corpus=_AUTO, uri=None, user=None, password=None):
+    """Common semantic graph entry: rank projected Artefatos by cosine(query, a.embedding).
+
+    Dual entry with space-0 push — the agent (or skill) may start *here* with a free-text query
+    instead of waking at Genesis and walking. Returns a list of
+    ``{"slug","kernel","score"}`` (score in [0,1], best first) or **None** when dark
+    (no query, no group, embedder failure, empty corpus). NEVER raises (CONTRACT C1).
+
+    ``corpus`` is injectable for hermetic tests; live path reads Neo4j via SEMANTIC_ARTEFATOS_QUERY.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return None
+    if limit is None or int(limit) < 1:
+        return None
+    limit = int(limit)
+    try:
+        g = group if group is not None else _identity.group()
+    except Exception:
+        return None
+    if not g and corpus is _AUTO:
+        return None
+    if corpus is _AUTO:
+        corpus = _read_semantic_corpus(g, uri=uri, user=user, password=password)
+    if not corpus:
+        return None
+    embed = embed_fn or _default_embed_fn
+    try:
+        qv = embed(query.strip())
+    except Exception:
+        return None
+    if not qv:
+        return None
+    ranked = []
+    for row in corpus:
+        emb = row.get("embedding")
+        slug = row.get("slug")
+        if not slug or not emb:
+            continue
+        try:
+            score = float(cortex.cosine(qv, emb))
+        except Exception:
+            continue
+        ranked.append({
+            "slug": slug,
+            "kernel": row.get("kernel"),
+            "score": score,
+        })
+    if not ranked:
+        return None
+    ranked.sort(key=lambda r: (-r["score"], r["slug"]))
+    return ranked[:limit]
+
+
+def compose_semantic_brief(query, hits=_AUTO, *, group=None, limit=SEMANTIC_SEARCH_LIMIT,
+                           embed_fn=None):
+    """Render a short markdown brief for common semantic entry (peer to space-0 push, not a fuse).
+
+    Pass ``hits`` explicitly for hermetic tests; leave unset to auto-run ``semantic_search``.
+    Dark hits → honest marker **naming which leg failed** (corpus vs embedder), never a crash.
+    """
+    q = query.strip() if isinstance(query, str) else ""
+    dark_reason = None
+    if hits is _AUTO:
+        if not q:
+            hits, dark_reason = None, "empty query"
+        else:
+            try:
+                g = group if group is not None else _identity.group()
+            except Exception as e:
+                g, dark_reason = None, f"group/identity: {type(e).__name__}: {e}"
+            corpus = None
+            if g and dark_reason is None:
+                corpus = _read_semantic_corpus(g)
+                if not corpus:
+                    dark_reason = "empty corpus (no projection_complete Artefato with embedding)"
+                    hits = None
+            if dark_reason is None:
+                try:
+                    hits = semantic_search(
+                        q, group=g, limit=limit, embed_fn=embed_fn, corpus=corpus)
+                    if hits is None:
+                        dark_reason = "embedder failed or ranked empty (check OpenAI quota/key)"
+                except Exception as e:
+                    hits, dark_reason = None, f"embedder: {type(e).__name__}: {e}"
+            elif hits is _AUTO:
+                hits = None
+    if hits is None or hits is _AUTO:
+        why = dark_reason or "no embedder, no corpus, or empty query"
+        return (SEMANTIC_BANNER + "\n# Semantic search — common graph entry\n\n"
+                f"_Query:_ {q or '_empty_'}\n\n"
+                f"_Semantic leg DARK — {why}. Fall back to space-0 push "
+                f"(`compose_recall_brief`) or structural cypher (`skills/_shared/memory.md`)._\n")
+    lines = [
+        SEMANTIC_BANNER,
+        "# Semantic search — common graph entry",
+        f"_Query:_ {q}",
+        "_Not space-0: ranked by embedding cosine on projected Artefatos. Then surf/navigate "
+        "from a hit slug if you need neighbors._",
+        "",
+        "## Hits",
+    ]
+    for h in hits:
+        score = h.get("score")
+        score_s = f"{score:.3f}" if isinstance(score, (int, float)) else "?"
+        kernel = h.get("kernel") or "_no kernel_"
+        lines.append(f"- **{h.get('slug')}** ({score_s}) — {kernel}")
+    return "\n".join(lines) + "\n"
+
+
+def enrich_recall_with_objective_semantic(recall_text, log=None, *, group=None,
+                                          embed_fn=None, objective_fn=None):
+    """Append dual-entry semantic brief seeded by the standing objective (employment wakes).
+
+    Mechanical floor for "semantic as good as old edge" on wake — not an agentic affordance.
+    Degrade-dark: always returns a string; never raises (CONTRACT C1).
+    """
+    base = recall_text if isinstance(recall_text, str) else ""
+    try:
+        if objective_fn is None:
+            import cortex
+            objective_fn = lambda: cortex.objective_at(log=log)  # noqa: E731
+        obj = objective_fn() or {}
+        body = (obj.get("body") if isinstance(obj, dict) else None) or ""
+        body = body.strip() if isinstance(body, str) else ""
+        if not body:
+            return base + ("\n\n" + SEMANTIC_BANNER + "\n# Semantic search — common graph entry\n\n"
+                           "_No standing objective body — semantic seed skipped._\n")
+        # Seed with objective text (cap so embedders stay cheap).
+        seed = body if len(body) <= 400 else body[:400].rsplit(" ", 1)[0]
+        sem = compose_semantic_brief(seed, group=group, embed_fn=embed_fn)
+        return base.rstrip() + "\n\n" + sem
+    except Exception as e:  # noqa: BLE001
+        return base.rstrip() + (
+            f"\n\n{SEMANTIC_BANNER}\n# Semantic search — common graph entry\n\n"
+            f"_Semantic enrich DARK ({type(e).__name__}: {e})._\n"
+        )
+
+
+def compose_mentee_persona_brief(root=None, *, max_perfil_chars=3500):
+    """P1.5 — mentee persona from leveling-store (NOT the edge's Personality identity tattoo).
+
+    Safe for wake/mentor recall: missing/blank perfil is declared empty, never silent.
+    """
+    root = Path(root) if root is not None else Path(__file__).resolve().parent.parent / "memory" / "leveling"
+    parts = [
+        "## Persona do mentee",
+        "",
+        "_Leveling-store (`memory/leveling/`) — who the **mentee** is. "
+        "Distinct from briefing **Personality** (who the **edge** is)._ ",
+        "",
+    ]
+    perfil = root / "perfil.md"
+    if not perfil.exists() or not perfil.read_text(encoding="utf-8", errors="replace").strip():
+        parts.append("_perfil vazio — leveling-store ainda não tem persona do mentorado._")
+        return "\n".join(parts) + "\n"
+    body = perfil.read_text(encoding="utf-8", errors="replace").strip()
+    if len(body) > max_perfil_chars:
+        body = body[:max_perfil_chars].rstrip() + "\n\n_…(perfil truncado)_"
+    parts.append(body)
+    mapa = root / "mapa.md"
+    if mapa.exists():
+        mapa_body = mapa.read_text(encoding="utf-8", errors="replace").strip()
+        if mapa_body:
+            # Short frontier: first non-empty content lines after title
+            frontier = []
+            for line in mapa_body.splitlines():
+                if line.strip().startswith("#"):
+                    continue
+                if line.strip():
+                    frontier.append(line.rstrip())
+                if len(frontier) >= 8:
+                    break
+            if frontier:
+                parts.extend(["", "### Fronteira (mapa)", ""] + frontier)
+    return "\n".join(parts) + "\n"
+
+
+def compose_recall_brief(subgraph=_AUTO, group=None, mentee_leveling_root=None):
     """Render the memory-salient brief as one markdown string — a standalone surface, PEER to the
     briefing and the delta (ADR-0014), never a section of either. `subgraph` left unset
     auto-fetches via recall_subgraph() for `group` (defaults to EDGE_GROUP / the install identity)
     and degrades to the dark-leg marker on outage; pass it explicitly to stay hermetic (tests).
     Begins at SPACE 0 (the :Genesis identity root), then objective → bets → salient artefatos →
-    clusters. None → an honest dark marker; NEVER a crash (CONTRACT C1)."""
+    clusters. None → an honest dark marker; NEVER a crash (CONTRACT C1).
+
+    Always appends **Persona do mentee** (leveling-store) — P1.5; not edge Personality.
+    """
+    persona = compose_mentee_persona_brief(root=mentee_leveling_root)
     if subgraph is _AUTO:
         g = group if group is not None else _identity.group()
         subgraph = recall_subgraph(g)
@@ -338,7 +616,8 @@ def compose_recall_brief(subgraph=_AUTO, group=None):
         return (BANNER + "\n# Recall — the memory-salient brief\n\n"
                 "_Recall leg DARK (graph offline or no group) — the salient subgraph could not be "
                 "pushed this wake. Orient from the briefing and the delta; recall on demand from "
-                "your own graph (`skills/_shared/memory.md`) when the graph is reachable._\n")
+                "your own graph (`skills/_shared/memory.md`) when the graph is reachable._\n\n"
+                + persona)
     parts = [BANNER + "\n# Recall — the memory-salient brief",
              "_Begin at **space 0** (your :Genesis identity — method + personality). This salient "
              "subgraph is PUSHED so you wake holding your own memory; recall MORE on demand "
@@ -380,8 +659,22 @@ def compose_recall_brief(subgraph=_AUTO, group=None):
         parts.append("- **Generated Artefato assets (HTML/JS/data companions):**\n" + "\n".join(lines))
     else:
         parts.append("- **Generated Artefato assets:** _none projected yet_")
+    # Graph employment spine (project_lentes Atividade nodes) — agentic cortex-as-graph.
+    # Distinct from portfolio_at lanes: this is Neo4j, map-blind recall still carries it.
+    atividades = subgraph.get("atividades") or []
+    if atividades:
+        lines = []
+        for a in atividades:
+            label = a.get("ref") or a.get("num") or "?"
+            fin = a.get("finalidade") or "_sem finalidade_"
+            estado = f" · {a.get('estado')}" if a.get("estado") else ""
+            lines.append(f"  - **{label}** — {fin}{estado}")
+        parts.append("- **Open Atividades (graph employment spine):**\n" + "\n".join(lines))
+    else:
+        parts.append("- **Open Atividades (graph employment spine):** _none open in graph_")
+    parts.append("")
+    parts.append(persona.rstrip())
     return "\n".join(parts) + "\n"
-
 
 def _portfolio_text(item, key, lane):
     value = item.get(key)
@@ -415,6 +708,15 @@ def _validate_portfolio_snapshot(snapshot):
             raise ValueError(
                 "portfolio snapshot `mapas_ativos` item `frontier` must be a list of ref lists"
             )
+
+    if "atividades" in snapshot:
+        if not isinstance(snapshot["atividades"], list):
+            raise ValueError("portfolio snapshot `atividades` must be a list")
+        if any(not isinstance(item, dict) for item in snapshot["atividades"]):
+            raise ValueError("portfolio snapshot `atividades` items must be dicts")
+        for item in snapshot["atividades"]:
+            _portfolio_text(item, "ref", "atividades")
+            _portfolio_text(item, "finalidade", "atividades")
 
     for item in snapshot["atividades_perdidas"]:
         _portfolio_text(item, "ref", "atividades_perdidas")
@@ -493,8 +795,21 @@ def compose_portfolio_recall_brief(subgraph=_AUTO, group=None, portfolio_fn=None
         lines.append(f"- **{active_map.get('ref')}** — {active_map.get('titulo', '')}")
         for layer, tickets in enumerate(active_map.get("frontier", [])):
             lines.append(f"  - Layer {layer}: {', '.join(tickets)}")
+    lines.extend(["", "## Atividades abertas"])
+    open_refs = set()
+    for activity in snapshot.get("atividades", []):
+        ref = activity.get("ref")
+        if isinstance(ref, str) and ref.strip():
+            open_refs.add(ref)
+        lines.append(
+            f"- **{activity.get('ref')}** — {activity.get('finalidade', '')}"
+        )
     lines.extend(["", "## Atividades perdidas"])
+    # Exclusive of abertas: never dual-list the same ref under both sections.
     for activity in snapshot.get("atividades_perdidas", []):
+        ref = activity.get("ref")
+        if ref in open_refs:
+            continue
         lines.append(
             f"- **{activity.get('ref')}** — {activity.get('finalidade', '')} "
             f"· {activity.get('sessoes_sem_toque')} sessões sem toque"

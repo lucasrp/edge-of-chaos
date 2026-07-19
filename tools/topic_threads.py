@@ -159,6 +159,8 @@ def norm(text: str) -> str:
 def _session_id(surface: str, path: Path) -> str:
     if surface == "codex":
         return sessions.codex_session_anchor(sessions._codex_session_id(path))  # noqa: SLF001
+    if surface == "grok":
+        return sessions.grok_session_anchor(sessions._grok_session_id(path))  # noqa: SLF001
     return path.stem
 
 
@@ -169,6 +171,10 @@ def _exclude_anchor_set() -> set[str]:
         if isinstance(val, str) and val.strip():
             vals.add(val.strip())
             vals.add(sessions.codex_session_anchor(val.strip()))
+    grok_sid = os.environ.get("GROK_SESSION_ID")
+    if isinstance(grok_sid, str) and grok_sid.strip():
+        vals.add(grok_sid.strip())
+        vals.add(sessions.grok_session_anchor(grok_sid.strip()))
     extra = os.environ.get("EDGE_EXCLUDE_SESSION_IDS")
     if extra:
         vals.update(x.strip() for x in extra.split(",") if x.strip())
@@ -179,6 +185,7 @@ def _iter_session_files(
     *,
     project_dir: str | Path | None = None,
     codex_dir: str | Path | bool | None = None,
+    grok_dir: str | Path | bool | None = None,
     claude_root: str | Path | None = None,
     all_stores: bool | None = None,
 ) -> list[tuple[str, Path]]:
@@ -196,8 +203,13 @@ def _iter_session_files(
         pdir = Path(project_dir)
         if pdir.is_dir():
             found.extend(("claude", p) for p in pdir.glob("*.jsonl"))
-    if codex_dir is not False and (codex_dir is not None or all_stores):
+    import surfaces_cfg
+    # all_stores=True ≡ real-host posture (honor agent.yaml); else hermetic unless explicit dir.
+    gate = None if all_stores else project_dir
+    if surfaces_cfg.include_optional_surface("codex", gate, codex_dir):
         found.extend(("codex", Path(s.path)) for s in sessions.list_codex_sessions(codex_dir))
+    if surfaces_cfg.include_optional_surface("grok", gate, grok_dir):
+        found.extend(("grok", Path(s.path)) for s in sessions.list_grok_sessions(grok_dir))
     return found
 
 
@@ -206,6 +218,7 @@ def collect_voice_fragments(
     window_days: int = WINDOW_DAYS,
     project_dir: str | Path | None = None,
     codex_dir: str | Path | bool | None = None,
+    grok_dir: str | Path | bool | None = None,
     claude_root: str | Path | None = None,
     all_stores: bool | None = None,
     now: datetime | None = None,
@@ -217,7 +230,8 @@ def collect_voice_fragments(
     out: list[VoiceFragment] = []
     seen_paths: set[Path] = set()
     for surface, path in _iter_session_files(project_dir=project_dir, codex_dir=codex_dir,
-                                             claude_root=claude_root, all_stores=all_stores):
+                                             grok_dir=grok_dir, claude_root=claude_root,
+                                             all_stores=all_stores):
         path = Path(path)
         if path in seen_paths:
             continue
@@ -228,9 +242,10 @@ def collect_voice_fragments(
         except OSError:
             continue
         sid = _session_id(surface, path)
-        if sid in exclude or sid.removeprefix("codex:") in exclude:
+        raw_sid = sid.removeprefix("codex:").removeprefix("grok:")
+        if sid in exclude or raw_sid in exclude:
             continue
-        session = sessions.Session(id=sid.removeprefix("codex:"), path=path, surface=surface)
+        session = sessions.Session(id=raw_sid, path=path, surface=surface)
         if sessions.user_session_exclusion_reason(session):
             continue
         try:
@@ -425,6 +440,7 @@ def index_recent_session_topics(
     window_days: int = WINDOW_DAYS,
     project_dir: str | Path | None = None,
     codex_dir: str | Path | bool | None = None,
+    grok_dir: str | Path | bool | None = None,
     claude_root: str | Path | None = None,
     all_stores: bool | None = None,
     log=eventlog.LOG,
@@ -432,7 +448,8 @@ def index_recent_session_topics(
     min_score: int = 1,
 ) -> int:
     fragments = collect_voice_fragments(window_days=window_days, project_dir=project_dir,
-                                        codex_dir=codex_dir, claude_root=claude_root,
+                                        codex_dir=codex_dir, grok_dir=grok_dir,
+                                        claude_root=claude_root,
                                         all_stores=all_stores, now=now)
     return index_session_topics(fragments, window_days=window_days, min_score=min_score, log=log)
 
@@ -463,6 +480,7 @@ def propose_recent_topic_directions(
     window_days: int = WINDOW_DAYS,
     project_dir: str | Path | None = None,
     codex_dir: str | Path | bool | None = None,
+    grok_dir: str | Path | bool | None = None,
     claude_root: str | Path | None = None,
     all_stores: bool | None = None,
     log=eventlog.LOG,
@@ -471,7 +489,8 @@ def propose_recent_topic_directions(
     min_score: int = MIN_SCORE,
 ) -> int:
     fragments = collect_voice_fragments(window_days=window_days, project_dir=project_dir,
-                                        codex_dir=codex_dir, claude_root=claude_root,
+                                        codex_dir=codex_dir, grok_dir=grok_dir,
+                                        claude_root=claude_root,
                                         all_stores=all_stores, now=now)
     directions = infer_topic_directions(fragments, window_days=window_days,
                                         min_fragments=min_fragments, min_score=min_score)
@@ -495,6 +514,7 @@ def sync_recent_topic_memory(
     window_days: int = WINDOW_DAYS,
     project_dir: str | Path | None = None,
     codex_dir: str | Path | bool | None = None,
+    grok_dir: str | Path | bool | None = None,
     claude_root: str | Path | None = None,
     all_stores: bool | None = None,
     log=eventlog.LOG,
@@ -510,7 +530,8 @@ def sync_recent_topic_memory(
     - direction.proposed events, narrower and decision-bearing, for the mentor to curate.
     """
     fragments = collect_voice_fragments(window_days=window_days, project_dir=project_dir,
-                                        codex_dir=codex_dir, claude_root=claude_root,
+                                        codex_dir=codex_dir, grok_dir=grok_dir,
+                                        claude_root=claude_root,
                                         all_stores=all_stores, now=now)
     topics_written = index_session_topics(fragments, window_days=window_days,
                                           min_score=index_min_score, log=log)

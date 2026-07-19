@@ -38,6 +38,27 @@ def _codex(path, *, thread_source="user", parent=None, prompt="vamos trabalhar")
     return _write(path, rows)
 
 
+
+
+def _grok(path, prompt, *, session_kind=None, session_id="g1"):
+    """Real-shaped Grok store: chat_history.jsonl + sibling summary.json."""
+    root = Path(path)
+    root.mkdir(parents=True, exist_ok=True)
+    chat = root / "chat_history.jsonl"
+    body = f"<user_query>\n{prompt}\n</user_query>"
+    chat.write_text(json.dumps({
+        "type": "user",
+        "content": [{"type": "text", "text": body}],
+    }) + "\n")
+    summary = {
+        "info": {"id": session_id, "cwd": "/tmp"},
+        "session_summary": prompt[:80],
+    }
+    if session_kind is not None:
+        summary["session_kind"] = session_kind
+    (root / "summary.json").write_text(json.dumps(summary))
+    return chat
+
 class UserSessionFilter(unittest.TestCase):
     def test_claude_direct_operator_session_is_kept(self):
         with tempfile.TemporaryDirectory() as td:
@@ -133,6 +154,35 @@ class UserSessionFilter(unittest.TestCase):
                 sessions.user_session_exclusion_reason(s),
                 "codex-thread-source:subagent",
             )
+
+    def test_grok_operator_session_is_kept(self):
+        """Operator Grok sessions have no session_kind (or absent field) — keep as Voz."""
+        with tempfile.TemporaryDirectory() as td:
+            p = _grok(Path(td) / "019f-op", "que dia esse virtualbox foi criado?",
+                      session_id="019f-op")
+            s = sessions.Session(id="019f-op", path=p, surface="grok")
+            self.assertIsNone(sessions.user_session_exclusion_reason(s))
+
+    def test_grok_subagent_session_kind_is_excluded(self):
+        """Real Grok stores workers as session_kind=subagent (not under a subagents/ path)."""
+        with tempfile.TemporaryDirectory() as td:
+            p = _grok(Path(td) / "019f-worker", "Wire Grok into topic_threads like Codex",
+                      session_kind="subagent", session_id="019f-worker")
+            s = sessions.Session(id="019f-worker", path=p, surface="grok")
+            self.assertEqual(
+                sessions.user_session_exclusion_reason(s),
+                "grok-session-kind:subagent",
+            )
+            self.assertFalse(sessions.is_user_session(s))
+
+    def test_grok_subagents_path_still_excluded(self):
+        """Belt-and-suspenders: a subagents/ path component still excludes."""
+        with tempfile.TemporaryDirectory() as td:
+            p = _grok(Path(td) / "subagents" / "019f-path", "faça o ticket",
+                      session_id="019f-path")
+            s = sessions.Session(id="019f-path", path=p, surface="grok")
+            self.assertEqual(sessions.user_session_exclusion_reason(s), "grok-subagent")
+
 
 
 if __name__ == "__main__":

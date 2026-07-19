@@ -97,19 +97,62 @@ def _codex_meta_and_turns(path):
     return {"op_turns": op_turns, "op_chars": op_chars, "last": last}, turns
 
 
+def _grok_meta_and_turns(path):
+    """Grok chat_history.jsonl → mesma forma do Claude para o quente."""
+    import json
+    from pathlib import Path
+    turns = [("user" if t.role == "human" else "assistant", t.text)
+             for t in sessions.read_turns(path, surface="grok")]
+    op_turns, op_chars = 0, 0
+    for role, txt in turns:
+        if role == "user" and not any(m in txt[:200] for m in SCAFFOLDING):
+            op_turns += 1
+            op_chars += len(txt)
+    last = ""
+    # Prefer summary last_active when present (chat_history lines often lack timestamps).
+    summary = Path(path).parent / "summary.json"
+    try:
+        if summary.is_file():
+            data = json.loads(summary.read_text(errors="replace"))
+            for key in ("last_active_at", "updated_at", "created_at"):
+                ts = data.get(key) or ""
+                if isinstance(ts, str) and ts:
+                    last = max(last, ts)
+    except (OSError, ValueError, TypeError):
+        pass
+    if not last:
+        with open(path, errors="replace") as fh:
+            for line in fh:
+                try:
+                    ts = json.loads(line).get("timestamp") or ""
+                except Exception:
+                    continue
+                last = max(last, ts)
+    if not last:
+        # Fall back to file mtime as ISO so ordinal-K still ranks recent Grok chats.
+        last = datetime.fromtimestamp(Path(path).stat().st_mtime, tz=timezone.utc).isoformat()
+    return {"op_turns": op_turns, "op_chars": op_chars, "last": last}, turns
+
+
 def _meta_and_turns(path, surface="claude"):
-    return _codex_meta_and_turns(path) if surface == "codex" else _session_meta_and_turns(path)
+    if surface == "codex":
+        return _codex_meta_and_turns(path)
+    if surface == "grok":
+        return _grok_meta_and_turns(path)
+    return _session_meta_and_turns(path)
 
 
 def _exclude_set(exclude):
     import os
     if exclude is None:
         vals = []
-        for k in ("CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "CODEX_THREAD_ID"):
-            v = os.environ.get(k)
-            if v:
-                vals.append(v)
-                vals.append(f"codex:{v}")
+        # One seam for live identity (Claude/Codex env + Grok active_sessions.json).
+        anchor = sessions.current_session_anchor()
+        if anchor:
+            vals.append(anchor)
+            _surface, raw = sessions.split_session_anchor(anchor)
+            if raw and raw != anchor:
+                vals.append(raw)
         extra = os.environ.get("EDGE_EXCLUDE_SESSION_IDS")
         if extra:
             vals.extend(x.strip() for x in extra.split(",") if x.strip())
@@ -118,10 +161,16 @@ def _exclude_set(exclude):
 
 
 def _include_codex(store_dir, codex_dir):
-    return codex_dir is not False and (codex_dir is not None or store_dir is None)
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("codex", store_dir, codex_dir)
 
 
-def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=None):
+def _include_grok(store_dir, grok_dir):
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("grok", store_dir, grok_dir)
+
+
+def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=None, grok_dir=None):
     """O scan barato de metadata: seleciona as K substanciais do store (ordinal, teto wall-clock)
     e devolve (metas selecionadas, window_start_ts). COMPARTILHADO por build_bundle e pelo
     hot_cutoff do predispatch — uma seleção só, ou o §5 defere pra um quente que não cobre o
@@ -131,6 +180,7 @@ def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=N
     from pathlib import Path
     from datetime import datetime, timezone
     include_codex = _include_codex(store_dir, codex_dir)
+    include_grok = _include_grok(store_dir, grok_dir)
     if store_dir is None:
         import _identity
         store_dir = _identity.project_dir()
@@ -152,6 +202,8 @@ def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=N
         metas.append(meta)
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
+            if not sessions.is_user_session(s):
+                continue
             sid = f"codex:{s.id}"
             if sid in exclude or s.id in exclude:
                 continue
@@ -162,6 +214,21 @@ def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=N
             meta["raw_id"] = s.id
             meta["path"] = s.path
             meta["surface"] = "codex"
+            metas.append(meta)
+    if include_grok:
+        for s in sessions.list_grok_sessions(grok_dir):
+            if not sessions.is_user_session(s):
+                continue
+            sid = f"grok:{s.id}"
+            if sid in exclude or s.id in exclude:
+                continue
+            if floor_mtime is not None and Path(s.path).stat().st_mtime < floor_mtime:
+                continue
+            meta, _ = _grok_meta_and_turns(s.path)
+            meta["id"] = sid
+            meta["raw_id"] = s.id
+            meta["path"] = s.path
+            meta["surface"] = "grok"
             metas.append(meta)
     sel = select_sessions(metas, k=k, max_age_days=max_age_days, now=now_dt.isoformat())
     return sel, min((m.get("last", "") for m in sel), default="")
@@ -225,7 +292,7 @@ def _user_requested_anchor(path=None, n=5, since=None):
 
 
 def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, eventlog_path=None,
-                 codex_dir=None):
+                 codex_dir=None, grok_dir=None):
     """O insumo completo do quente, do disco: seleciona via select_window (a MESMA seleção do
     hot_cutoff), extrai o trilho-voz, monta as âncoras (git log dos repos + eventlog-tail) e
     devolve (bundle_text, window_start_ts). Defaults host-agnósticos herdados de select_window;
@@ -233,7 +300,7 @@ def build_bundle(store_dir=None, repos=(), k=3, max_age_days=7, exclude=None, ev
     ('git indisponível' ≠ '(sem commits)' — codex 8, gate=SINAL)."""
     import subprocess
     sel, window_start = select_window(store_dir=store_dir, k=k, max_age_days=max_age_days,
-                                      exclude=exclude, codex_dir=codex_dir)
+                                      exclude=exclude, codex_dir=codex_dir, grok_dir=grok_dir)
     sessions = []
     for m in sel:
         _, turns = _meta_and_turns(m["path"], m.get("surface", "claude"))
@@ -288,6 +355,8 @@ def main(argv=None):
                         help="sessões a pular (default: CLAUDE_CODE_SESSION_ID)")
     parser.add_argument("--codex-dir", default=None,
                         help="store de sessões Codex (default: ~/.codex/sessions; use false para desligar)")
+    parser.add_argument("--grok-dir", default=None,
+                        help="store de sessões Grok (default: ~/.grok/sessions; use false para desligar)")
     args = parser.parse_args(argv)
     repos = args.repos
     if repos is None:
@@ -296,7 +365,8 @@ def main(argv=None):
     bundle, _window_start = build_bundle(
         store_dir=args.store_dir, repos=repos, k=args.k, max_age_days=args.max_age_days,
         exclude=tuple(args.exclude) if args.exclude is not None else None,
-        codex_dir=False if args.codex_dir == "false" else args.codex_dir)
+        codex_dir=False if args.codex_dir == "false" else args.codex_dir,
+        grok_dir=False if args.grok_dir == "false" else args.grok_dir)
     print(bundle)
 
 

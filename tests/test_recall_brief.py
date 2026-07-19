@@ -68,6 +68,28 @@ class RecallSubgraphLivesInRecallModule(unittest.TestCase):
         # standalone inventory stays available through cortex_assets.
         self.assertIn("MATCH (p:Artefato {group_id:$g})-[:HAS_ASSET]->(a)", recall.ASSETS_QUERY)
 
+    def test_atividade_query_is_open_employment_spine_from_graph(self):
+        """Agentic cortex-as-graph: open Atividade nodes ride the salient push (not only portfolio_at).
+
+        Seam: ATIVIDADES_QUERY constant + recall_subgraph execution (same pattern as ARTEFATOS).
+        Open/reaberta only — abandonada/cumprida stay out of the default spine.
+        """
+        self.assertTrue(hasattr(recall, "ATIVIDADES_QUERY"))
+        self.assertTrue(hasattr(recall, "RECALL_ATIVIDADE_LIMIT"))
+        self.assertGreaterEqual(recall.RECALL_ATIVIDADE_LIMIT, 1)
+        self.assertLessEqual(recall.RECALL_ATIVIDADE_LIMIT, 16)
+        q = recall.ATIVIDADES_QUERY
+        self.assertIn(":Atividade", q)
+        self.assertIn("group_id:$g", q)
+        self.assertIn("aberta", q)
+        self.assertIn("reaberta", q)
+        self.assertIn("LIMIT $lim", q)
+        self.assertIn("finalidade", q)
+        import inspect
+        src = inspect.getsource(recall.recall_subgraph)
+        self.assertIn("s.run(_q(ATIVIDADES_QUERY)", src,
+                      "recall_subgraph must execute ATIVIDADES_QUERY (graph employment spine)")
+
 
 class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
     """`compose_recall_brief` renders the memory-salient brief — a standalone surface, peer to the
@@ -86,6 +108,8 @@ class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
             "assets": [{"slug": "experiment-final-report-html", "kind": "html",
                         "parent_slug": "experiment-final-report",
                         "page": "blog/entries/experiment-final-report.html"}],
+            "atividades": [{"ref": "edge/atv-021", "num": "atv-021", "estado": "aberta",
+                            "finalidade": "retomar assemble em artefatos", "tier": "llm_judged"}],
         }
         text = recall.compose_recall_brief(subgraph=sub)
         low = text.lower()
@@ -98,6 +122,9 @@ class ComposeRecallBriefIsTheThirdBrief(unittest.TestCase):
         self.assertIn("exp040", text)                           # a native Experiment
         self.assertIn("experiment-final-report-html", text)      # a generated asset companion
         self.assertIn("memory.md", low)                        # recall-MORE-on-demand affordance
+        self.assertIn("atv-021", text)                         # graph employment spine
+        self.assertIn("retomar assemble em artefatos", text)
+        self.assertIn("atividade", low)
 
     def test_dark_graph_renders_an_honest_marker_not_a_crash(self):
         text = recall.compose_recall_brief(subgraph=None)
@@ -166,6 +193,57 @@ class TheThreeBriefFanIsPinnedInProse(unittest.TestCase):
         skill = (REPO / "skills" / "assemble" / "SKILL.md").read_text(encoding="utf-8").lower()
         self.assertNotIn("recall-push", skill)
         self.assertIn("adr-0014", skill)  # it points to where the leg went
+
+
+class SemanticSearchIsACommonGraphEntry(unittest.TestCase):
+    """Dual entry (operator 2026-07-13): wake defaults at space-0, but any task may jump in via
+    common semantic search over projected Artefato embeddings — not only navigate from Genesis."""
+
+    def test_semantic_artefatos_query_is_complete_with_embedding(self):
+        self.assertTrue(hasattr(recall, "SEMANTIC_ARTEFATOS_QUERY"))
+        q = recall.SEMANTIC_ARTEFATOS_QUERY
+        self.assertIn(":Artefato", q)
+        self.assertIn("group_id:$g", q)
+        self.assertIn("a.embedding IS NOT NULL", q)
+        self.assertIn("projection_complete = true", q)
+        self.assertIn("RETURN a.slug", q)
+
+    def test_semantic_search_ranks_by_cosine_with_injected_embedder(self):
+        # Unit vectors: query matches "hit" exactly; "miss" is orthogonal.
+        corpus = [
+            {"slug": "hit", "kernel": "graph entry semantic", "embedding": [1.0, 0.0, 0.0]},
+            {"slug": "miss", "kernel": "unrelated noise", "embedding": [0.0, 1.0, 0.0]},
+        ]
+
+        def embed_fn(_text):
+            return [1.0, 0.0, 0.0]
+
+        hits = recall.semantic_search(
+            "where is graph entry",
+            group="test-group",
+            limit=2,
+            embed_fn=embed_fn,
+            corpus=corpus,
+        )
+        self.assertIsNotNone(hits)
+        self.assertEqual(hits[0]["slug"], "hit")
+        self.assertGreater(hits[0]["score"], 0.99)
+        self.assertEqual(hits[1]["slug"], "miss")
+        self.assertLess(hits[1]["score"], 0.1)
+
+    def test_semantic_search_dark_without_query_or_corpus(self):
+        self.assertIsNone(recall.semantic_search("", group="g", corpus=[]))
+        self.assertIsNone(recall.semantic_search("x", group="g", corpus=[]))
+        self.assertIsNone(recall.semantic_search(None, group="g", corpus=[{"slug": "a", "embedding": [1.0]}]))
+
+    def test_compose_semantic_brief_renders_hits_and_dark(self):
+        hits = [{"slug": "hit-report", "kernel": "open: dual entry", "score": 0.91}]
+        text = recall.compose_semantic_brief("dual entry", hits=hits)
+        self.assertIn("semantic", text.lower())
+        self.assertIn("hit-report", text)
+        self.assertIn("0.91", text)
+        dark = recall.compose_semantic_brief("anything", hits=None)
+        self.assertIn("dark", dark.lower())
 
 
 if __name__ == "__main__":

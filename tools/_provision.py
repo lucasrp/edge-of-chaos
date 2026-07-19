@@ -188,11 +188,14 @@ def render_rationalize_service(cfg, home):
     return _render(tpl, _heartbeat_vars(cfg, home))
 
 
-def install_heartbeat(cfg, home, unit_dir=None, run=subprocess.run):
+def install_heartbeat(cfg, home, unit_dir=None, run=subprocess.run, enable=True):
     """Install the heartbeat timer and static rationalizer worker, idempotently.
 
-    Only the heartbeat has a timer and is enabled here. Rationalization is a oneshot service
-    enqueued after a stamped dispatch; it deliberately has no independent cadence.
+    Only the heartbeat has a timer. Rationalization is a oneshot service enqueued after a
+    stamped dispatch; it deliberately has no independent cadence.
+
+    ``enable=False`` writes unit files but does **not** enable/start the timer (onboarding
+    bootstrap — production ignition is separate after mentor + phenotype).
     """
     home = Path(home)
     unit_dir = Path(unit_dir) if unit_dir is not None \
@@ -204,6 +207,14 @@ def install_heartbeat(cfg, home, unit_dir=None, run=subprocess.run):
         render_rationalize_service(cfg, home)
     )
     _run(run, ["systemctl", "--user", "daemon-reload"], "systemctl daemon-reload")
+    if enable:
+        _run(run, ["systemctl", "--user", "enable", "--now", "edge-heartbeat.timer"],
+             "systemctl enable --now timer")
+        _run(run, ["loginctl", "enable-linger", os.environ.get("USER", "")], "loginctl enable-linger")
+
+
+def enable_heartbeat(home=None, run=subprocess.run):
+    """Enable+start the heartbeat timer (post-onboarding ignition)."""
     _run(run, ["systemctl", "--user", "enable", "--now", "edge-heartbeat.timer"],
          "systemctl enable --now timer")
     _run(run, ["loginctl", "enable-linger", os.environ.get("USER", "")], "loginctl enable-linger")

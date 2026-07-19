@@ -11,6 +11,22 @@ arrives by `/experiment` with an open-ended problem, first read `skills/mentor/S
 as **mentor in experiment mode**: keep the natural one-question cadence, and use this skill only to
 translate the uncertainty into the schema.
 
+**Episteme placement (operator 2026-07-13):** **Mineração / Atividade expanded** how employment
+enters the ledger and cortex. That does **not** dissolve experiment. An **Experiment is a subset of
+Atividade** — same employment case, plus a **provenance rite** (chain of prior experiments/claims)
+and a mandatory **eval** product (biased or not; still an eval) that **generates knowledge**. This
+skill (`/ed-experiment`) is what **manages that subset**. Ordinary Atividades (ship, fix, wayfind)
+stay employment-only unless promoted into this rite. See CONTEXT.md **Experiment** and
+`memory/experiment-is-atividade-with-rite-and-eval.md`.
+
+**Entry freeze (operator 2026-07-13 — leave expansion for later):** Open or mint an Experiment
+**only when the user determines it** through this skill **directly** (slash/command, “run an
+experiment”, navigate/close a named exp) **or indirectly** (user accepts a mentor experiment-mode
+proposal and continues under this skill). Do **not** auto-declare smokes, CI canaries, draft
+`*-exp` folders, or “anything with an eval” as `expNNN`. Those stay ordinary craft/employment until
+the user routes them here. Conceptual note (smoke-with-eval *can* be experiment) is deferred policy,
+not current runtime duty.
+
 ## Native Contract
 The contract already exists in Roberto. Treat these as normative inputs, loaded only when the task
 needs implementation-level detail:
@@ -34,7 +50,7 @@ Current runtime, as of this skill:
   for `run_started` and `experiment_concluded` is still contract in the ontology, not a callable
   writer yet. Do not invent or hand-write those events until the pen exists.
 
-## Canonical ID
+## Canonical ID + disk workspace
 Every new Experiment needs a stable canonical ID before it can be closed. Use the pen, never a folder
 name or a prose title as identity:
 
@@ -42,6 +58,14 @@ name or a prose title as identity:
 tools/edge-python -c "import sys; sys.path.insert(0,'tools'); import eventlog; \
 print(eventlog.declare_experiment('<title>', hypothesis='<testable uncertainty>')['payload']['experiment_id'])"
 ```
+
+`declare_experiment` also seeds the **genotype workspace** under `experiments/<expNNN>-<slug>/`
+(`projeto.md`, `timeline.md`, `arms/`, `runs/`, `outputs/`) unless `workspace=False`. Resolve paths
+with `experiments_cfg.experiments_root()` / `experiment_dir(id)`.
+
+Phenotype: `agent.yaml` → `experiments.root` (default `experiments` under `edge_home`). Pre-episteme
+installs (e.g. Roberto `writing/exp*`) override `root` until migrated — same genotype API, different
+folder; **Roberto is the acceptance phenotype** of this layout.
 
 Use that id in all reports and artifacts: `reports_on=['expNNN']`. Non-canonical ids are rejected by
 the lineage normalizer instead of being silently turned into experiments.

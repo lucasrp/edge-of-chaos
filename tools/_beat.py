@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import json
 import os
+import random
 import shutil
 import sys
 import uuid
@@ -20,6 +21,17 @@ import eventlog
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_PRODUCER_ROSTER = ("report", "map", "plan")
+
+# Headless beat runtimes. `opus`/`fable` are Anthropic model aliases on the claude CLI
+# (`claude --model opus|fable`); there is no separate fable binary on the fleet.
+FIXED_HEARTBEAT_CLIS = frozenset({"claude", "grok", "codex", "opus", "fable"})
+# Operator mix 2026-07-13: 33% grok · 33% codex · 16.5% opus · 16.5% fable (sum 99).
+DEFAULT_HEARTBEAT_CLI_MIX = (
+    ("grok", 33.0),
+    ("codex", 33.0),
+    ("opus", 16.5),
+    ("fable", 16.5),
+)
 
 
 @contextmanager
@@ -210,6 +222,70 @@ def bind_dispatch_plan(prompt, plan):
             f"{encoded}\nEND AUTHORITATIVE DISPATCH PLAN\n\n{prompt}")
 
 
+def pick_heartbeat_cli(mix=None, rng=None) -> str:
+    """Draw one CLI label from the weighted mix (default operator mix 33/33/16.5/16.5)."""
+    pairs = list(mix) if mix is not None else list(DEFAULT_HEARTBEAT_CLI_MIX)
+    if not pairs:
+        return "claude"
+    labels = [p[0] for p in pairs]
+    weights = [float(p[1]) for p in pairs]
+    chooser = rng if rng is not None else random.Random()
+    return chooser.choices(labels, weights=weights, k=1)[0]
+
+
+def _load_heartbeat_cfg(home=None) -> dict:
+    try:
+        import yaml
+        path = Path(os.path.expanduser(str(home or REPO))) / "agent.yaml"
+        if not path.exists():
+            path = REPO / "agent.yaml"
+        cfg = yaml.safe_load(path.read_text()) or {}
+        hb = cfg.get("heartbeat") or {}
+        return hb if isinstance(hb, dict) else {}
+    except Exception:
+        return {}
+
+
+def _cli_mix_from_cfg(hb: dict):
+    """Optional ``heartbeat.cli_mix`` override; else the default operator mix."""
+    raw = hb.get("cli_mix")
+    if isinstance(raw, dict) and raw:
+        pairs = []
+        for name, w in raw.items():
+            label = str(name).strip().lower()
+            if label in FIXED_HEARTBEAT_CLIS or label == "claude":
+                try:
+                    pairs.append((label, float(w)))
+                except (TypeError, ValueError):
+                    continue
+        if pairs:
+            return pairs
+    return list(DEFAULT_HEARTBEAT_CLI_MIX)
+
+
+def heartbeat_cli(home=None, rng=None) -> str:
+    """Which headless CLI runs the beat.
+
+    Fixed: ``claude`` | ``grok`` | ``codex`` | ``opus`` | ``fable``.
+    ``random`` draws from the operator mix (33% grok · 33% codex · 16.5% opus · 16.5% fable).
+
+    Order: ``EDGE_BEAT_CLI`` env → ``agent.yaml`` ``heartbeat.cli`` → ``claude``.
+    """
+    env = (os.environ.get("EDGE_BEAT_CLI") or "").strip().lower()
+    if env in FIXED_HEARTBEAT_CLIS:
+        return env
+    if env == "random":
+        return pick_heartbeat_cli(rng=rng)
+
+    hb = _load_heartbeat_cfg(home)
+    cli = str(hb.get("cli") or "claude").strip().lower()
+    if cli in FIXED_HEARTBEAT_CLIS:
+        return cli
+    if cli == "random":
+        return pick_heartbeat_cli(mix=_cli_mix_from_cfg(hb), rng=rng)
+    return "claude"
+
+
 def resolve_claude_bin() -> str:
     """Find the claude CLI: env override, then PATH, then common install locations."""
     candidates = []
@@ -229,18 +305,95 @@ def resolve_claude_bin() -> str:
     raise FileNotFoundError("claude CLI not found on PATH or common install locations")
 
 
-def build_beat_command(claude_bin: str, mcp_config_path=None) -> list:
+def resolve_grok_bin() -> str:
+    """Find the grok CLI: env override, then PATH, then common install locations."""
+    candidates = []
+    env_override = os.environ.get("EDGE_GROK_BIN") or os.environ.get("GROK_BIN")
+    if env_override:
+        candidates.append(env_override)
+    path_hit = shutil.which("grok")
+    if path_hit:
+        candidates.append(path_hit)
+    home = Path.home()
+    candidates += [
+        str(home / ".local" / "bin" / "grok"),
+        str(home / "bin" / "grok"),
+        str(home / ".grok" / "bin" / "grok"),
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    raise FileNotFoundError("grok CLI not found on PATH or common install locations")
+
+
+def resolve_codex_bin() -> str:
+    """Find the codex CLI: env override, then PATH, then common install locations."""
+    candidates = []
+    env_override = os.environ.get("EDGE_CODEX_BIN") or os.environ.get("CODEX_BIN")
+    if env_override:
+        candidates.append(env_override)
+    path_hit = shutil.which("codex")
+    if path_hit:
+        candidates.append(path_hit)
+    home = Path.home()
+    candidates += [
+        str(home / ".local" / "bin" / "codex"),
+        str(home / "bin" / "codex"),
+    ]
+    for hit in sorted((home / ".nvm" / "versions" / "node").glob("*/bin/codex"), reverse=True):
+        candidates.append(str(hit))
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    raise FileNotFoundError("codex CLI not found on PATH or common install locations")
+
+
+def build_beat_command(claude_bin: str, mcp_config_path=None, model=None) -> list:
     """One beat = one single-shot `claude -p -`, permissions bypassed. No retry, no envelope.
 
     When `mcp_config_path` is given (Slice 6, F1), the lead beat is launched with `--mcp-config <path>`
     so the standing `cortex` read door is registered on the parent claude -p — pullable mid-turn by the
     lead AND the self-reading subagents it fans. The world-reading delta subagent is denied via its own
     skill `disallowed-tools: mcp__cortex__*` (Slice 4), so inheriting the parent server is safe. Without
-    a path the command is the unchanged base single-shot invocation (backward-compatible)."""
+    a path the command is the unchanged base single-shot invocation (backward-compatible).
+
+    ``model`` (optional): Anthropic alias on the claude CLI (``opus``, ``fable``, …).
+    """
     cmd = [claude_bin, "-p", "-", "--dangerously-skip-permissions"]
     if mcp_config_path:
         cmd += ["--mcp-config", str(mcp_config_path)]
+    if model:
+        cmd += ["--model", str(model)]
     return cmd
+
+
+def build_grok_beat_command(grok_bin: str, prompt_file: Path, cwd: Path) -> list:
+    """One beat = one single-shot grok headless run (``--prompt-file`` + ``--always-approve``).
+
+    Grok does not take the skill body on stdin the way ``claude -p -`` does; the launcher writes
+    the bound prompt to ``prompt_file`` and points ``--prompt-file`` at it. ``--cwd`` pins the
+    install tree so tools/skills resolve under edge_home.
+    """
+    return [
+        grok_bin,
+        "--always-approve",
+        "--cwd", str(cwd),
+        "--prompt-file", str(prompt_file),
+    ]
+
+
+def build_codex_beat_command(codex_bin: str, cwd: Path) -> list:
+    """One beat = one single-shot ``codex exec``; prompt on stdin (``-``), approvals bypassed.
+
+    Heartbeat runs non-interactively on a trusted install (same posture as claude
+    ``--dangerously-skip-permissions`` / grok ``--always-approve``).
+    """
+    return [
+        codex_bin, "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C", str(cwd),
+        "-",
+    ]
 
 
 def ensure_cortex_config(home, group=None):

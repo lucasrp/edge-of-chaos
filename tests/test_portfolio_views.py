@@ -54,6 +54,25 @@ class PortfolioRender(unittest.TestCase):
             self.assertIn("Pergunta decisiva", rendered)
             self.assertIn("Reduzir a incerteza", rendered)
 
+    def test_empty_fold_preserves_hand_authored_portfolio_without_gerado_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log = root / "log.jsonl"
+            out = root / "views" / "portfolio.md"
+            dogfood = "# Portfólio de wayfinds — hand authored dogfood\n\nreal content\n"
+            out.parent.mkdir(parents=True)
+            out.write_text(dogfood)
+
+            self.assertEqual(portfolio.render(log, out=out), out)
+            self.assertEqual(out.read_text(), dogfood)
+
+            generated = root / "views" / "generated.md"
+            generated.write_text("<!-- GERADO — edite via eventos. -->\n\n# Portfólio\n\nold\n")
+            portfolio.render(log, out=generated)
+            text = generated.read_text()
+            self.assertTrue(text.startswith("<!-- GERADO — edite via eventos"))
+            self.assertNotIn("old", text)
+
 
 class PortfolioMigration(unittest.TestCase):
     def test_migrate_preserves_one_open_ticket_and_the_verbatim_source(self):

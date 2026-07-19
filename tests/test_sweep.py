@@ -54,6 +54,23 @@ def write_codex_session(d, sid, n_human=3, text=BODY, append=False):
     return p
 
 
+def write_grok_session(d, sid, n_human=3, text=BODY, append=False):
+    """Grok layout: sessions/<cwd>/<sid>/chat_history.jsonl."""
+    root = Path(d) / "%2Ftmp" / sid
+    root.mkdir(parents=True, exist_ok=True)
+    p = root / "chat_history.jsonl"
+    lines = []
+    for i in range(n_human):
+        q = f"<user_query>\n{text} ({i})\n</user_query>"
+        lines.append(json.dumps({"type": "user", "content": [{"type": "text", "text": q}]}))
+        lines.append(json.dumps({"type": "assistant",
+                                 "content": [{"type": "text", "text": f"reply {i}: {text}"}]}))
+    mode = "a" if append else "w"
+    with p.open(mode) as fh:
+        fh.write("\n".join(lines) + "\n")
+    return p
+
+
 class PlanSweepSelectsDeltas(unittest.TestCase):
     """plan_sweep returns each session's new-since-cursor delta; a session already at its
     watermark plans nothing (idempotent); a thin delta is marked skip (left to grow)."""
@@ -92,6 +109,16 @@ class PlanSweepSelectsDeltas(unittest.TestCase):
             self.assertIn("human:", plan[1]["body"])
             self.assertIn("edge:", plan[1]["body"])
 
+    def test_grok_sessions_are_planned_when_grok_dir_is_explicit(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as grok:
+            write_session(proj, "claudeA")
+            write_grok_session(grok, "grokA")
+            plan = sweep.plan_sweep(proj, {}, grok_dir=grok, codex_dir=False)
+            self.assertEqual([p["id"] for p in plan], ["claudeA", "grok:grokA"])
+            self.assertEqual(plan[1]["surface"], "grok")
+            self.assertIn("human:", plan[1]["body"])
+            self.assertIn("edge:", plan[1]["body"])
+
 
 class MalformedTranscriptLinesAreSkipped(unittest.TestCase):
     """A corrupt/truncated raw line (a session written mid-sweep, a crashed writer — the
@@ -115,9 +142,14 @@ class RunIsSerializedByTheCursorLock(unittest.TestCase):
     """Codex/Opus review B1 — cursors.json is shared mutable state on a multi-dispatch host
     (operator + heartbeat): run() must hold an exclusive flock on the cursors lockfile for the
     whole load->execute->save window, so two overlapping sweeps cannot read the same base and
-    append duplicate episode events / clobber each other's cursor advances."""
+    append duplicate episode events / clobber each other's cursor advances.
 
-    def test_run_blocks_on_an_externally_held_lock(self):
+    UX.W-sweep-lock-dark: the acquire is non-blocking + retry up to CURSORS_LOCK_WAIT_S. On
+    timeout the sweep goes honest DARK (return 0, loud print) so predispatch can still stamp —
+    identity precedes grounding; prefer swept=0 over a silent hang.
+    """
+
+    def test_run_retries_then_proceeds_when_lock_releases_within_wait(self):
         import fcntl
         import threading
         import time
@@ -131,19 +163,47 @@ class RunIsSerializedByTheCursorLock(unittest.TestCase):
             def go():
                 sweep.run(proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
                           reproject_fn=False, log=log, graph_recover_fn=False,
-                          group="test-group")
+                          group="test-group", cursors_lock_wait_s=2.0)
                 done.append(True)
             with lock.open("w") as lk:
                 fcntl.flock(lk, fcntl.LOCK_EX)
                 t = threading.Thread(target=go, daemon=True)
                 t.start()
-                time.sleep(0.5)
-                self.assertEqual(done, [], "run() must block while the cursor lock is held")
+                time.sleep(0.3)
+                self.assertEqual(done, [], "run() must wait while the cursor lock is held")
                 fcntl.flock(lk, fcntl.LOCK_UN)
             t.join(timeout=10)
             self.assertEqual(done, [True], "run() must proceed once the lock is released")
             evs = eventlog.read(types=["episode"], log=log)
             self.assertEqual(len(evs), 1)
+
+    def test_held_lock_past_wait_darks_with_swept_zero(self):
+        import fcntl
+        import io
+        import time
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
+            write_session(proj, "sessA")
+            cursors_path = Path(st) / "cursors.json"
+            log = Path(st) / "log.jsonl"
+            lock = cursors_path.with_name(cursors_path.name + ".lock")
+            lock.parent.mkdir(parents=True, exist_ok=True)
+            with lock.open("w") as lk:
+                fcntl.flock(lk, fcntl.LOCK_EX)
+                out = io.StringIO()
+                t0 = time.monotonic()
+                with redirect_stdout(out):
+                    n = sweep.run(
+                        proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
+                        reproject_fn=False, log=log, graph_recover_fn=False,
+                        group="test-group", cursors_lock_wait_s=0.4)
+                elapsed = time.monotonic() - t0
+            self.assertEqual(n, 0, "lock timeout skips sweep (swept=0), does not raise")
+            self.assertLess(elapsed, 2.0, "must not hang past the wait budget")
+            self.assertIn("DARK", out.getvalue())
+            self.assertIn("cursors lock", out.getvalue())
+            self.assertEqual(eventlog.read(types=["episode"], log=log), [],
+                             "DARK skip writes nothing")
 
 
 class TruncatedTailDoesNotAdvanceTheWatermark(unittest.TestCase):
@@ -258,6 +318,21 @@ class ExecuteIngestsLogsAdvances(unittest.TestCase):
             self.assertEqual(eps[0]["payload"]["session"], "codex:codexA")
             self.assertEqual(eps[0]["payload"]["surface"], "codex")
 
+    def test_grok_episode_carries_surface_metadata(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as grok, \
+             tempfile.TemporaryDirectory() as st:
+            write_grok_session(grok, "grokA")
+            log = Path(st) / "log.jsonl"
+            cur, n = sweep.execute(
+                sweep.plan_sweep(proj, {}, grok_dir=grok, codex_dir=False),
+                lambda items: None, {}, log=log)
+            self.assertEqual(n, 1)
+            self.assertIn("grok:grokA", cur)
+            eps = eventlog.read(types=["episode"], log=log)
+            self.assertEqual(eps[0]["subject"], "session:grok:grokA")
+            self.assertEqual(eps[0]["payload"]["session"], "grok:grokA")
+            self.assertEqual(eps[0]["payload"]["surface"], "grok")
+
 
 class RunIsIdempotent(unittest.TestCase):
     """The whole-sweep guarantee: two back-to-back runs ingest the session once; the second is a
@@ -342,6 +417,31 @@ class RunIsIdempotent(unittest.TestCase):
                            graph_recover_fn=False, group="test-group", codex_dir=codex)
             self.assertEqual(n2, 1)
             self.assertEqual(seen, ["codex:codexA"])
+
+    def test_first_grok_run_baselines_existing_logs_without_ingesting(self):
+        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as grok, \
+             tempfile.TemporaryDirectory() as st:
+            write_grok_session(grok, "grokA")
+            cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
+            seen = []
+            n1 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+                           cursors_path=cp, reproject_fn=False, log=log,
+                           graph_recover_fn=False, group="test-group",
+                           grok_dir=grok, codex_dir=False)
+            cursors = sweep.load_cursors(cp)
+            self.assertEqual(n1, 0)
+            self.assertEqual(seen, [])
+            self.assertTrue(cursors[sweep.GROK_BASELINE_KEY])
+            self.assertGreater(cursors["grok:grokA"], 0)
+            self.assertEqual(eventlog.read(types=["episode"], log=log), [])
+
+            write_grok_session(grok, "grokA", append=True)
+            n2 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+                           cursors_path=cp, reproject_fn=False, log=log,
+                           graph_recover_fn=False, group="test-group",
+                           grok_dir=grok, codex_dir=False)
+            self.assertEqual(n2, 1)
+            self.assertEqual(seen, ["grok:grokA"])
 
 
 class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):

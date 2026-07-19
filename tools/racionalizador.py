@@ -33,6 +33,153 @@ _DERIVED_TYPES = {
     "atividade.opened", "atividade.touched", "claim.hypothesized", "move.proposed"
 }
 
+# Completer is a free-form text endpoint (claude -p / codex). Without an explicit shape it
+# answers the question in prose; rationalize needs JSON. Hints ride in the request payload
+# as a short instruction (keep small — session prompts already carry the turns).
+_SCENE_JSON_INSTRUCTION = (
+    'Return ONLY JSON: {"summary":"<one short paragraph>"}. No markdown/prose.'
+)
+_SESSION_JSON_INSTRUCTION = (
+    "Return ONLY a JSON object (no markdown fences). Schema:\n"
+    '{"operacoes":["edge"],'
+    '"stitch":{"goal":"non-blank goal","acao":"non-blank action taken","entidades":[]},'
+    '"epistemico":{"presuncoes":[]},'
+    '"organizacional":{"enderecos":[]},'
+    '"derived_events":[{"type":"atividade.opened","subject":"atividade:auto",'
+    '"payload":{"operacao":"edge","finalidade":"the work purpose","novo":"what changed"}}]}\n'
+    "Rules: operacoes = short lowercase slugs ^[a-z0-9][a-z0-9-]*$ (e.g. edge), never "
+    "descriptions. stitch.goal and stitch.acao MUST be non-blank strings about this "
+    "session. When stitch names the MENTEE's real employment work, include \u22651 "
+    "derived_events item type atividade.opened with operacao + finalidade (claims alone "
+    "are not enough). NEVER open atividades for agent-runtime work (codex/plugin loops, "
+    "predispatch, deploy, skill wrappers, edge infra). Empty derived for pure noise/meta "
+    "(e.g. acao 'nada muda') OR agent meta with no mentee employment purpose."
+)
+
+# Meta/noise stitch: floor must not invent phantom atividades (Codex G1).
+_NO_WORK_STITCH_RE = re.compile(
+    r"(nada\s+muda|nothing\s+changes|no\s+changes?|reviewed\s+only|"
+    r"apenas\s+revis|sem\s+trabalho|no\s+work|pure\s+meta|meta[\s-]?only)",
+    re.IGNORECASE,
+)
+
+# Portfolio = emprego do MENTEE (spec #131). Agent runtime/meta work must never become
+# Atividade — floor + backfill filter hard (operator 2026-07-13).
+_AGENT_META_WORK_RE = re.compile(
+    r"("
+    r"codex(\s+adversarial|\s+review|\s+cli|\s+plugin|[\s-]*exec)?|"
+    r"plugin\s+runtime|"
+    r"subagente?s?|"
+    r"predispatch|rationaliz|edge-apply|edge-python|edge-heartbeat|"
+    r"systemd|unit\s+file|"
+    r"\bsweep(\.py)?\b|\bblog/server\b|agent\.yaml|"
+    r"SKILL\.md|grok\s+skills?|"
+    r"wake\s+floor|cortex\s+(fix|fold|projection)|"
+    r"fcntl|cursors\.json|"
+    r"unittest|pytest|test_[a-z0-9_]+|"
+    r"deploy\s+(fleet|overlay|bundle)|"
+    r"neo4j\s+(secrets?|bootstrap)|"
+    r"\b(llm_judged|graphiti)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Generic agent-imperative tasks that are not mentee employment (Codex dual-pass Finding B).
+# Fail closed: negative agent-meta alone was too narrow ("Review the PR" opened Atividade).
+_GENERIC_AGENT_TASK_RE = re.compile(
+    r"("
+    r"review\s+(the\s+)?(pull\s+request|\bpr\b|diff|code|merge|repo|rite|path)|"
+    r"code[\s-]?review|"
+    r"adjudicate\s+a\s+prior|"
+    r"signal[\s-]?vs[\s-]?noise|"
+    r"gate\s+a\s+(first[\s-]?pass\s+)?adversarial|"
+    r"audit\s+whether|"
+    r"verify\s+the\s+closure|"
+    r"implement\s+ticket|"
+    r"summariz(e|ed)\s+findings|"
+    r"fix\s+the\s+bug|"
+    r"write\s+tests?\s+for|"
+    r"run\s+the\s+(test\s+)?suite|"
+    r"report\s+back|"
+    r"check\s+(the\s+)?(build|ci)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _is_no_work_stitch(goal, action):
+    """True when stitch describes pure meta/noise rather than real work."""
+    return bool(_NO_WORK_STITCH_RE.search(action) or _NO_WORK_STITCH_RE.search(goal))
+
+
+def _is_agent_meta_work(goal, action=""):
+    """True when goal/acao is agent-runtime work, not mentee employment.
+
+    Spec: the portfolio records the mentee's employment — never the mentor/agent's
+    tooling loops (codex review, predispatch, deploy, skill wrappers, …).
+    """
+    text = f"{goal or ''}\n{action or ''}"
+    return bool(_AGENT_META_WORK_RE.search(text))
+
+
+def _is_generic_agent_task(goal, action=""):
+    """True when stitch is a generic agent imperative without mentee-employment substance."""
+    text = f"{goal or ''}\n{action or ''}"
+    return bool(_GENERIC_AGENT_TASK_RE.search(text))
+
+
+# Gate P0: floor needs *positive* mentee-employment evidence, not only "not blacklisted".
+# Provenance-bearing: non-empty stitch.entidades / organizacional.enderecos, OR goal/acao
+# names product/domain work (lentes, mapa, feature, …). Unknown prose stays closed.
+_MENTEE_WORK_POSITIVE_RE = re.compile(
+    r"("
+    r"lentes?|mapa|ticket|atividade|portfolio|wayfind|"
+    r"episteme|cortex|direction|artefato|emprego|"
+    r"implementar|implement|desenhar|design|"
+    r"produto|feature|spec|contrato|mentee|finalidade|"
+    r"edge\s+of\s+chaos|edge-next|operador|"
+    r"ship\s+the\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _has_positive_mentee_evidence(goal, action="", entities=None, addresses=None):
+    """True when stitch carries positive signal of mentee employment (not mere absence of meta)."""
+    if entities:
+        return True
+    if addresses:
+        return True
+    text = f"{goal or ''}\n{action or ''}"
+    return bool(_MENTEE_WORK_POSITIVE_RE.search(text))
+
+
+def _mentee_employment_eligible(goal, action="", *, entities=None, addresses=None):
+    """Floor/backfill may open Atividade only for mentee employment (not agent meta/noise).
+
+    Fail closed on: blank goal, no-work stitch, agent-runtime meta, generic agent tasks,
+    and goals that lack positive mentee-employment evidence (gate P0).
+    """
+    if not isinstance(goal, str) or not goal.strip():
+        return False
+    if _is_no_work_stitch(goal, action or ""):
+        return False
+    if _is_agent_meta_work(goal, action or ""):
+        return False
+    if _is_generic_agent_task(goal, action or ""):
+        return False
+    if not _has_positive_mentee_evidence(
+            goal, action or "", entities=entities, addresses=addresses):
+        return False
+    return True
+
+
+def _has_activity_derived(derived_events):
+    return any(
+        item.get("type") in ("atividade.opened", "atividade.touched")
+        for item in derived_events
+    )
+
 
 def _nonblank(value, field):
     if not isinstance(value, str) or not value.strip():
@@ -41,19 +188,34 @@ def _nonblank(value, field):
 
 
 def _normalized_turns(turns):
+    """Accept only human|edge dialogue prose (Claude / Codex / Grok pre-filter output).
+
+    Callers must pass ``sessions.dialogue_turns`` / ``mentee_dialogue_for_rationalize`` —
+    not raw JSONL. Roles other than human/edge are dropped (defense in depth).
+    """
     normalized = []
     for index, turn in enumerate(turns):
         if isinstance(turn, dict):
             role, text = turn.get("role"), turn.get("text")
         else:
             role, text = getattr(turn, "role", None), getattr(turn, "text", None)
-        role = _nonblank(role, f"turns[{index}].role").lower()
+        if not isinstance(role, str) or not role.strip():
+            continue
+        role = role.strip().lower()
+        if role in ("user", "assistant"):
+            role = "human" if role == "user" else "edge"
+        if role not in ("human", "edge"):
+            continue
         if not isinstance(text, str):
             raise ValueError(f"turns[{index}].text must be a string")
-        text = unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n"))
-        normalized.append({"role": role, "text": text.strip()})
+        text = unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
+        if not text:
+            continue
+        normalized.append({"role": role, "text": text})
     if not normalized:
         raise ValueError("turns must contain at least one dialogue turn")
+    if not any(t["role"] == "human" for t in normalized):
+        raise ValueError("turns must include at least one human (mentee/operator) turn")
     return normalized
 
 
@@ -93,10 +255,47 @@ def _full_ref(value, field, operations, *, allow_ulid=False):
     return normalized
 
 
+def _loads_json_loose(raw):
+    """Parse model JSON tolerating fences and leading/trailing prose.
+
+    1. dict → return as-is
+    2. str → strip, try json.loads
+    3. else extract first ```json fence block, then first object via JSONDecoder.raw_decode
+    4. else raise ValueError
+
+    Gate P2: stdlib raw_decode replaces a hand-rolled brace scanner.
+    """
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str):
+        raise ValueError(f"expected JSON object or string, got {type(raw).__name__}")
+    text = raw.strip()
+    if not text:
+        raise ValueError("empty JSON input")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    fence = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        try:
+            return json.loads(fence.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+    start = text.find("{")
+    if start >= 0:
+        try:
+            obj, _end = json.JSONDecoder().raw_decode(text, start)
+            return obj
+        except json.JSONDecodeError:
+            pass
+    raise ValueError("could not parse JSON object from completer output")
+
+
 def _validated_output(raw):
     try:
-        output = json.loads(raw) if isinstance(raw, str) else raw
-    except (TypeError, json.JSONDecodeError) as exc:
+        output = _loads_json_loose(raw)
+    except ValueError as exc:
         raise ValueError(f"completer output is not valid JSON: {exc}") from exc
     if not isinstance(output, dict):
         raise ValueError("completer output must be a JSON object")
@@ -118,12 +317,21 @@ def _validated_output(raw):
     goal = _nonblank(stitch.get("goal"), "stitch.goal")
     action = _nonblank(stitch.get("acao"), "stitch.acao")
     entities = stitch.get("entidades")
+    # Completer sometimes omits entidades or returns a non-list — coerce to [] (same as empty).
+    if entities is None:
+        entities = []
     if not isinstance(entities, list):
-        raise ValueError("stitch.entidades must be a list")
-    normalized_entities = [
-        _full_ref(entity, f"stitch.entidades[{index}]", normalized_operations)
-        for index, entity in enumerate(entities)
-    ]
+        entities = []
+    # Drop malformed refs instead of invalid_output on the whole film (drain 7d: completer
+    # often invents free-text entities). Empty entidades remains valid.
+    normalized_entities = []
+    for index, entity in enumerate(entities):
+        try:
+            normalized_entities.append(
+                _full_ref(entity, f"stitch.entidades[{index}]", normalized_operations)
+            )
+        except ValueError:
+            continue
 
     epistemic = output.get("epistemico")
     if not isinstance(epistemic, dict) or not isinstance(epistemic.get("presuncoes"), list):
@@ -194,6 +402,41 @@ def _validated_output(raw):
         if not isinstance(payload, dict):
             raise ValueError(f"derived_events[{index}].payload must be an object")
         normalized_derived.append({"type": event_type, "subject": subject, "payload": payload})
+
+    # Drop agent-meta / generic agent-task opens the completer invented (portfolio = mentee).
+    # Positive-evidence requirement is for the *mechanical floor* (empty derived), not for
+    # completer-emitted opens that already name a specific objective (scene middle, etc.).
+    mentee_derived = []
+    for item in normalized_derived:
+        if item.get("type") in ("atividade.opened", "atividade.touched"):
+            payload = item.get("payload") or {}
+            purpose = str(payload.get("finalidade") or payload.get("novo") or goal)
+            novo = str(payload.get("novo") or action)
+            if _is_agent_meta_work(purpose, novo) or _is_generic_agent_task(purpose, novo):
+                continue
+            if _is_no_work_stitch(purpose, novo):
+                continue
+        mentee_derived.append(item)
+    normalized_derived = mentee_derived
+
+    # Mechanical floor: mentee employment goal with no activity-typed derived ⇒ one open.
+    # Never floor agent-runtime work (codex/predispatch/deploy/…) or pure noise.
+    # Claim-only / move-only derived still undercounts — floor when open/touch absent.
+    # Gate P0: require positive mentee evidence (entities/addresses or product vocabulary).
+    if (not _has_activity_derived(normalized_derived)
+            and _mentee_employment_eligible(
+                goal, action,
+                entities=normalized_entities,
+                addresses=addresses)):
+        normalized_derived.append({
+            "type": "atividade.opened",
+            "subject": "atividade:auto",
+            "payload": {
+                "operacao": normalized_operations[0],
+                "finalidade": goal,
+                "novo": action,
+            },
+        })
 
     return {
         "operacoes": normalized_operations,
@@ -427,6 +670,101 @@ def _build_derived_batch(output, session_id, source_hash, rationalization_id, lo
     return batch, pending_activity_opens
 
 
+def backfill_atividades_from_rationalizations(log=eventlog.LOG):
+    """Emit missing atividade.opened/touched for rationalized sessions (no re-LLM).
+
+    For each ``sessao.racionalizada`` whose stitch is **mentee employment** (not agent meta):
+    - if no ``atividade.opened`` carries ``origem_sessao == sessao_id``, open and
+      touch one activity via public eventlog pens (tier llm_judged, author racionalizador);
+    - if open exists but no ``atividade.touched`` for that session×activity, append
+      the missing touch only (repairs incomplete prior backfill / crash window).
+
+    Agent-runtime sessions (codex plugin loops, predispatch, deploy, …) are skipped so
+    the portfolio is not polluted with the mentor's own tooling (operator 2026-07-13).
+    """
+    emitted = []
+    for event in eventlog.read(types=["sessao.racionalizada"], log=log):
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        session_id = payload.get("sessao_id")
+        if not isinstance(session_id, str) or not session_id.strip():
+            continue
+        stitch = payload.get("stitch") if isinstance(payload.get("stitch"), dict) else {}
+        goal = stitch.get("goal")
+        if not isinstance(goal, str) or not goal.strip():
+            continue
+        operations = payload.get("operacoes")
+        if (not isinstance(operations, list) or not operations
+                or not isinstance(operations[0], str) or not operations[0].strip()):
+            continue
+        rationalization_id = payload.get("rationalization_id")
+        if not isinstance(rationalization_id, str) or not rationalization_id.strip():
+            continue
+        acao = stitch.get("acao")
+        acao_s = acao.strip() if isinstance(acao, str) and acao.strip() else ""
+        entities = stitch.get("entidades") if isinstance(stitch.get("entidades"), list) else []
+        org = payload.get("organizacional") if isinstance(payload.get("organizacional"), dict) else {}
+        addresses = org.get("enderecos") if isinstance(org.get("enderecos"), list) else []
+        if not _mentee_employment_eligible(
+                goal.strip(), acao_s, entities=entities, addresses=addresses):
+            continue
+        novo = acao_s or goal.strip()
+
+        session_opens = []
+        for open_event in eventlog.read(types=["atividade.opened"], log=log):
+            open_payload = (open_event.get("payload")
+                            if isinstance(open_event.get("payload"), dict) else {})
+            if open_payload.get("origem_sessao") == session_id:
+                session_opens.append(open_payload)
+
+        if not session_opens:
+            key = _derivation_key(rationalization_id, "backfill", 0)
+            opened = eventlog.open_atividade(
+                operacao=operations[0].strip(),
+                finalidade=goal.strip(),
+                tier="llm_judged",
+                author="racionalizador",
+                origem_sessao=session_id,
+                derivation_key=key,
+                log=log,
+            )
+            emitted.append(opened)
+            touched = eventlog.touch_atividade(
+                ref=opened["payload"]["ulid"],
+                sessao=session_id,
+                novo=novo,
+                tier="llm_judged",
+                log=log,
+            )
+            emitted.append(touched)
+            continue
+
+        # Repair open-without-touch (separate pens left a crash window).
+        touched_refs = set()
+        for touch_event in eventlog.read(types=["atividade.touched"], log=log):
+            touch_payload = (touch_event.get("payload")
+                             if isinstance(touch_event.get("payload"), dict) else {})
+            if touch_payload.get("sessao") == session_id:
+                ref = touch_payload.get("ref")
+                if isinstance(ref, str) and ref.strip():
+                    touched_refs.add(ref.strip())
+        for open_payload in session_opens:
+            ulid = open_payload.get("ulid")
+            if not isinstance(ulid, str) or not ulid.strip():
+                continue
+            if ulid in touched_refs:
+                continue
+            touched = eventlog.touch_atividade(
+                ref=ulid,
+                sessao=session_id,
+                novo=novo,
+                tier="llm_judged",
+                log=log,
+            )
+            emitted.append(touched)
+            touched_refs.add(ulid)
+    return emitted
+
+
 def rationalize(
     session_id,
     turns,
@@ -513,21 +851,29 @@ def rationalize(
                 raw_scene = _complete({
                     "stage": "scene",
                     "question": "Que atividade esta cena continua, abre ou muda?",
+                    "instruction": _SCENE_JSON_INSTRUCTION,
                     "session_id": session_id,
                     "scene_index": index,
                     "scene_count": len(scenes),
                     "turns": scene,
                 })
                 try:
-                    scene_output = json.loads(raw_scene) if isinstance(raw_scene, str) else raw_scene
-                except (TypeError, json.JSONDecodeError) as exc:
-                    raise ValueError(f"scene[{index}] output is not valid JSON: {exc}") from exc
+                    scene_output = _loads_json_loose(raw_scene)
+                except ValueError as exc:
+                    # Prose fallback: free-form completers sometimes ignore JSON shape.
+                    if isinstance(raw_scene, str) and raw_scene.strip():
+                        scene_output = {"summary": raw_scene.strip()}
+                    else:
+                        raise ValueError(
+                            f"scene[{index}] output is not valid JSON: {exc}"
+                        ) from exc
                 if not isinstance(scene_output, dict):
                     raise ValueError(f"scene[{index}] output must be an object")
                 summaries.append(_nonblank(scene_output.get("summary"), f"scene[{index}].summary"))
             raw_output = _complete({
                 "stage": "consolidate",
                 "question": "Esta sessão muda algo no que fazemos?",
+                "instruction": _SESSION_JSON_INSTRUCTION,
                 "session_id": session_id,
                 "surface": surface,
                 "watermark": watermark,
@@ -537,6 +883,7 @@ def rationalize(
             raw_output = _complete({
                 "stage": "session",
                 "question": "Esta sessão muda algo no que fazemos?",
+                "instruction": _SESSION_JSON_INSTRUCTION,
                 "session_id": session_id,
                 "surface": surface,
                 "watermark": watermark,

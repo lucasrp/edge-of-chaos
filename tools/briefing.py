@@ -45,6 +45,46 @@ NATIVE_SOURCE = {"name": "claude-sessions", "kind": "native",
                  "label": "the mentee's Claude sessions (native transcript store)"}
 
 
+def _onboarding_roster_from_bootstrap(agent_yaml=AGENT_YAML):
+    """Soft roster while phenotype is absent: native sessions + secrets inventory names.
+
+    Used only when agent.yaml is missing but state/bootstrap.json exists (first-run path).
+    Never invents sources; secrets appear as availability markers, not as API sources.
+    """
+    try:
+        import onboarding
+        import _identity
+    except ImportError:
+        return None
+    p = Path(agent_yaml)
+    # home: EDGE_HOME → parent of agent_yaml if under an install → edge_home from bootstrap
+    home = os.environ.get("EDGE_HOME")
+    if home:
+        home = Path(os.path.expanduser(home))
+    elif p.exists():
+        home = p.parent
+    else:
+        # bootstrap may live under cwd install
+        cand = Path.cwd() / "state" / "bootstrap.json"
+        home = Path.cwd() if cand.is_file() else None
+    if home is None or not (Path(home) / "state" / "bootstrap.json").is_file():
+        return None
+    inv = onboarding.inventory_secrets(onboarding.secrets_dir(home))
+    boot = onboarding.load_bootstrap(home)
+    roster = [dict(NATIVE_SOURCE)]
+    roster.append({
+        "name": "secrets-inventory",
+        "kind": "local",
+        "label": (
+            f"operator secrets at {inv.get('path')} — files: "
+            f"{', '.join(inv.get('files') or []) or '(none)'}; "
+            f"vars: {', '.join(inv.get('vars') or []) or '(none)'} "
+            f"(onboarding mode; no phenotype yet; lookback_days={boot.get('backfill_days')})"
+        ),
+    })
+    return roster
+
+
 def source_roster(agent_yaml=AGENT_YAML):
     """The declared source roster (← Source roadmap, ADR-0011) — the source orientation's floor.
     FAIL-CLOSED (gate root-cause #2): requires agent.yaml to exist and carry a non-empty `sources:`
@@ -53,14 +93,25 @@ def source_roster(agent_yaml=AGENT_YAML):
     is prepended as an ADDITIVE floor, never a SUBSTITUTE for the declared roster (so a missing/
     malformed source list cannot masquerade as a non-empty section). Per-entry `label` is the
     (stripped) description. Pure-ish: only reads agent.yaml, so compose_briefing
-    stays a pure composer when handed a roster explicitly."""
+    stays a pure composer when handed a roster explicitly.
+
+    Onboarding exception: if agent.yaml is absent but state/bootstrap.json exists, return a soft
+    roster (native + secrets inventory) instead of raising — first-run assemble/wake must run.
+    """
     import yaml
     p = Path(agent_yaml)
     if not p.exists():
+        soft = _onboarding_roster_from_bootstrap(agent_yaml=agent_yaml)
+        if soft is not None:
+            return soft
         raise BriefingIdentityError(f"agent.yaml absent ({p}) — no declared source roster to inject")
     data = yaml.safe_load(p.read_text()) or {}
     sources = data.get("sources")
     if not sources:
+        # empty sources on a bootstrap phenotype mid-flight: soft if bootstrap present
+        soft = _onboarding_roster_from_bootstrap(agent_yaml=agent_yaml)
+        if soft is not None and not sources:
+            return soft
         raise BriefingIdentityError("agent.yaml declares no sources — the source roster is empty "
                                     "(the native floor is additive, never the whole roster)")
     if not isinstance(sources, list):

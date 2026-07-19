@@ -514,6 +514,16 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           "para_default": para_default}),
         ("intent.kernel", f"artefato:{slug}", {"slug": slug, "intent": intent}),
         ("artefato.adoption", f"artefato:{slug}", adoption),
+        # tkt-003: Assemble queue is log truth — every publish enters assembly.pending
+        # (same batch as published so there is no crash window without a pending row).
+        # package_id is per-item (slug); drain via mark_assembly_done/failed (Assemble worker).
+        ("assembly.pending", f"assembly:artefato:{slug}", {
+            "package_id": f"artefato:{slug}",
+            "kind": "artefato",
+            "ref": slug,
+            "by": skill,
+            "dispatch_id": dispatch_id,
+        }),
     ]
     events.extend(
         ("experiment.curated", f"experiment:{curation['experiment_id']}", curation)
@@ -839,8 +849,8 @@ def record_session_topic(session_id, topic_id, *, title, surface, path=None, sco
     topic_id = _validated_session_topic_id(topic_id, "topic_id")
     if not (isinstance(title, str) and title.strip()):
         raise ValueError("session.topic title must be non-blank")
-    if surface not in ("claude", "codex"):
-        raise ValueError("session.topic surface must be 'claude' or 'codex'")
+    if surface not in ("claude", "codex", "grok"):
+        raise ValueError("session.topic surface must be 'claude', 'codex', or 'grok'")
     if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
         raise ValueError("session.topic score must be a finite number")
     if fragments is None:
@@ -1582,7 +1592,8 @@ def _wayfinder_curation(rationale, dispatch_id, author, *, tier="asserted"):
     dispatch_id = _lens_nonblank(dispatch_id, "dispatch_id")
     _lens_choice(tier, "tier", _LENS_TIERS)
     author = _lens_nonblank(author, "author")
-    if ((tier == "asserted" and author not in ("operador", "grill"))
+    # Operator 2026-07-13: surface vocabulary is mentor (not grill). Accept both during rename.
+    if ((tier == "asserted" and author not in ("operador", "grill", "mentor"))
             or (tier == "llm_judged" and author not in ("edge", "racionalizador"))):
         raise ValueError("wayfinder author must match its asserted/llm_judged tier")
     return rationale, dispatch_id, author
@@ -3023,7 +3034,8 @@ def _foldable_ticket_open(payload):
         and all(isinstance(payload.get(field), str) and payload[field].strip()
                 for field in ("titulo", "question", "rationale", "dispatch_id"))
         and tier in _LENS_TIERS and isinstance(author, str) and author.strip()
-        and ((tier == "asserted" and author in ("operador", "grill"))
+        # mentor = surface vocabulary (operator 2026-07-13); grill kept for historical pens
+        and ((tier == "asserted" and author in ("operador", "grill", "mentor"))
              or (tier == "llm_judged" and author in ("edge", "racionalizador")))
         and isinstance(payload.get("blocked_by", []), list)
         and all(isinstance(ref, str) and ref for ref in payload.get("blocked_by", []))
@@ -3794,6 +3806,7 @@ def next_experiment_id(log=LOG):
 
 
 def declare_experiment(title, *, experiment_id=None, kind="domain", hypothesis=None, scope=None, owner=None,
+                       workspace=True,
                        decision_rule=None, arms=None, status="declared", by=None,
                        relates=None, log=LOG):
     """Declare a first-class Experiment and assign its stable canonical id (#107).
@@ -3840,8 +3853,23 @@ def declare_experiment(title, *, experiment_id=None, kind="domain", hypothesis=N
         if eid in fold_experiments(read(types=EXPERIMENT_TYPES, log=log)):
             raise ValueError(f"experiment_id {eid!r} already exists")
 
-    return append_batch([("experiment.declared", f"experiment:{eid}", payload)],
-                        log=log, precondition=_unique_id)[0]
+    event = append_batch([("experiment.declared", f"experiment:{eid}", payload)],
+                         log=log, precondition=_unique_id)[0]
+    # Genotype disk workspace (experiments/<expNNN>-slug/) — phenotype root from agent.yaml.
+    # Ledger remains source of truth; folder is the re-runnable analysis unit.
+    # Only seed when writing the install's canonical log (hermetic tests use temp logs).
+    if workspace and Path(log).resolve() == Path(LOG).resolve():
+        try:
+            import experiments_cfg
+            experiments_cfg.ensure_experiment_workspace(
+                eid,
+                title=title.strip(),
+                hypothesis=payload.get("hypothesis"),
+            )
+        except Exception:
+            # Never fail the pen if the filesystem cannot be seeded (read-only CI, etc.).
+            pass
+    return event
 
 
 def curate_experiment(experiment_id, *, prose, typed, canonical_artifacts, by, relates=None, log=LOG):
@@ -4340,7 +4368,12 @@ def consolidate_artefato_proposals(log=LOG):
             iid = f"{slug}:{i}"
             if iid in have:
                 continue
-            propose(iid, cand.get("body", ""), kind=cand.get("kind", "thread"),
+            # publish path accepts body|text (plan/report rites use either); hollow skipped, never crash wake
+            body = (cand.get("body") if isinstance(cand, dict) else None) or (
+                cand.get("text") if isinstance(cand, dict) else None) or ""
+            if not (isinstance(body, str) and body.strip()):
+                continue
+            propose(iid, body, kind=cand.get("kind", "thread"),
                     from_artefato=slug, relates_to=cand.get("relates_to"), log=log)
             have.add(iid)
             n += 1
@@ -4398,3 +4431,80 @@ def project_corpus(seq=None, ts=None, log=LOG, out=CORPUS):
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text)
     return text
+
+
+# --- Assemble pending queue (tkt-003 / S30.A2) — log is sole truth (ADR-0006) ---
+# Per-item: assembly.pending opens a package_id; assembly.done|failed clears it.
+# Graph is projection only — never authority for pending.
+
+
+def _assembly_package_id(package_id):
+    if not isinstance(package_id, str) or not package_id.strip():
+        raise ValueError("assembly package_id must be a non-blank string")
+    return package_id.strip()
+
+
+def mark_assembly_pending(package_id, *, kind, ref=None, by=None, log=LOG):
+    """Append assembly.pending — package enters the Assemble queue (log truth)."""
+    package_id = _assembly_package_id(package_id)
+    if not isinstance(kind, str) or not kind.strip():
+        raise ValueError("assembly.pending kind must be a non-blank string")
+    payload = {
+        "package_id": package_id,
+        "kind": kind.strip(),
+        "ref": ref.strip() if isinstance(ref, str) and ref.strip() else None,
+        "by": by.strip() if isinstance(by, str) and by.strip() else None,
+    }
+    return append("assembly.pending", f"assembly:{package_id}", payload, log=log)
+
+
+def mark_assembly_done(package_id, *, by=None, log=LOG):
+    """Append assembly.done — package leaves the open pending set for this id."""
+    package_id = _assembly_package_id(package_id)
+    payload = {
+        "package_id": package_id,
+        "by": by.strip() if isinstance(by, str) and by.strip() else None,
+    }
+    return append("assembly.done", f"assembly:{package_id}", payload, log=log)
+
+
+def mark_assembly_failed(package_id, *, reason, by=None, log=LOG):
+    """Append assembly.failed — package leaves open set; reason is durable for mentor/QA."""
+    package_id = _assembly_package_id(package_id)
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("assembly.failed reason must be a non-blank string")
+    payload = {
+        "package_id": package_id,
+        "reason": reason.strip(),
+        "by": by.strip() if isinstance(by, str) and by.strip() else None,
+    }
+    return append("assembly.failed", f"assembly:{package_id}", payload, log=log)
+
+
+def assembly_pending_open(log=LOG):
+    """Fold: open assembly packages = pending without a later done/failed for same package_id.
+
+    Pure projection of the log — re-runnable, never invents state. Empty log → {}.
+    """
+    open_ = {}
+    for event in read(log=log):
+        if not isinstance(event, dict):
+            continue
+        t = event.get("type")
+        p = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        pid = p.get("package_id")
+        if not isinstance(pid, str) or not pid.strip():
+            continue
+        pid = pid.strip()
+        if t == "assembly.pending":
+            open_[pid] = {
+                "package_id": pid,
+                "kind": p.get("kind"),
+                "ref": p.get("ref"),
+                "by": p.get("by"),
+                "seq": event.get("seq"),
+                "ts": event.get("ts"),
+            }
+        elif t in ("assembly.done", "assembly.failed"):
+            open_.pop(pid, None)
+    return open_

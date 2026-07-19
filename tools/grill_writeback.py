@@ -56,7 +56,14 @@ def archive(drv, group, names):
 # The persona files the grill writes back (grill-design.md; roberto ~/leveling prototype).
 # perfil/mapa/curriculo are CURRENT-STATE (overwrite: who he is, the map, the curriculum);
 # diario is APPEND-ONLY (the ordinal record — entries accrete, never wall-clock-windowed).
+# Leveling-store = rail of mentee persona (broad); hard-skill coverage is a *facet* of mapa/curriculo.
 LEVELING_KINDS = ("perfil", "mapa", "curriculo", "diario")
+
+
+def _dated_correction_headers(text):
+    """Headers like ``## Correção 2026-07-13 — …`` that must survive perfil rewrites."""
+    import re
+    return re.findall(r"^## Correção[^\n]*", text or "", flags=re.M)
 
 
 def leveling(kind, content, root=None, log=eventlog.LOG):
@@ -64,17 +71,30 @@ def leveling(kind, content, root=None, log=eventlog.LOG):
     log (ADR-0006 — the durable, replayable truth, locked+fsynced by eventlog), then render
     memory/leveling/{kind}.md (the readable projection the next grill opens with). Unknown kind or
     blank content is refused LOUD — a hollow persona file is worse than none (the same never-hollow
-    rule the gate feeders follow). Returns the path written."""
+    rule the gate feeders follow). Returns the path written.
+
+    Perfil overwrite must **preserve** every ``## Correção…`` header already on disk (plan P1.4);
+    re-author the full document including those sections, or the write is refused.
+    """
     if kind not in LEVELING_KINDS:
         raise ValueError(f"leveling kind must be one of {LEVELING_KINDS}, got {kind!r}")
     if not (isinstance(content, str) and content.strip()):
         raise ValueError(f"refusing a blank leveling {kind} — a hollow persona file is worse than none")
-    eventlog.append("grill.leveling", f"leveling:{kind}",
-                    {"kind": kind, "content": content.strip()}, log=log)
     root = Path(root) if root else REPO / "memory" / "leveling"
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{kind}.md"
-    content = content.strip() + "\n"
+    stripped = content.strip()
+    if kind == "perfil" and path.exists():
+        dropped = [h for h in _dated_correction_headers(path.read_text())
+                   if h not in stripped]
+        if dropped:
+            raise ValueError(
+                "refusing perfil rewrite that drops dated correction headers: "
+                + "; ".join(dropped)
+            )
+    eventlog.append("grill.leveling", f"leveling:{kind}",
+                    {"kind": kind, "content": stripped}, log=log)
+    content = stripped + "\n"
     if kind == "diario":
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         entry = f"\n---\n\n## {stamp}\n\n{content}" if path.exists() else f"## {stamp}\n\n{content}"
@@ -83,7 +103,6 @@ def leveling(kind, content, root=None, log=eventlog.LOG):
     else:
         path.write_text(content)
     return path
-
 
 def elect_canon(kind, ref, thread=None, log=eventlog.LOG):
     """Elege um objeto durável a CANÔNICO (issue #130 pontos 11/17) — açúcar sobre append_event. O

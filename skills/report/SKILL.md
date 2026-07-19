@@ -139,8 +139,10 @@ it, E1c). The product spine still ships: pass `publish_meta` with `proposes` (ca
 steers), `distills` (existing cluster threads only — empty over fabricated), `cites` (source +
 the snippet you actually used), `lineage` (`builds_on` the prior the surf offers), `bears_on`
 (curadoria autoral no contexto quente: SÓ sobre hipótese VIVA — `cortex.hypotheses_at()` lists
-them; empty over fabricated), `para` (explicit target reader; empty resolves to the mentee)
-and `reports_on` (Experiment ids this report makes navigable).
+them; empty over fabricated), `para` (explicit target reader; empty resolves to the mentee),
+`reports_on` (Experiment ids this report makes navigable) and `experiment_curation` (when this
+report closes an Experiment: the atomic curated conclusion — short curated prose + typed fields —
+that becomes the canonical reading; omit when no experiment closes).
 
     tools/edge-python <<'EOF'
     import sys; sys.path.insert(0, 'tools')
@@ -168,7 +170,8 @@ and `reports_on` (Experiment ids this report makes navigable).
                   prompts=prompts, complete_fn=complete_fn,
                   intent='open: …; bet: …', skill='report', dispatch_id=dispatch_id,
                   publish_meta={'proposes': [], 'distills': [], 'cites': [],
-                                'lineage': [], 'bears_on': [], 'para': [], 'reports_on': []})
+                                'lineage': [], 'bears_on': [], 'para': [], 'reports_on': [],
+                                'experiment_curation': None})
     EOF
 
 The publisher's rito seam recomputes the pinned render from the sealed markdown and **refuses a

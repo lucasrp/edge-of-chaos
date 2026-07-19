@@ -11,6 +11,22 @@ loop wakes holding only your result. This is **blocking** — the loop waits for
 You read the edge's **own knowledge** — the wiki, in full. (The **world** is a different read:
 that is the `delta` cognition's job, not yours. You do not read the mentee's repos or sources.)
 
+## Readiness contract (wake gate)
+
+**Assemble** is what makes Edge **ready for wake**: the **cortex state update**, including **heavy
+consolidation** — not a light briefing-only tattoo. Tradeoff is conscious: **quality over latency**.
+Readiness **blocks** wake; incomplete work must not stamp the agent “current”.
+
+**Log is the sole source of truth** for assembly work: `assembly.pending` / `assembly.done` /
+`assembly.failed` events (and folds over them). Graph is projection only.
+
+**Gate:** `predispatch` calls `assemble_ready.assert_ready` **before** the dispatch stamp. Interface
+and checklist live in `tools/assemble_ready.py`; product bar and done-when in
+`state/wayfinds/tkt-002-assemble-blocks-wake.md`.
+
+**Vocabulary:** defer **Voz / prescription** to the **mentor** (not the grill). Assemble is
+**descriptive** (state + readiness), not prescriptive.
+
 ## Mechanical — sweep to currency, then gather (deterministic)
 
 First run the **digestion sweep** (`tools/edge-python tools/sweep.py`) — it brings the

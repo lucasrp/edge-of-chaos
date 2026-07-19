@@ -1162,9 +1162,25 @@ _TRUST_BY_LABEL = {
     "Genesis": "space0",
     "Objective": "asserted", "Direction": "asserted", "Artefato": "asserted",
     "Experiment": "asserted",
+    # Structured Activity/Direction lenses: log-fold spine (mirrors cortex_provenance._ASSERTED_LABELS).
+    "Atividade": "asserted", "Map": "asserted", "Ticket": "asserted",
     "Entity": "extracted", "Source": "extracted", "Topic": "extracted",
     "Episodic": "episodic", "VozFragment": "episodic",
 }
+
+# project_lentes (and peers) stamp `tier` on nodes. When present and known, prefer it over the
+# label default so llm_judged Atividade/Map/Ticket are not painted as asserted spine.
+_TRUST_FROM_PROPS = frozenset({
+    "asserted", "llm_judged", "computed", "extracted", "episodic", "space0",
+})
+
+
+def _node_trust(label, props):
+    """Brightness trust for a Cortex node: prefer a known props.tier stamp; else label default."""
+    t = (props or {}).get("tier")
+    if isinstance(t, str) and t in _TRUST_FROM_PROPS:
+        return t
+    return _TRUST_BY_LABEL.get(label, "extracted")
 
 # The human-readable title per label — what a clicked node shows (inspect node, v1).
 _TITLE_FIELDS = {
@@ -1173,6 +1189,10 @@ _TITLE_FIELDS = {
     "Direction": ("body",),
     "Artefato": ("slug",),
     "Experiment": ("title", "claim", "experiment_id", "id"),
+    # project_lentes props: Atividade.finalidade/num/ref; Map.titulo/num; Ticket.titulo/question/num.
+    "Atividade": ("finalidade", "num", "ref", "ulid"),
+    "Map": ("titulo", "num", "ref", "ulid"),
+    "Ticket": ("titulo", "question", "num", "ref", "ulid"),
     "Entity": ("name",),
     "Source": ("name", "source_description", "key"),
     "Topic": ("title", "name", "topic_id", "key"),
@@ -1398,7 +1418,8 @@ def _context_only(label, props):
         # Key on the asserted-spine set, NOT _TRUST_BY_LABEL (where Episodic="episodic" != "extracted"
         # would mis-mark a low-tier Episodic as order-bearing, codex final [P3]). Asserted spine →
         # order-bearing; everything else (extracted, episodic, unknown) → context_only (fail-safe).
-        return label not in ("Genesis", "Objective", "Direction", "Artefato", "Experiment")
+        return label not in ("Genesis", "Objective", "Direction", "Artefato", "Experiment",
+                             "Atividade", "Map", "Ticket")
 
 
 def _map_node(id_, label, props):
@@ -1428,7 +1449,7 @@ def _map_node(id_, label, props):
         # the CLAIM content (no label fallback) — the corrective snapshot's context source, None when
         # the node carries no content field, so the missing-context gate is truly fail-closed (round-7).
         "content": _node_content(label, props),
-        "trust": _TRUST_BY_LABEL.get(label, "extracted"),
+        "trust": _node_trust(label, props),
         # R10/F9 — the dashboard inherits the SAME medium-authority marker the MCP returns (one
         # derivation, cortex_provenance), so the two reads do not diverge: an extracted/low-tier node
         # is context_only on the page too (C5). `trust` (above) stays the brightness axis; context_only
@@ -1594,17 +1615,29 @@ def _cortex_dark():
 
 # The node-type labels the filter exposes, in trust order (space-0 first). One checkbox per label;
 # the island maps a label → its node class and shows/hides deterministically over the loaded payload.
+# Every known projected label is listed so noise can be opted in (Finding D — Community/Claim/…).
 _CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Experiment",
-                         "Entity", "Source", "Topic", "Episodic", "VozFragment")
+                         "Atividade", "Map", "Ticket",
+                         "Entity", "Source", "Topic", "Episodic", "VozFragment",
+                         "Hypothesis", "Claim", "Community", "Doc")
+
+# UX.C-default-spine — operational spine checked by default; noise unchecked so /cortex opens
+# readable. Non-spine labels in _CORTEX_FILTER_LABELS are opt-in only.
+_CORTEX_SPINE_LABELS = frozenset({
+    "Genesis", "Objective", "Direction", "Artefato", "Experiment",
+    "Atividade", "Map", "Ticket",
+})
 
 
 def _cortex_controls():
     """The search + filter controls (Slice 6) — find-and-jump search, node-type checkboxes,
     Earmarked-only toggle, recency slider. Static markup the island wires client-side; it reuses the
     shared style.css component vocabulary (no one-off styling). Rendered only when there is a graph
-    to navigate (never on the dark page)."""
+    to navigate (never on the dark page). Spine types checked by default; noise (Entity/Source/
+    Topic/Episodic/VozFragment) opt-in. colapsar Episodic ON by default."""
     types = "".join(
-        f'<label class="ctrl-type"><input type="checkbox" name="cortex-type" value="{label}" checked> '
+        f'<label class="ctrl-type"><input type="checkbox" name="cortex-type" value="{label}"'
+        f'{" checked" if label in _CORTEX_SPINE_LABELS else ""}> '
         f'{html.escape(label)}</label>'
         for label in _CORTEX_FILTER_LABELS
     )
@@ -1620,8 +1653,9 @@ def _cortex_controls():
         '<label class="ctrl-toggle"><input id="cortex-earmarked" type="checkbox"> só Earmarked</label>'
         # The Episodic-collapse perf lever (Slice 6): a client-side render decision that folds the
         # faint Episodic haze out of the RENDERED set to keep the 3D render performant as the graph
-        # grows (the fold payload is untouched). Reuses the shared .ctrl-toggle component vocabulary.
-        '<label class="ctrl-toggle"><input id="cortex-collapse" type="checkbox"> colapsar Episodic</label>'
+        # grows (the fold payload is untouched). ON by default (UX.C-default-spine). Reuses the
+        # shared .ctrl-toggle component vocabulary.
+        '<label class="ctrl-toggle"><input id="cortex-collapse" type="checkbox" checked> colapsar Episodic</label>'
         '<label class="ctrl-recency">recência '
         '<input id="cortex-recency" type="range" min="0" max="100" value="0" '
         'aria-label="recência mínima"></label>'

@@ -395,7 +395,7 @@ class SharedWakeSurfacesStayMapBlind(unittest.TestCase):
             ), mock.patch.object(
                 recall, "compose_recall_brief", return_value="ordinary recall",
             ) as ordinary:
-                result = predispatch.run(
+                result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                     sweep_fn=lambda: 0,
                     briefing_fn=lambda: "ordinary briefing",
                     recall_fn=None,
