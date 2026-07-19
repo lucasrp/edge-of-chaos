@@ -24,36 +24,63 @@ import grill_gate  # noqa: E402
 class GrillCompleteNamesMissingPieces(unittest.TestCase):
     """grill_complete(log) returns the list of missing stage-(ii) pieces (empty list = complete)."""
 
-    def test_empty_log_is_missing_all_three(self):
+    def test_empty_log_is_missing_all_four(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             missing = grill_gate.grill_complete(log=log)
-            self.assertEqual(set(missing), {"objective", "direction", "direcionamento"})
+            self.assertEqual(
+                set(missing), {"objective", "direction", "direcionamento", "leveling"})
 
-    def test_only_set_objective_ran_misses_direction_and_direcionamento(self):
+    def test_only_set_objective_ran_misses_direction_direcionamento_leveling(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", rationale="say-A-do-B", log=log)
             missing = grill_gate.grill_complete(log=log)
             self.assertNotIn("objective", missing)
-            self.assertEqual(set(missing), {"direction", "direcionamento"})
-
-    def test_all_three_landed_is_complete(self):
+            self.assertEqual(set(missing), {"direction", "direcionamento", "leveling"})
+    def test_all_three_landed_without_leveling_misses_leveling(self):
+        """Plan 2026-07-13: steers alone are not mentor-done (persona/leveling floor)."""
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
             eventlog.propose("d1", "tighten the close", log=log)
             eventlog.report_direction("the steer", log=log)
+            self.assertEqual(set(grill_gate.grill_complete(log=log)), {"leveling"})
+
+    def test_three_steers_plus_leveling_is_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            root = Path(tmp) / "lv"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.report_direction("the steer", log=log)
+            import grill_writeback
+            grill_writeback.leveling(
+                "diario", "sem update de persona; residual = product", root=root, log=log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
+
+    def test_leveling_before_latest_steer_still_missing(self):
+        """Leveling must be at least as recent as the latest steer feeder (close order)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            root = Path(tmp) / "lv"
+            import grill_writeback
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            grill_writeback.leveling("diario", "early", root=root, log=log)
+            eventlog.report_direction("the steer after leveling", log=log)
+            self.assertIn("leveling", grill_gate.grill_complete(log=log))
 
     def test_direction_set_also_satisfies_direction(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
+            root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
             eventlog.set_direction("d1", "tighten the close", log=log)
             eventlog.report_direction("the steer", log=log)
+            import grill_writeback
+            grill_writeback.leveling("diario", "close", root=root, log=log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
-
 
 class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
     """Codex gate finding [high]: a whitespace/empty feeder body does NOT count as landed. Even if a
@@ -112,11 +139,13 @@ class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
     def test_non_empty_bodies_still_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
+            root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
             eventlog.propose("d1", "tighten the close", log=log)
             eventlog.report_direction("the steer", log=log)
+            import grill_writeback
+            grill_writeback.leveling("diario", "close", root=root, log=log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
-
 
 class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
     """assert_grill_complete raises naming the gaps; passes silently when the three landed."""
@@ -136,11 +165,23 @@ class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
     def test_passes_silently_when_all_three_landed(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
+            root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
             eventlog.propose("d1", "tighten the close", log=log)
             eventlog.report_direction("the steer", log=log)
+            import grill_writeback
+            grill_writeback.leveling("diario", "close", root=root, log=log)
             self.assertIsNone(grill_gate.assert_grill_complete(log=log))
 
+    def test_raises_when_leveling_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.report_direction("the steer", log=log)
+            with self.assertRaises(ValueError) as ctx:
+                grill_gate.assert_grill_complete(log=log)
+            self.assertIn("leveling", str(ctx.exception))
 
 class CloseCLIIsFailClosed(unittest.TestCase):
     """The runnable close: `grill_gate.py close --log <log>` exits NONZERO naming the gaps when
@@ -169,12 +210,24 @@ class CloseCLIIsFailClosed(unittest.TestCase):
     def test_complete_log_exits_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
+            root = Path(tmp) / "lv"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.report_direction("the steer", log=log)
+            import grill_writeback
+            grill_writeback.leveling("diario", "close", root=root, log=log)
+            res = self._close(log)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_steers_without_leveling_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
             eventlog.propose("d1", "tighten the close", log=log)
             eventlog.report_direction("the steer", log=log)
             res = self._close(log)
-            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-
+            self.assertNotEqual(res.returncode, 0)
+            self.assertIn("leveling", res.stdout + res.stderr)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

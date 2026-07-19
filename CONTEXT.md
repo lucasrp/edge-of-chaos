@@ -460,6 +460,16 @@ Theme-choice and production live here, never in the beat.
 *Avoid*: generator, template, cognition (every subagent is one; this is the Artefato-yielding kind)
 
 **Assemble / Consolidação prévia**:
+**Operator (mentor 2026-07-13):** Assemble is what makes Edge **ready for wake** — the **cortex
+state update**, including **heavy consolidation**. Conscious tradeoff: **quality over latency**
+(not a light briefing-only tattoo). **Relational curation / durable package / pending drain are
+blocking for wake** — not deferred to background after open. **`assembly_pending` / readiness bits
+are log events and folds only** (operator: *the log is always the sole source of truth* —
+ADR-0006; graph is projection). Skill path today still centers briefing + pull-at-open sweep;
+the product bar is fuller readiness — see 01a and `state/wayfinds/operator-specs-30d-audit.md` S30.A*.
+**Pending queue (log-truth):** open assembly work folds only from ledger events
+`assembly.pending` / `assembly.done` / `assembly.failed`; **predispatch** calls
+`assemble_ready.assert_ready` before stamp (fails closed — `tools/assemble_ready.py`, tkt-002).
 The opening primitive (**blocking**) that orients the agent from **already-mined durable state**
 (briefing / folds / projections — the products of **Mineração** and related pens), not by
 re-parsing live session JSONL for employment. It also runs the **digestion sweep to currency** —
@@ -468,13 +478,14 @@ cursor, *not just beats*) that runs the **full pipeline**: append raw episodes �
 run **zep/Graphiti extraction** (incremental, on the delta) → **re-project** the wiki and
 **Direction**. So at every dispatch entry the **non-curated (hypothesis / `proposed`) tier is
 current — ambiguous and `contested` items included** (flagged, not hidden). It **defers only
-curation** to the grill: promotion (hypothesis→curated, `proposed`→`set`) and cleanup of the
+Voz/prescription** to the **mentor**: promotion (hypothesis→curated, `proposed`→`set`) and cleanup of the
 ambiguous. **The Zep-failure guard is the tier boundary**: extraction only ever writes the
 **non-curated** tier, never asserts a vent as a curated decision. Then it hands the loop a **state
 digest**. **Keyed on the store, not on any skill**: a session that ran no ed skill is still brought
 current at the next trigger. **Triggers** (same idempotent sweep, pluggable): the heartbeat
 dispatch, **any standalone ed skill at entry**, and `/load`. The loop blocks until it lands.
-*Avoid*: load (the trigger, not the primitive), context-gather, preflight, “assemble opens ~/.claude”
+*Avoid*: load (the trigger, not the primitive), context-gather, preflight, “assemble opens ~/.claude”,
+treating Assemble as briefing-only when wake readiness still requires cortex currency
 
 **Consolidate / Consolidação posterior** *(dissolved — ADR-0008)*:
 The old closing subagent is **absorbed**: *archive raw* → the pull-at-open **digestion sweep**

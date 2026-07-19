@@ -61,6 +61,26 @@ class LevelingWritebackPersistsThePersona(unittest.TestCase):
             evs = eventlog.read(types=["grill.leveling"], log=log)
             self.assertEqual(evs[0]["payload"], {"kind": "perfil", "content": "gosta de papel"})
 
+    def test_perfil_rewrite_must_preserve_dated_correction_headers(self):
+        """Plan 2026-07-13 P1.4: overwrite must not drop ## Correção sections."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            grill_writeback.leveling(
+                "perfil",
+                "# Perfil\n\n## Correção 2026-07-13 — persona\n- fato A\n",
+                root=tmp, log=log,
+            )
+            with self.assertRaises(ValueError) as ctx:
+                grill_writeback.leveling(
+                    "perfil", "# Perfil\n\nsó o novo sem a correção\n", root=tmp, log=log)
+            self.assertIn("Correção", str(ctx.exception))
+            # re-author that keeps the header is allowed
+            grill_writeback.leveling(
+                "perfil",
+                "# Perfil\n\n## Correção 2026-07-13 — persona\n- fato A\n- fato B\n",
+                root=tmp, log=log,
+            )
+            self.assertIn("fato B", Path(tmp, "perfil.md").read_text())
 
 class AppendEventPersistsWithoutNeo4j(unittest.TestCase):
     """append_event delegates to the log (no driver), so a grill persists even offline-from-graph."""

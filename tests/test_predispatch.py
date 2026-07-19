@@ -76,7 +76,7 @@ class EntryDriver(unittest.TestCase):
     def test_runs_the_floor_and_stamps_with_the_sweep_yield(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            briefing_text, recall_text = predispatch.run(
+            briefing_text, recall_text = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                 sweep_fn=lambda: 7,
                 briefing_fn=lambda: "BRIEFING",
                 recall_fn=lambda: "RECALL",
@@ -98,7 +98,7 @@ class EntryDriver(unittest.TestCase):
             def dark_recall():
                 raise RuntimeError("graph down")
 
-            briefing_text, recall_text = predispatch.run(
+            briefing_text, recall_text = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                 sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=dark_recall,
                 harvest_fn=lambda: 0, log=log)
             self.assertIn("DARK", recall_text)
@@ -112,7 +112,7 @@ class EntryDriver(unittest.TestCase):
                 raise RuntimeError("transcript store not found")
 
             with self.assertRaises(RuntimeError):
-                predispatch.run(sweep_fn=loud_sweep, briefing_fn=lambda: "B",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=loud_sweep, briefing_fn=lambda: "B",
                                 recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log)
             self.assertFalse(eventlog.wake_fresh(log=log),
                              "a dispatch that could not wake must not look woken")
@@ -156,7 +156,7 @@ class HotCutoffLeg(unittest.TestCase):
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 log = Path(tmp) / "log.jsonl"
-                text, _ = predispatch.run(sweep_fn=lambda: 0, recall_fn=lambda: "R",
+                text, _ = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, recall_fn=lambda: "R",
                                           harvest_fn=lambda: 0, probe_fn=lambda spec: None,
                                           log=log)
         finally:
@@ -237,7 +237,7 @@ class EntryDriverRealWiring(unittest.TestCase):
                  mock.patch.object(_briefing, "compose_briefing", return_value="B"), \
                  mock.patch.object(_recall, "compose_recall_brief", return_value="R"), \
                  mock.patch.object(_harvest, "harvest", return_value=5):
-                b, r = predispatch.run(log=log)
+                b, r = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, log=log)
             self.assertEqual((b, r), ("B", "R"))
             evs = eventlog.read(types=["dispatch.open"], log=log)
             self.assertEqual(evs[0]["payload"].get("swept_sessions"), 3)
@@ -250,7 +250,7 @@ class EntryDriverRealWiring(unittest.TestCase):
         import recall as _recall
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            _, r = predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+            _, r = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                    recall_fn=lambda: _recall.compose_recall_brief(subgraph=None),
                                    harvest_fn=lambda: 0, log=log)
             self.assertIn("DARK", r)
@@ -264,7 +264,7 @@ class EntryDriverRealWiring(unittest.TestCase):
                 raise RuntimeError("BriefingIdentityError: thin agent.yaml")
 
             with self.assertRaises(RuntimeError):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lobotomy,
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lobotomy,
                                 recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log)
             self.assertFalse(eventlog.wake_fresh(log=log),
                              "a lobotomized install must not look woken")
@@ -280,7 +280,7 @@ class BackgroundRationalizationWiring(unittest.TestCase):
                 observed_types.extend(event["type"] for event in eventlog.read(log=log))
                 return True
 
-            result = predispatch.run(
+            result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                 sweep_fn=lambda: 0,
                 briefing_fn=lambda: "B",
                 recall_fn=lambda: "R",
@@ -302,7 +302,7 @@ class BackgroundRationalizationWiring(unittest.TestCase):
                 raise RuntimeError("systemd user manager unavailable")
 
             with redirect_stdout(output):
-                result = predispatch.run(
+                result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                     sweep_fn=lambda: 0,
                     briefing_fn=lambda: "B",
                     recall_fn=lambda: "R",
@@ -326,7 +326,7 @@ class BackgroundRationalizationWiring(unittest.TestCase):
             output = io.StringIO()
 
             with redirect_stdout(output):
-                result = predispatch.run(
+                result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                     sweep_fn=lambda: 0,
                     briefing_fn=lambda: "B",
                     recall_fn=lambda: "R",
@@ -362,7 +362,7 @@ class EmploymentRecallDefault(unittest.TestCase):
              mock.patch.object(recall, "compose_recall_brief", ordinary):
             with tempfile.TemporaryDirectory() as tmp:
                 log = Path(tmp) / "log.jsonl"
-                result = predispatch.run(
+                result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                     sweep_fn=lambda: 0,
                     briefing_fn=lambda: "B",
                     recall_fn=None,

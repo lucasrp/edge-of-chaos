@@ -34,6 +34,80 @@ class BeatCommandIsSingleShotClaudeP(unittest.TestCase):
         cmd = _beat.build_beat_command("/opt/claude")
         self.assertEqual(cmd, ["/opt/claude", "-p", "-", "--dangerously-skip-permissions"])
 
+    def test_model_flag_for_opus_or_fable(self):
+        # Operator mix: claude CLI hosts both Anthropic aliases (opus / fable).
+        cmd = _beat.build_beat_command("/opt/claude", model="opus")
+        self.assertEqual(
+            cmd,
+            ["/opt/claude", "-p", "-", "--dangerously-skip-permissions", "--model", "opus"],
+        )
+        cmd_f = _beat.build_beat_command("/opt/claude", model="fable",
+                                         mcp_config_path="/x/cortex.mcp.json")
+        self.assertEqual(
+            cmd_f,
+            ["/opt/claude", "-p", "-", "--dangerously-skip-permissions",
+             "--mcp-config", "/x/cortex.mcp.json", "--model", "fable"],
+        )
+
+
+class CodexBeatCommandIsSingleShotExec(unittest.TestCase):
+    """One beat on codex = `codex exec` headless, approvals bypassed, prompt on stdin (`-`)."""
+
+    def test_command_shape(self):
+        cmd = _beat.build_codex_beat_command("/opt/codex", Path("/home/x/edge"))
+        self.assertEqual(
+            cmd,
+            [
+                "/opt/codex", "exec",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "-C", "/home/x/edge",
+                "-",
+            ],
+        )
+
+
+class HeartbeatCliRandomMix(unittest.TestCase):
+    """Operator 2026-07-13: heartbeat CLI is a weighted random draw —
+    33% grok · 33% codex · 16.5% opus · 16.5% fable (claude --model)."""
+
+    def test_default_mix_weights(self):
+        mix = dict(_beat.DEFAULT_HEARTBEAT_CLI_MIX)
+        self.assertAlmostEqual(mix["grok"], 33.0)
+        self.assertAlmostEqual(mix["codex"], 33.0)
+        self.assertAlmostEqual(mix["opus"], 16.5)
+        self.assertAlmostEqual(mix["fable"], 16.5)
+        self.assertAlmostEqual(sum(mix.values()), 99.0)
+
+    def test_pick_respects_weights_under_seeded_rng(self):
+        # Seeded RNG is deterministic: over many draws the empirical rates track the mix.
+        import random
+        rng = random.Random(42)
+        n = 10_000
+        counts = {"grok": 0, "codex": 0, "opus": 0, "fable": 0}
+        for _ in range(n):
+            counts[_beat.pick_heartbeat_cli(rng=rng)] += 1
+        self.assertAlmostEqual(counts["grok"] / n, 33 / 99, delta=0.02)
+        self.assertAlmostEqual(counts["codex"] / n, 33 / 99, delta=0.02)
+        self.assertAlmostEqual(counts["opus"] / n, 16.5 / 99, delta=0.02)
+        self.assertAlmostEqual(counts["fable"] / n, 16.5 / 99, delta=0.02)
+
+    def test_cli_random_resolves_via_agent_yaml(self):
+        import random
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "agent.yaml").write_text(
+                "heartbeat:\n  cli: random\n", encoding="utf-8")
+            # Fixed rng → reproducible pick (not the fixed string "random").
+            picked = _beat.heartbeat_cli(home, rng=random.Random(0))
+            self.assertIn(picked, ("grok", "codex", "opus", "fable"))
+
+    def test_fixed_cli_still_honored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "agent.yaml").write_text(
+                "heartbeat:\n  cli: codex\n", encoding="utf-8")
+            self.assertEqual(_beat.heartbeat_cli(home), "codex")
+
 
 class BeatPromptLoadsSkillBody(unittest.TestCase):
     """The launcher pipes the /ed-beat skill BODY (frontmatter stripped) as the prompt —
@@ -66,8 +140,10 @@ class HeartbeatDryRunShowsTheLaunch(unittest.TestCase):
     def test_dry_run_prints_command_and_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = _skill_home(tmp, "RUN-THE-BEAT-MARKER")
+            # Pin claude: without agent.yaml home falls through to the repo phenotype (often grok).
             res = subprocess.run(
-                [sys.executable, str(HEARTBEAT), "--home", str(home), "--dry-run"],
+                [sys.executable, str(HEARTBEAT), "--home", str(home),
+                 "--cli", "claude", "--dry-run"],
                 capture_output=True, text=True,
             )
             self.assertEqual(res.returncode, 0, res.stderr)

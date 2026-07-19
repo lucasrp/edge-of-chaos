@@ -126,16 +126,19 @@ class StageIIAfterGrill(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             agent_yaml, memory, log = _genotype(tmp)
 
-            # simulate the grill — the three stage-(ii) feeders land on the temp log
+            # simulate the grill — steers + leveling-state floor land on the temp log
             eventlog.set_objective("ship the durable steer before tuning the grill",
                                    rationale="says mission A, behavior shows B", log=log)
             eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log)
             eventlog.propose("d2", "explore the source-feedback loop", log=log)
             eventlog.report_direction("the live steer: anchor on the close, defer the loop", log=log)
+            import grill_writeback
+            grill_writeback.leveling(
+                "diario", "sem update de persona; residual = lifecycle audit",
+                root=Path(tmp) / "leveling", log=log)
 
             # the post-grill gate confirms no stage-(ii) gap remains
             self.assertEqual(grill_gate.grill_complete(log=log), [])
-
             out = _compose(agent_yaml, memory, log)
 
             # the genotype head is still REQUIRED at this stage

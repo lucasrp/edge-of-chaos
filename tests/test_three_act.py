@@ -40,7 +40,7 @@ class DispatchStampCarriesTheOrigin(unittest.TestCase):
 
     def _run(self, tmp, **kw):
         log = Path(tmp) / "log.jsonl"
-        predispatch.run(
+        predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
             sweep_fn=lambda: 0, briefing_fn=lambda: "briefing",
             recall_fn=lambda: "recall", harvest_fn=lambda: 0,
             probe_fn=lambda spec: None, log=log, dispatch_id="d-1", **kw)

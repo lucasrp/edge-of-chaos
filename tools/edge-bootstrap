@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""edge-bootstrap — first-run install without agent.yaml.
+
+Requires: --home, --name, --backfill-days.
+Reads secrets from <home>/secrets/ (names only in output).
+Never enables the heartbeat timer.
+"""
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import onboarding
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(
+        description="Bootstrap an Edge install without agent.yaml (phenotype emitted after mentor)."
+    )
+    ap.add_argument("--home", default=os.environ.get("EDGE_HOME"),
+                    help="install root (or EDGE_HOME)")
+    ap.add_argument("--name", default=None, help="agent name (or EDGE_AGENT_NAME)")
+    ap.add_argument("--backfill-days", type=int, default=None,
+                    help="days of session history for initial assemble (or EDGE_ASSEMBLE_BACKFILL_DAYS)")
+    ap.add_argument("--adversarial", action="append", default=[],
+                    dest="adversarials",
+                    help="adversarial member (repeatable: codex, grok). Default: self")
+    ap.add_argument("--primary", default="claude",
+                    help="primary chat provider for self-adversarial fallback (default: claude)")
+    ap.add_argument("--no-provision-skills", action="store_true",
+                    help="skip writing CLI skill wrappers")
+    args = ap.parse_args(argv)
+
+    if not args.home:
+        print("edge-bootstrap: --home or EDGE_HOME required", file=sys.stderr)
+        return 2
+    try:
+        result = onboarding.run_bootstrap(
+            home=args.home,
+            name=args.name,
+            backfill_days=args.backfill_days,
+            adversarials=args.adversarials or None,
+            primary=args.primary,
+            provision_skills=not args.no_provision_skills,
+        )
+    except ValueError as e:
+        print(f"edge-bootstrap: {e}", file=sys.stderr)
+        return 2
+
+    home = Path(os.path.expanduser(args.home))
+    print(f"bootstrap: home={home}")
+    print(f"bootstrap: name={result['name']}")
+    print(f"bootstrap: backfill_days={result['backfill_days']}")
+    cast = result.get("adversarials") or {}
+    print(f"bootstrap: adversarials mode={cast.get('mode')} members={cast.get('members')}")
+    emb = result.get("embedding")
+    print(f"bootstrap: embedding={'on' if emb else 'dark'}")
+    inv = result.get("secrets_inventory") or {}
+    print(f"bootstrap: secrets files={inv.get('files')} vars={inv.get('vars')}")
+    print(f"bootstrap: heartbeat={result.get('heartbeat', 'off')}")
+    print(f"bootstrap: state → {home / 'state' / 'bootstrap.json'}")
+    if result.get("provision_warning"):
+        print(f"bootstrap: provision warning: {result['provision_warning']}", file=sys.stderr)
+    print("bootstrap: next → assemble+wake (insumo) → /ed-mentor → phenotype")
+    print(json.dumps({"ok": True, "name": result["name"], "backfill_days": result["backfill_days"]},
+                     indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

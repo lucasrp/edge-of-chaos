@@ -96,7 +96,7 @@ class IdentityPrecedesGrounding(unittest.TestCase):
                 raise RuntimeError("store gone")
 
             with contextlib.redirect_stdout(io.StringIO()):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                 recall_fn=lambda: "R", harvest_fn=boom,
                                 probe_fn=lambda s: True, log=log, dispatch_id="d1", id_sink=buf)
             self.assertIn("DISPATCH_ID=d1", buf.getvalue(),
@@ -112,7 +112,7 @@ class IdentityPrecedesGrounding(unittest.TestCase):
                 time.sleep(3.0)
                 return 0
 
-            t = threading.Thread(target=lambda: predispatch.run(
+            t = threading.Thread(target=lambda: predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                 sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=lambda: "R",
                 harvest_fn=slow, probe_fn=lambda s: True, log=log,
                 dispatch_id="d1", id_sink=buf), daemon=True)
@@ -135,7 +135,7 @@ class IdentityPrecedesGrounding(unittest.TestCase):
                 raise RuntimeError("transcript store not found")
 
             with self.assertRaises(RuntimeError), contextlib.redirect_stdout(io.StringIO()):
-                predispatch.run(sweep_fn=loud, briefing_fn=lambda: "B", recall_fn=lambda: "R",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=loud, briefing_fn=lambda: "B", recall_fn=lambda: "R",
                                 harvest_fn=lambda: 0, probe_fn=lambda s: True, log=log,
                                 dispatch_id="d1", id_sink=buf)
             self.assertEqual(buf.getvalue(), "", "a sweep that raises writes NO id")
@@ -151,7 +151,7 @@ class IdentityPrecedesGrounding(unittest.TestCase):
                 raise RuntimeError("BriefingIdentityError: thin agent.yaml")
 
             with self.assertRaises(RuntimeError), contextlib.redirect_stdout(io.StringIO()):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lobotomy, recall_fn=lambda: "R",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lobotomy, recall_fn=lambda: "R",
                                 harvest_fn=lambda: 0, probe_fn=lambda s: True, log=log,
                                 dispatch_id="d1", id_sink=buf)
             self.assertEqual(buf.getvalue(), "", "a briefing that raises writes NO id")
@@ -168,7 +168,7 @@ class IdentityPrecedesGrounding(unittest.TestCase):
                 return 0
 
             with contextlib.redirect_stdout(floor_out):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                 recall_fn=lambda: "R", harvest_fn=noisy_harvest,
                                 probe_fn=lambda s: True, log=log, dispatch_id="d1",
                                 id_sink=real_out)
@@ -200,7 +200,7 @@ class GroundingCountsMovedToTheirOwnEvent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             with contextlib.redirect_stdout(io.StringIO()):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                 recall_fn=lambda: "R", harvest_fn=lambda: 7,
                                 probe_fn=lambda s: True, log=log, dispatch_id="d1")
             stamp = eventlog.read(types=["dispatch.open"], log=log)[0]["payload"]
@@ -220,7 +220,7 @@ class GroundingCountsMovedToTheirOwnEvent(unittest.TestCase):
                 raise RuntimeError("store gone")
 
             with contextlib.redirect_stdout(io.StringIO()):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                 recall_fn=lambda: "R", harvest_fn=boom,
                                 probe_fn=lambda s: True, log=log, dispatch_id="d1")
             g = eventlog.read(types=["dispatch.grounding"], log=log)
@@ -405,7 +405,7 @@ class GroundingLegsNeverGateAStampedWake(unittest.TestCase):
             buf = io.StringIO()
             with mock.patch("voz.brief", side_effect=RuntimeError("voz down")), \
                  contextlib.redirect_stdout(io.StringIO()):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                 recall_fn=lambda: "R", harvest_fn=lambda: 0,
                                 probe_fn=lambda s: True, log=log, dispatch_id="d1", id_sink=buf)
             self.assertIn("DISPATCH_ID=d1", buf.getvalue(),
@@ -424,7 +424,7 @@ class GroundingLegsNeverGateAStampedWake(unittest.TestCase):
                 return ""
 
             with mock.patch("voz.brief", side_effect=slow_voz):
-                t = threading.Thread(target=lambda: predispatch.run(
+                t = threading.Thread(target=lambda: predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
                     sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=lambda: "R",
                     harvest_fn=lambda: 0, probe_fn=lambda s: True, log=log,
                     dispatch_id="d1", id_sink=buf), daemon=True)
@@ -453,7 +453,7 @@ class GroundingLegsNeverGateAStampedWake(unittest.TestCase):
 
             with mock.patch.object(eventlog, "append", side_effect=flaky), \
                  contextlib.redirect_stdout(io.StringIO()):
-                predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                                 recall_fn=lambda: "R", harvest_fn=lambda: 0,
                                 probe_fn=lambda s: True, log=log, dispatch_id="d1", id_sink=buf)
             self.assertIn("DISPATCH_ID=d1", buf.getvalue())

@@ -258,7 +258,11 @@ def _validate_lentes_limit(value, name, *, allow_zero=False):
 
 
 def _lentes_config(path=None):
-    """Read only the phenotype knobs owned by the lenses coordinator."""
+    """Read only the phenotype knobs owned by the lenses coordinator.
+
+    When agent.yaml is absent (first-run), fall back to state/bootstrap.json
+    ``backfill_days`` so the initial assemble uses the install lookback.
+    """
     path = REPO / "agent.yaml" if path is None else Path(path)
     try:
         import yaml
@@ -267,8 +271,23 @@ def _lentes_config(path=None):
         raw = {}
     lenses = raw.get("lentes") if isinstance(raw, dict) else None
     lenses = lenses if isinstance(lenses, dict) else {}
+    backfill = lenses.get("backfill_days")
+    if backfill is None:
+        # bootstrap pre-phenotype (EDGE_HOME or REPO)
+        for root in filter(None, [
+            os.environ.get("EDGE_HOME"),
+            str(REPO),
+        ]):
+            boot = Path(os.path.expanduser(root)) / "state" / "bootstrap.json"
+            if boot.is_file():
+                try:
+                    import json
+                    backfill = (json.loads(boot.read_text()) or {}).get("backfill_days")
+                    break
+                except (json.JSONDecodeError, OSError):
+                    pass
     config = {
-        "backfill_days": lenses.get("backfill_days"),
+        "backfill_days": backfill,
         "max_sessions_per_sweep": lenses.get(
             "max_sessions_per_sweep", DEFAULT_MAX_SESSIONS_PER_SWEEP),
         "sweep_token_budget": lenses.get(

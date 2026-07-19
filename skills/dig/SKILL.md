@@ -39,8 +39,14 @@ stop early.
    query that returns empty is a FALSE dry you manufactured.
 3. **Sweep agentically** (ADR-0001 — the key + the `via` line, no primitive ever). Fan
    `{prefix}-explorer` subagents for parallel legs; explorers are world-readers, DENIED the
-   cortex door. House rule (harvester blind spot): any script of yours that reads a source
-   **logs the literal query to stdout**.
+   cortex door. The **default execution subagent is a GROK agent** (`execution_subagents.default`)
+   — and the **X leg runs on the grok CLI's NATIVE X** (`grok --always-approve -p "<query>"`,
+   subject-blind), not the raw xAI API: one call, no wiring. Every dispatched grok agent carries
+   the standing directives (agent.yaml `execution_subagents`): after the task, return an **X report**
+   of what the field is saying that bears on the dispatch, and it has the **freedom to abort** if X
+   surfaces something that justifies stopping (moot, already done, about to break) — with citations.
+   House rule (harvester blind spot): any script of yours that reads a source **logs the literal
+   query to stdout**.
 4. **Paid modalities are first-class legs**: a modality with per-call cost (exa `deep`,
    $0.012/call) is either **swept** or **declared-dark with the reason named** (cost cap,
    quota, no key) — never silently skipped. A dry claim that skipped the paid leg in

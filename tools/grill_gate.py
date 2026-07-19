@@ -3,13 +3,12 @@
 The briefing is Memento's tattoo (ADR-0009): the amnesiac beat orients only from it. The audit's
 stage-(ii) acceptance FAILS if, **after a grill**, Objective, Direction, or Direcionamento is still
 empty — those feeders (`set_objective` / direction set-or-propose / `report_direction`) must have run.
-Empty-on-fresh is correct; **empty-post-grill is the bug** (issue #26's done-criterion). The grill
-skill sets the objective 'only when sharpened' and proposes Direction additively, so without a gate a
-grill could complete leaving them empty. This is that gate: a grill is not 'done' until the three
-have landed on the Tier-0 log (ADR-0006).
+Empty-on-fresh is correct; **empty-post-grill is the bug** (issue #26's done-criterion).
 
-Reads only the log via eventlog's folds — no graph, no driver: the same durable truth the grill
-already persists to, so the gate holds even offline-from-graph.
+Plan 2026-07-13 (mentor posture + leveling-state): steers alone are **not** mentor-done. The
+leveling-store floor also lands: a `grill.leveling` event must be at least as recent as the latest
+steer feeder (honest diario "sem update de persona" counts). Without this, the phenotype optimizes
+the steers gate and skips knowing the mentee.
 """
 import sys
 
@@ -17,7 +16,29 @@ import cortex
 import eventlog
 
 # The three stage-(ii) REQUIRED briefing sections and the feeder that fills each (the audit table).
-PIECES = ("objective", "direction", "direcionamento")
+PIECES = ("objective", "direction", "direcionamento", "leveling")
+
+# Event types that establish the three steers on the log.
+_STEER_TYPES = frozenset({
+    "objective.set",
+    "direction.proposed",
+    "direction.set",
+    "direction.report",
+})
+
+
+def _filled(s):
+    return bool(s and s.strip())
+
+
+def _max_seq(log, types):
+    best = -1
+    for event in eventlog.read(log=log):
+        if event.get("type") in types:
+            seq = event.get("seq")
+            if isinstance(seq, int) and seq > best:
+                best = seq
+    return best
 
 
 def grill_complete(log=eventlog.LOG):
@@ -28,11 +49,10 @@ def grill_complete(log=eventlog.LOG):
     even if a grill appended such an event directly (the write helpers also refuse it at the source):
     - **objective** — `cortex.objective_at()` body is non-empty (a `set_objective` ran);
     - **direction** — `cortex.direction_at()` has a `set` OR `proposed` item with a non-empty body;
-    - **direcionamento** — `cortex.report_at()` latest report has a non-empty body.
+    - **direcionamento** — `cortex.report_at()` latest report has a non-empty body;
+    - **leveling** — a `grill.leveling` event exists with seq >= max seq among steer feeders
+      (persona writeback; diario "sem update de persona" is valid).
     """
-    def _filled(s):
-        return bool(s and s.strip())
-
     missing = []
     if not _filled((cortex.objective_at(log=log) or {}).get("body")):
         missing.append("objective")
@@ -41,6 +61,11 @@ def grill_complete(log=eventlog.LOG):
         missing.append("direction")
     if not _filled(((cortex.report_at(log=log) or {}).get("latest") or {}).get("body")):
         missing.append("direcionamento")
+
+    max_steer = _max_seq(log, _STEER_TYPES)
+    max_level = _max_seq(log, frozenset({"grill.leveling"}))
+    if max_level < 0 or (max_steer >= 0 and max_level < max_steer):
+        missing.append("leveling")
     return missing
 
 
@@ -53,8 +78,10 @@ def assert_grill_complete(log=eventlog.LOG):
     if missing:
         raise ValueError(
             "grill incomplete — stage-(ii) briefing section(s) left empty: "
-            f"{', '.join(missing)} (briefing-lifecycle-audit.md). A grill is not done until "
-            "objective + direction + direcionamento have landed on the log."
+            f"{', '.join(missing)} (briefing-lifecycle-audit.md + mentor leveling-state 2026-07-13). "
+            "A grill is not done until objective + direction + direcionamento have landed on the log "
+            "and a grill.leveling writeback is at least as recent as the latest steer feeder "
+            "(honest diario 'sem update de persona' counts)."
         )
 
 
@@ -78,7 +105,6 @@ def main(argv=None):
     except ValueError as e:
         print(str(e), file=sys.stderr)
         return 1
-    print("grill complete — objective + direction + direcionamento landed.")
     return 0
 
 

@@ -35,8 +35,15 @@ import publisher    # noqa: E402
 
 
 def _no_session_env():
-    """An env WITHOUT the session anchor var — so the null-session case is deterministic."""
-    return {k: v for k, v in os.environ.items() if k != "CLAUDE_CODE_SESSION_ID"}
+    """An env WITHOUT the session anchor vars — so the null-session case is deterministic.
+
+    Multi-CLI: Claude, Codex, and Grok anchors all count (sessions.current_session_anchor).
+    """
+    drop = {
+        "CLAUDE_CODE_SESSION_ID", "CODEX_SESSION_ID", "CODEX_THREAD_ID",
+        "GROK_SESSION_ID", "GROK_CHAT_ID",
+    }
+    return {k: v for k, v in os.environ.items() if k not in drop}
 
 
 class PredispatchMintsTheDispatchId(unittest.TestCase):
@@ -57,7 +64,7 @@ class DispatchOpenCarriesIdentityAndSessionAnchor(unittest.TestCase):
     the optional declared fields (theme/intent/geometry, tier `declared`)."""
 
     def _run(self, log, **kw):
-        return predispatch.run(sweep_fn=lambda: 1, briefing_fn=lambda: "B",
+        return predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 1, briefing_fn=lambda: "B",
                                recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log, **kw)
 
     def test_stamp_carries_dispatch_id_session_and_declared_fields(self):
@@ -80,7 +87,9 @@ class DispatchOpenCarriesIdentityAndSessionAnchor(unittest.TestCase):
     def test_session_id_is_null_when_the_env_var_is_absent(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            with mock.patch.dict(os.environ, _no_session_env(), clear=True):
+            # Multi-CLI: env anchors AND Grok live active_sessions.json must not fabricate.
+            with mock.patch.dict(os.environ, _no_session_env(), clear=True), \
+                 mock.patch("sessions.resolve_grok_live_session_id", return_value=None):
                 self._run(log, dispatch_id="d-1")
             p = eventlog.read(types=["dispatch.open"], log=log)[0]["payload"]
             self.assertIsNone(p["session_id"], "no env anchor → null, never fabricated")

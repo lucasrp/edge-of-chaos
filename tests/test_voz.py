@@ -211,10 +211,10 @@ class TestPredispatchWiring(unittest.TestCase):
                    recall_fn=lambda: "RECALL")
         with tempfile.TemporaryDirectory() as d:
             log = Path(d) / "log.jsonl"
-            briefing, _ = predispatch.run(log=log, **fns)
+            briefing, _ = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, log=log, **fns)
             self.assertEqual(briefing, "BRIEFING")  # sem pendência, briefing intacto
             eventlog.append("voz.comment", "voz:a", {"slug": "a", "text": "oi"}, log=log)
-            briefing, _ = predispatch.run(log=log, **fns)
+            briefing, _ = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, log=log, **fns)
             self.assertIn("BRIEFING", briefing)
             self.assertIn("Voz pendente", briefing)
 

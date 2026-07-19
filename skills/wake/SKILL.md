@@ -34,14 +34,13 @@ Then get your briefs. Use the **Agent tool** to run the four subagents in parall
   flock-serialized, so the second pass is a cheap no-op, not a contradiction.)
 - **delta** (`skills/delta`) → the **world's new**: what is new in the mentee's
   Mundo / Atividade / Voz. May be empty — it never gates the wake.
-- **recall** (`skills/recall`) → the **memory-salient**: the salient subgraph of your own Cortex,
-  rooted at space-0. Dark on a graph outage — it never gates the wake. Never fused with delta
-  (the subject boundary, ADR-0014: delta reads the world, recall reads the self). **Portfolio is
-  already stamped once** by the entry-driver on `--origin user_requested` via
-  `compose_portfolio_recall_brief` (in the predispatch stdout block above the fan) — that is the
-  **sole portfolio owner** on wake. Ask the recall subagent only for map-blind
-  `compose_recall_brief` (space-0 / objective / bets). Do not re-render portfolio in the fan
-  (Finding C). Assemble never appends a second copy.
+- **recall** (`skills/recall`) → the **memory-salient**: space-0 push + **Persona do mentee** +
+  (on employment wakes) **semantic dual-entry** seeded by standing objective (predispatch appends
+  it; marker names corpus vs embedder if DARK). Rooted at space-0; dark on graph outage — never
+  gates the wake. Never fused with delta (ADR-0014). **Portfolio** is stamped once by the
+  entry-driver on `--origin user_requested` via `compose_portfolio_recall_brief` — sole portfolio
+  owner. Fan recall subagent only for map-blind deepen if needed; do not re-render portfolio
+  (Finding C).
 - **quente** (`skills/quente`) → the **hot threads** (o SENTIR passivo): the live threads of the
   last K substantial sessions, read from `/tmp/quente-insumo.md` (hand the path in the prompt).
   **Always a FRESH subagent, never cached** — o quente de 2h atrás já nasceu morto. Dark when the
@@ -125,6 +124,33 @@ Lead with the **single recommended next move** — **state it, do not run it.**
 Priority: serve/acknowledge **ONGOING** when that is where the operator already is; only push
 resume-or-close of **INACABADA** as the lead when no live session owns the focus (or the
 operator overrules). In prose, never a multiple-choice box.
+
+### First-run / onboarding wake (no agent.yaml yet)
+
+If `state/bootstrap.json` exists and phenotype `agent.yaml` is absent (or onboarding incomplete):
+
+1. Use bootstrap `backfill_days` for assemble/sweep lookback.
+2. Read secrets via onboarding inventory (names only).
+3. After the four briefs, stamp the **mentor insumo** (wake package, **no Direction**):
+
+```sh
+tools/edge-python <<'PY'
+import onboarding, pathlib, os
+home = pathlib.Path(os.environ.get("EDGE_HOME", ".")).expanduser()
+boot = onboarding.load_bootstrap(home)
+inv = onboarding.inventory_secrets(onboarding.secrets_dir(home))
+delta = onboarding.secrets_delta(home, inv)
+# fill assemble/quente/delta/recall texts from the briefs you fanned
+text = onboarding.compose_insumo(
+    home=home, bootstrap=boot, inventory=inv, secrets_delta_=delta,
+    assemble_text="…", quente_text="…", delta_text="…", recall_text="…")
+onboarding.write_insumo(home, text)
+onboarding.stamp_secrets_cursor(home, inv)
+print("insumo →", onboarding.insumo_path(home))
+PY
+```
+
+4. Recommended next move: **`/ed-mentor`** with that insumo — not production beat.
 
 ## 3. Halt — do nothing; stand by (the whole point)
 

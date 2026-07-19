@@ -177,7 +177,7 @@ class CodexFloorParity(unittest.TestCase):
                 CLAUDE_CODE_SESSION_ID=None,
                 CODEX_THREAD_ID="codex-main"):
             log = Path(tmp) / "log.jsonl"
-            predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+            predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
                             recall_fn=lambda: "R", harvest_fn=lambda: 0,
                             probe_fn=lambda spec: None, log=log, geometry="themed")
             ev = eventlog.read(types=["dispatch.open"], log=log)[0]

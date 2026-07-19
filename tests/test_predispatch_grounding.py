@@ -42,7 +42,7 @@ def _seed(log, *rows):
 
 
 def _run(log, probe_fn, harvest_fn=lambda: 0, **kw):
-    return predispatch.run(sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=lambda: "R",
+    return predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=lambda: "R",
                            harvest_fn=harvest_fn, probe_fn=probe_fn, log=log, dispatch_id="d1", **kw)
 
 
