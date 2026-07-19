@@ -232,6 +232,42 @@ class SecretsDeltaAndInsumo(unittest.TestCase):
             self.assertEqual(cfg["lentes"]["backfill_days"], 3)
             self.assertIn("self", cfg.get("adversarials") or {})
 
+    def test_emit_phenotype_declares_secrets_folder_and_inventory(self):
+        """Phenotype must name the secrets dir and list files/vars present (no values)."""
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            sdir = home / "secrets"
+            sdir.mkdir(parents=True)
+            (sdir / "openai.env").write_text("OPENAI_API_KEY=sk-secret-must-not-appear\n")
+            (sdir / "exa.env").write_text("EXA_API_KEY=exa-secret-must-not-appear\n")
+            onboarding.run_bootstrap(
+                home=home, name="bolao", backfill_days=60, provision_skills=False
+            )
+            path = onboarding.emit_phenotype(
+                home, mission="workshop bolao", voice="direto"
+            )
+            import yaml
+
+            cfg = yaml.safe_load(path.read_text())
+            self.assertEqual(cfg.get("env_dir"), "secrets")
+            secrets = cfg.get("secrets") or {}
+            self.assertEqual(secrets.get("dir"), "secrets")
+            self.assertIn("openai.env", secrets.get("files") or [])
+            self.assertIn("exa.env", secrets.get("files") or [])
+            self.assertIn("OPENAI_API_KEY", secrets.get("vars") or [])
+            self.assertIn("EXA_API_KEY", secrets.get("vars") or [])
+            # embedding wired from secrets/
+            self.assertEqual(
+                (cfg.get("routers") or {}).get("embedding", {}).get("secret_ref"),
+                "openai.env:OPENAI_API_KEY",
+            )
+            # exa source only when secret file present
+            source_names = [s.get("name") for s in (cfg.get("sources") or [])]
+            self.assertIn("exa", source_names)
+            blob = path.read_text()
+            self.assertNotIn("sk-secret-must-not-appear", blob)
+            self.assertNotIn("exa-secret-must-not-appear", blob)
+
 
 class EdgeBootstrapCLI(unittest.TestCase):
     def test_cli_requires_home(self):
