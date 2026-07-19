@@ -175,21 +175,30 @@ def main() -> None:
         mem.write_text("# MEMORY\n")
 
     print(f"apply: instalado em {home}")
-    print(f"apply: provisionando ~/.claude em {claude_home}")
+    # Multi-CLI: provision every harness installed on this host (claude + codex + grok).
+    # Assemble later films every surface that is installed + enabled (see surfaces_cfg).
+    installed = surfaces_cfg.detect_installed_surfaces()
+    print(f"apply: surfaces installed on host → {installed}")
+    # Ensure phenotype carries surfaces for everything installed (first-run / thin yaml)
+    if not (cfg.get("surfaces") or {}):
+        cfg["surfaces"] = surfaces_cfg.surfaces_block_for_installed()
+        print(f"apply: surfaces block defaulted to installed harnesses → {list(cfg['surfaces'])}")
+
+    print(f"apply: provisionando Claude skills em {claude_home}")
     for row in _claude_provision.provision_claude(cfg, REPO, claude_home):
         print(f"  - {row}")
-    if surfaces_cfg.provision_surface("codex", cfg=cfg):
+    if surfaces_cfg.provision_surface("codex", cfg=cfg) or installed.get("codex"):
         print(f"apply: provisionando Codex skills em {codex_home}")
         for row in _codex_provision.provision_codex(cfg, REPO, home, codex_home):
             print(f"  - {row}")
     else:
-        print("apply: Codex surface disabled in agent.yaml surfaces.codex — skip provision")
-    if surfaces_cfg.provision_surface("grok", cfg=cfg):
+        print("apply: Codex not installed / disabled — skip provision")
+    if surfaces_cfg.provision_surface("grok", cfg=cfg) or installed.get("grok"):
         print(f"apply: provisionando Grok skills em {grok_home}")
         for row in _grok_provision.provision_grok(cfg, REPO, home, grok_home):
             print(f"  - {row}")
     else:
-        print("apply: Grok surface disabled in agent.yaml surfaces.grok — skip provision")
+        print("apply: Grok not installed / disabled — skip provision")
 
     if args.provision_runtime:
         print("apply: provisionando o runtime (graph obrigatório — ADR-0011)")

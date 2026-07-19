@@ -37,16 +37,18 @@ def render_codex_skill(*, slug: str, prefix: str, canonical_skill: Path) -> str:
     """Render a global Codex wrapper for one canonical Edge skill."""
     name = f"{prefix}-{slug}"
     canonical = str(Path(canonical_skill).expanduser())
+    # "Use when" makes the skill discoverable in the Codex picker (same bar as official skills).
     return (
         "---\n"
         f"name: {name}\n"
-        f"description: Edge wrapper for {slug}. Select @{name} in the skills picker "
-        f"(or ask for `{name}` by name) to follow the canonical {canonical} contract.\n"
+        f"description: \"Edge `{slug}` (`/{name}` / `@{name}`). Use when the user invokes "
+        f"`/{name}`, `@{name}`, or asks for Edge {slug} (wake, mentor, beat, report, …). "
+        f"Then read `{canonical}` completely and follow that contract.\"\n"
         "---\n"
-        f"Select this skill as `@{name}` (or name `{name}` in the prompt). Then read "
-        f"`{canonical}` completely and follow it as the active Edge skill. This wrapper "
-        f"exposes the global Codex skill name `{name}`; do not duplicate or reinterpret "
-        "the canonical contract here.\n"
+        f"You are running the Edge skill **{name}**.\n\n"
+        f"1. Read `{canonical}` completely (canonical contract).\n"
+        f"2. Follow it as the active skill — do not re-interpret this wrapper.\n"
+        f"3. Work from the install `edge_home` that owns that `skills/` tree.\n"
     )
 
 

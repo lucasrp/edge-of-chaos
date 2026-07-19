@@ -322,6 +322,16 @@ def bootstrap_cfg(
     routers = _routers_for_cfg(cast, cast.get("primary") or primary, embedding)
     # neo4j is not a router — graph password lives in secrets/neo4j.env (EDGE_NEO4J_PASSWORD)
     sources = _sources_from_inventory(inventory)
+    # Multi-CLI: declare every surface installed on this host (claude + codex + grok)
+    try:
+        import surfaces_cfg as _surfaces
+        surfaces_block = _surfaces.surfaces_block_for_installed()
+    except Exception:
+        surfaces_block = {
+            "claude": {"enabled": True},
+            "codex": {"enabled": True, "home": "~/.codex"},
+            "grok": {"enabled": True, "home": "~/.grok"},
+        }
     cfg: dict[str, Any] = {
         "name": name,
         "codename": name,
@@ -338,6 +348,7 @@ def bootstrap_cfg(
         "adversarials": _adversarials_for_cfg(cast, cast.get("primary") or primary),
         "routers": routers,
         "sources": sources,
+        "surfaces": surfaces_block,
         "heartbeat_interval": "8h",
     }
     if inventory is not None:
@@ -733,17 +744,54 @@ def run_bootstrap(
         inventory=inv,
         primary=primary,
     )
+    # Place canonical skills under install home so Claude/Codex/Grok wrappers resolve
+    try:
+        import shutil
+        repo = Path(__file__).resolve().parent.parent
+        src_skills = repo / "skills"
+        if src_skills.is_dir():
+            dst_skills = home / "skills"
+            if not dst_skills.exists():
+                shutil.copytree(
+                    src_skills, dst_skills,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+            else:
+                # merge: copy any missing skill dirs
+                for child in src_skills.iterdir():
+                    if child.is_dir() and not (dst_skills / child.name).exists():
+                        shutil.copytree(
+                            child, dst_skills / child.name,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                        )
+    except Exception as e:  # noqa: BLE001
+        payload["skills_copy_warning"] = f"{type(e).__name__}: {e}"
+
     if provision_skills:
         try:
+            import surfaces_cfg
             import _claude_provision
             import _grok_provision
             import _codex_provision
 
             repo = Path(__file__).resolve().parent.parent
-            claude_home = Path.home() / ".claude"
-            _claude_provision.provision_claude(cfg, repo, claude_home)
-            _grok_provision.provision_grok(cfg, repo, home, Path.home() / ".grok")
-            _codex_provision.provision_codex(cfg, repo, home, Path.home() / ".codex")
+            installed = surfaces_cfg.detect_installed_surfaces()
+            provisioned = []
+            # Always try all installed harnesses (operator: install on claude + codex + grok)
+            if installed.get("claude", True):
+                claude_home = Path.home() / ".claude"
+                for row in _claude_provision.provision_claude(cfg, repo, claude_home):
+                    provisioned.append(f"claude: {row}")
+            if installed.get("codex", False) or surfaces_cfg.provision_surface("codex", cfg=cfg):
+                codex_home = Path.home() / ".codex"
+                for row in _codex_provision.provision_codex(cfg, repo, home, codex_home):
+                    provisioned.append(f"codex: {row}")
+            if installed.get("grok", False) or surfaces_cfg.provision_surface("grok", cfg=cfg):
+                grok_home = Path.home() / ".grok"
+                for row in _grok_provision.provision_grok(cfg, repo, home, grok_home):
+                    provisioned.append(f"grok: {row}")
+            payload["provisioned_surfaces"] = provisioned
+            payload["installed_surfaces"] = installed
         except Exception as e:  # noqa: BLE001 — bootstrap still succeeds; report
             payload["provision_warning"] = f"{type(e).__name__}: {e}"
     # never call install_heartbeat here

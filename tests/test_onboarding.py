@@ -577,3 +577,86 @@ class PredispatchStampsInsumo(unittest.TestCase):
                 ),
             )
             self.assertTrue(stamped.get("ok"))
+
+
+class MultiCliInstall(unittest.TestCase):
+    """Install provisions Claude+Codex+Grok; phenotype lists installed surfaces."""
+
+    def test_detect_installed_surfaces_sees_existing_homes(self):
+        import surfaces_cfg
+        # Hermetic: only dirs we create count as installed
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / ".claude").mkdir()
+            (home / ".codex").mkdir()
+            # no .grok
+            got = surfaces_cfg.detect_installed_surfaces(home=home)
+            self.assertTrue(got["claude"])
+            self.assertTrue(got["codex"])
+            self.assertFalse(got["grok"])
+
+    def test_phenotype_surfaces_match_installed(self):
+        import surfaces_cfg
+        with tempfile.TemporaryDirectory() as td:
+            host = Path(td)
+            (host / ".claude").mkdir()
+            (host / ".codex").mkdir()
+            (host / ".grok").mkdir()
+            block = surfaces_cfg.surfaces_block_for_installed(home=host)
+            self.assertTrue(block["claude"]["enabled"])
+            self.assertTrue(block["codex"]["enabled"])
+            self.assertTrue(block["grok"]["enabled"])
+
+    def test_bootstrap_cfg_includes_surfaces_block(self):
+        inv = {"files": [], "vars": [], "by_file": {}}
+        cast = onboarding.resolve_adversarial_cast([], primary="claude")
+        cfg = onboarding.bootstrap_cfg(
+            home=Path("/tmp/h"),
+            name="ed",
+            backfill_days=30,
+            adversarials=cast,
+            embedding=None,
+            inventory=inv,
+        )
+        self.assertIn("surfaces", cfg)
+        # At least claude when host has it; block is from real host detection
+        self.assertIsInstance(cfg["surfaces"], dict)
+
+    def test_include_optional_only_if_installed(self):
+        import surfaces_cfg
+        with tempfile.TemporaryDirectory() as td:
+            host = Path(td)
+            (host / ".codex").mkdir()
+            # patch detect to use this host
+            real = surfaces_cfg.detect_installed_surfaces
+            surfaces_cfg.detect_installed_surfaces = lambda env=None, home=None: {
+                "claude": False, "codex": True, "grok": False
+            }
+            try:
+                # real host path: project_dir None, explicit None, surface enabled by default
+                self.assertTrue(
+                    surfaces_cfg.include_optional_surface(
+                        "codex", None, None, cfg={}
+                    )
+                )
+                self.assertFalse(
+                    surfaces_cfg.include_optional_surface(
+                        "grok", None, None, cfg={}
+                    )
+                )
+            finally:
+                surfaces_cfg.detect_installed_surfaces = real
+
+    def test_provision_surface_true_when_installed_even_if_yaml_empty(self):
+        import surfaces_cfg
+        real = surfaces_cfg.detect_installed_surfaces
+        surfaces_cfg.detect_installed_surfaces = lambda env=None, home=None: {
+            "claude": True, "codex": True, "grok": True
+        }
+        try:
+            # cfg with surfaces block that disables nothing listed — empty surfaces means
+            # absent-block defaults when load_agent_cfg; pass cfg without surfaces:
+            self.assertTrue(surfaces_cfg.provision_surface("codex", cfg={}))
+            self.assertTrue(surfaces_cfg.provision_surface("grok", cfg={}))
+        finally:
+            surfaces_cfg.detect_installed_surfaces = real
