@@ -416,3 +416,128 @@ class HeartbeatEnableFlag(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class AutoStampInsumo(unittest.TestCase):
+    """Seam: maybe_stamp_insumo after wake/predispatch when first-run."""
+
+    def test_stamps_when_bootstrap_and_no_phenotype(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=7, provision_skills=False
+            )
+            path = onboarding.maybe_stamp_insumo(
+                home,
+                briefing_text="## Assemble\n\nbrief body",
+                recall_text="# Recall\n\nmem",
+                quente_text="hot threads",
+                delta_text="world new",
+            )
+            self.assertIsNotNone(path)
+            self.assertTrue(path.is_file())
+            text = path.read_text()
+            self.assertIn("## Quente", text)
+            self.assertIn("lookback_days", text)
+            self.assertIn("nasce no mentor", text)
+            self.assertIn("brief body", text)
+            self.assertIn("hot threads", text)
+
+    def test_no_stamp_when_no_bootstrap(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            path = onboarding.maybe_stamp_insumo(home, briefing_text="x")
+            self.assertIsNone(path)
+
+    def test_no_stamp_when_phenotype_already_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=7, provision_skills=False
+            )
+            onboarding.emit_phenotype(home, mission="m", voice="v")
+            path = onboarding.maybe_stamp_insumo(home, briefing_text="should not write")
+            self.assertIsNone(path)
+
+
+class FinishOnboarding(unittest.TestCase):
+    """Seam: finish_onboarding = grill_gate + emit_phenotype (+ optional heartbeat)."""
+
+    def test_finish_emits_phenotype_after_grill(self):
+        import eventlog
+        import grill_writeback
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            log = home / "log.jsonl"
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=14, provision_skills=False
+            )
+            eventlog.set_objective("learn", log=log)
+            eventlog.propose("d1", "direction body", log=log)
+            eventlog.report_direction("steer", log=log)
+            grill_writeback.leveling(
+                "diario", "sem update de persona; residual = x",
+                root=home / "lv", log=log,
+            )
+            path = onboarding.finish_onboarding(
+                home, log=log, mission="learn", voice="direct", enable_heartbeat=False
+            )
+            self.assertTrue(path.is_file())
+            self.assertTrue(onboarding.is_onboarding_complete(home, log=log))
+            onboarding.assert_production_allowed(home, log=log)
+
+    def test_finish_refuses_without_grill(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            log = home / "log.jsonl"
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=5, provision_skills=False
+            )
+            with self.assertRaises(ValueError):
+                onboarding.finish_onboarding(home, log=log, mission="m", voice="v")
+
+
+class PredispatchStampsInsumo(unittest.TestCase):
+    """Seam: predispatch.run stamps insumo on first-run (injectable home)."""
+
+    def test_run_stamps_insumo_via_stamp_fn(self):
+        import predispatch
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            log = home / "log.jsonl"
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=10, provision_skills=False
+            )
+            stamped = {}
+
+            def stamp(**kw):
+                stamped["ok"] = True
+                return onboarding.maybe_stamp_insumo(home=home, **{
+                    k: kw[k] for k in (
+                        "briefing_text", "recall_text", "quente_text", "delta_text"
+                    ) if k in kw
+                })
+
+            predispatch.run(
+                sweep_fn=lambda: 0,
+                briefing_fn=lambda: "BRIEFING TEXT",
+                recall_fn=lambda: "RECALL TEXT",
+                harvest_fn=lambda: 0,
+                probe_fn=lambda _s: None,
+                ready_fn=lambda: None,
+                drain_fn=lambda: None,
+                log=log,
+                origin="user_requested",
+                stamp_insumo_fn=lambda **kw: stamp(
+                    briefing_text=kw.get("briefing_text", ""),
+                    recall_text=kw.get("recall_text", ""),
+                ),
+            )
+            self.assertTrue(stamped.get("ok"))

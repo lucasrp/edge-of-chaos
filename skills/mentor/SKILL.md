@@ -136,11 +136,18 @@ hunger instead of pretending to know.
 
 **First-run (no phenotype yet):** do **not** open cold. Require the wake-shaped insumo at
 `state/onboarding-insumo.md` (assemble + secrets + secrets delta + quente + delta + recall;
-**no Direction** — Direction is born in this mentor). If missing: run `/ed-wake` first (or
-`tools/edge-python -c "import onboarding; onboarding.assert_mentor_has_insumo(home)"`). After
-`grill_gate close` succeeds, emit phenotype:
-`tools/edge-python -c "import onboarding; onboarding.emit_phenotype(home, mission=…, voice=…)"`
-(see `docs/specs/onboarding-first-run.md`, README first-run).
+**no Direction** — Direction is born in this mentor). If missing: run `/ed-wake` / predispatch
+first (it auto-stamps via `onboarding.maybe_stamp_insumo`) or
+`tools/edge-python -c "import onboarding; onboarding.assert_mentor_has_insumo(home)"`.
+After steers + leveling land, **one close**:
+
+```sh
+tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
+  --mission "…" --voice "…"   # optional --enable-heartbeat
+```
+
+(`finish_onboarding` = `grill_gate.assert_grill_complete` + `emit_phenotype`. See
+`docs/specs/onboarding-first-run.md`, README first-run.)
 
 **Timeline is ORDINAL / by-volume, never wall-clock.** Windows are "the last K substantial
 sessions", and the onboarding seed is a fixed VOLUME budget (e.g. the last X MB/tokens of

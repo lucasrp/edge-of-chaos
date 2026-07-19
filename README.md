@@ -55,9 +55,17 @@ Heartbeat stays **off** until onboarding completes.
 
 ### After bootstrap
 
-1. Run **wake** (assemble inside the lookback window) — produces `state/onboarding-insumo.md` (wake package **without** Direction).  
-2. Run **`/ed-mentor`** with that insumo — mentor creates objective/direction and emits `agent.yaml`.  
-3. Only then may autonomous beat/heartbeat be enabled.
+1. Run **wake / predispatch** (lookback = install `backfill_days`) — auto-stamps `state/onboarding-insumo.md` (wake package **without** Direction).  
+2. Run **`/ed-mentor`** with that insumo — mentor creates objective/direction/leveling.  
+3. Close install:
+
+```bash
+tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
+  --mission "…" --voice "…"
+# optional: --enable-heartbeat
+```
+
+4. Only then may autonomous beat/heartbeat be enabled.
 
 Full contract: [`docs/specs/onboarding-first-run.md`](docs/specs/onboarding-first-run.md).
 

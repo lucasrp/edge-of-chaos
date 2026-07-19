@@ -72,15 +72,20 @@ def mint_dispatch_id():
 def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_fn=None,
         log=eventlog.LOG, dispatch_id=None, theme=None, intent=None, geometry=None,
         id_sink=None, origin=None, enqueue_fn=None, employment=False, ready_fn=None,
-        drain_fn=None):
+        drain_fn=None, stamp_insumo_fn=None):
     """The mechanical floor, in order: budgeted Assemble drain → ready gate → sweep →
     briefing → STAMP dispatch.open (+ emit the id to `id_sink`) → grounding legs →
-    dispatch.grounding. Returns (briefing_text, recall_text). Injectable for tests.
+    dispatch.grounding → optional first-run insumo stamp. Returns (briefing_text, recall_text).
+    Injectable for tests.
 
     ASSEMBLE (tkt-002/003/004, R1=C) — open path tries budgeted ``drain_fn`` then
     ``ready_fn`` (default assert_ready). Worker recovers remainder offline. Quality > latency:
     open pending after drain still blocks stamp. Inject ``ready_fn=lambda: None`` and
     ``drain_fn=lambda: None`` in hermetic tests that do not exercise Assemble.
+
+    First-run (onboarding): after briefs land, ``stamp_insumo_fn`` (default:
+    ``onboarding.maybe_stamp_insumo``) writes ``state/onboarding-insumo.md`` when bootstrap
+    exists and phenotype is absent — never gates the wake (degrade-dark).
 
     IDENTITY PRECEDES GROUNDING (#62) — the identity is minted, stamped and emitted BEFORE any
     O(store) grounding leg, so a slow/blocking/dark harvest can never delay or swallow the id.
@@ -231,6 +236,19 @@ def run(sweep_fn=None, briefing_fn=None, recall_fn=None, harvest_fn=None, probe_
         except Exception as e:  # noqa: BLE001 — the log-checkpointed backlog survives enqueue dark
             print(f"predispatch: rationalization enqueue DARK ({type(e).__name__}: {e}) — "
                   "wake already stamped; backlog retained for the next trigger.")
+    # First-run insumo stamp (onboarding) — after briefs; never gates wake
+    try:
+        if stamp_insumo_fn is None:
+            import onboarding as _onboarding
+            stamp_insumo_fn = _onboarding.maybe_stamp_insumo
+        stamped = stamp_insumo_fn(
+            briefing_text=briefing_text or "",
+            recall_text=recall_text or "",
+        )
+        if stamped:
+            print(f"predispatch: onboarding insumo → {stamped}")
+    except Exception as e:  # noqa: BLE001 — insumo is structure for mentor; never gates wake
+        print(f"predispatch: onboarding insumo DARK ({type(e).__name__}: {e})")
     return briefing_text, recall_text
 
 

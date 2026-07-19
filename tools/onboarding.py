@@ -538,6 +538,93 @@ def emit_phenotype(
     return path
 
 
+def resolve_install_home(home: Optional[Path | str] = None, env: Optional[dict] = None) -> Optional[Path]:
+    """Resolve install root: arg → EDGE_HOME → path with state/bootstrap.json near cwd/repo."""
+    env = env if env is not None else os.environ
+    if home is not None:
+        return Path(home).expanduser()
+    raw = env.get("EDGE_HOME")
+    if raw:
+        return Path(os.path.expanduser(str(raw)))
+    for cand in (Path.cwd(), Path(__file__).resolve().parent.parent):
+        if (cand / "state" / BOOTSTRAP_NAME).is_file():
+            return cand
+    return None
+
+
+def is_first_run(home: Path | str) -> bool:
+    """True when bootstrap exists and phenotype is not yet present (mentor not finished)."""
+    home = Path(home).expanduser()
+    if not (home / "state" / BOOTSTRAP_NAME).is_file():
+        return False
+    return not is_phenotype_present(home)
+
+
+def maybe_stamp_insumo(
+    home: Optional[Path | str] = None,
+    *,
+    briefing_text: str = "",
+    recall_text: str = "",
+    quente_text: str = "",
+    delta_text: str = "",
+) -> Optional[Path]:
+    """Stamp mentor insumo when first-run; no-op if settled phenotype or no bootstrap.
+
+    Called after predispatch/wake so mentor has structured material (observe FIRST).
+    """
+    home_p = resolve_install_home(home)
+    if home_p is None or not is_first_run(home_p):
+        return None
+    boot = load_bootstrap(home_p)
+    if not boot:
+        return None
+    inv = inventory_secrets(secrets_dir(home_p))
+    delta = secrets_delta(home_p, inv)
+    # Prefer full briefing as assemble body; recall as recall leg
+    text = compose_insumo(
+        home=home_p,
+        bootstrap=boot,
+        inventory=inv,
+        secrets_delta_=delta,
+        assemble_text=briefing_text or "",
+        quente_text=quente_text or "",
+        delta_text=delta_text or "",
+        recall_text=recall_text or "",
+    )
+    path = write_insumo(home_p, text)
+    stamp_secrets_cursor(home_p, inv)
+    return path
+
+
+def finish_onboarding(
+    home: Path | str,
+    *,
+    log=None,
+    mission: str = "",
+    voice: str = "",
+    mentee: Optional[str] = None,
+    enable_heartbeat: bool = False,
+    run=None,
+) -> Path:
+    """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable."""
+    home = Path(home).expanduser()
+    import grill_gate
+    import eventlog as _eventlog
+
+    log_path = log if log is not None else _eventlog.LOG
+    grill_gate.assert_grill_complete(log=log_path)
+    path = emit_phenotype(
+        home, mission=mission, voice=voice, mentee=mentee
+    )
+    if enable_heartbeat:
+        import _provision
+        kwargs = {}
+        if run is not None:
+            kwargs["run"] = run
+        _provision.enable_heartbeat(**kwargs)
+    return path
+
+
 def run_bootstrap(
     *,
     home: Path | str,
