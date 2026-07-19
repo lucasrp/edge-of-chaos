@@ -237,13 +237,6 @@ class EdgeBootstrapCLI(unittest.TestCase):
     def test_cli_requires_home(self):
         import subprocess
 
-        r = subprocess.run(
-            [sys.executable, str(REPO / "tools" / "edge-bootstrap")],
-            capture_output=True,
-            text=True,
-            env={**os.environ, "EDGE_HOME": ""},
-        )
-        # empty EDGE_HOME and no --home
         env = {k: v for k, v in os.environ.items() if k != "EDGE_HOME"}
         r = subprocess.run(
             [sys.executable, str(REPO / "tools" / "edge-bootstrap"), "--name", "x", "--backfill-days", "1"],
@@ -275,6 +268,150 @@ class EdgeBootstrapCLI(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
             self.assertTrue((Path(td) / "state" / "bootstrap.json").exists())
             self.assertIn("backfill_days=14", r.stdout)
+
+
+class OnboardingCompletePath(unittest.TestCase):
+    """Seam: is_onboarding_complete / assert_production_allowed.
+
+    Spec: complete = phenotype thick + grill_gate empty-missing list.
+    """
+
+    def _fresh_home(self):
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        home = Path(td.name)
+        (home / "secrets").mkdir(parents=True)
+        return home
+
+    def test_phenotype_alone_is_not_complete(self):
+        home = self._fresh_home()
+        log = home / "log.jsonl"
+        onboarding.run_bootstrap(home=home, name="ed", backfill_days=14, provision_skills=False)
+        onboarding.emit_phenotype(home, mission="m", voice="v")
+        self.assertFalse(onboarding.is_onboarding_complete(home, log=log))
+        with self.assertRaises(RuntimeError):
+            onboarding.assert_production_allowed(home, log=log)
+
+    def test_grill_plus_phenotype_allows_production(self):
+        import eventlog
+        import grill_writeback
+
+        home = self._fresh_home()
+        log = home / "log.jsonl"
+        onboarding.run_bootstrap(home=home, name="ed", backfill_days=14, provision_skills=False)
+        onboarding.emit_phenotype(home, mission="learn", voice="direct")
+        eventlog.set_objective("learn well", log=log)
+        eventlog.propose("d1", "first direction", log=log)
+        eventlog.report_direction("steer body", log=log)
+        grill_writeback.leveling(
+            "diario",
+            "sem update de persona; residual = product",
+            root=home / "lv",
+            log=log,
+        )
+        self.assertTrue(onboarding.is_onboarding_complete(home, log=log))
+        onboarding.assert_production_allowed(home, log=log)  # does not raise
+
+
+class BriefingOnboardingRoster(unittest.TestCase):
+    """Seam: briefing.source_roster — soft when bootstrap present, fail-closed otherwise."""
+
+    def test_soft_roster_when_bootstrap_and_no_yaml(self):
+        import briefing
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "secrets").mkdir()
+            (home / "secrets" / "openai.env").write_text("OPENAI_API_KEY=sk-not-logged\n")
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=21, provision_skills=False
+            )
+            old = os.environ.get("EDGE_HOME")
+            os.environ["EDGE_HOME"] = str(home)
+            try:
+                roster = briefing.source_roster(agent_yaml=home / "missing-agent.yaml")
+            finally:
+                if old is None:
+                    os.environ.pop("EDGE_HOME", None)
+                else:
+                    os.environ["EDGE_HOME"] = old
+            names = [r["name"] for r in roster]
+            self.assertIn("claude-sessions", names)
+            self.assertIn("secrets-inventory", names)
+            blob = json.dumps(roster)
+            self.assertNotIn("sk-not-logged", blob)
+
+    def test_missing_yaml_without_bootstrap_still_fails_closed(self):
+        import briefing
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            old = os.environ.get("EDGE_HOME")
+            os.environ["EDGE_HOME"] = str(home)
+            try:
+                with self.assertRaises(briefing.BriefingIdentityError):
+                    briefing.source_roster(agent_yaml=home / "missing-agent.yaml")
+            finally:
+                if old is None:
+                    os.environ.pop("EDGE_HOME", None)
+                else:
+                    os.environ["EDGE_HOME"] = old
+
+
+class SweepBackfillFromBootstrap(unittest.TestCase):
+    """Seam: sweep._lentes_config uses bootstrap backfill_days when yaml absent."""
+
+    def test_backfill_days_read_from_bootstrap_json(self):
+        import sweep
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=21, provision_skills=False
+            )
+            old = os.environ.get("EDGE_HOME")
+            os.environ["EDGE_HOME"] = str(home)
+            try:
+                cfg = sweep._lentes_config(path=home / "agent.yaml")  # no phenotype
+            finally:
+                if old is None:
+                    os.environ.pop("EDGE_HOME", None)
+                else:
+                    os.environ["EDGE_HOME"] = old
+            self.assertEqual(cfg["backfill_days"], 21)
+
+
+class HeartbeatEnableFlag(unittest.TestCase):
+    """Seam: install_heartbeat(enable=False) writes units but does not enable timer."""
+
+    def test_bootstrap_does_not_enable_timer(self):
+        import _provision
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            unit_dir = home / "units"
+            calls = []
+
+            def fake_run(cmd, **kw):
+                calls.append(list(cmd))
+
+                class R:
+                    returncode = 0
+
+                return R()
+
+            _provision.install_heartbeat(
+                {"heartbeat_interval": "3h", "codename": "ed", "name": "ed"},
+                home,
+                unit_dir=unit_dir,
+                run=fake_run,
+                enable=False,
+            )
+            self.assertTrue((unit_dir / "edge-heartbeat.timer").exists())
+            joined = [" ".join(c) for c in calls]
+            self.assertTrue(any("daemon-reload" in j for j in joined))
+            self.assertFalse(any("enable" in j and "edge-heartbeat.timer" in j for j in joined))
 
 
 if __name__ == "__main__":
