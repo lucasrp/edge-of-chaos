@@ -19,7 +19,7 @@ import sweep  # noqa: E402
 
 
 HUMAN_TEXT = "decisão substancial sobre a atividade corrente e seu próximo passo " * 5
-RATIONALIZER_VERSION = "racionalizador-v2-role-attribution"
+RATIONALIZER_VERSION = "racionalizador-v3-session-provenance"
 
 
 def write_session(directory, session_id, *, human_turns=5, mtime=None):
@@ -61,6 +61,42 @@ def checkpoint(log, item, version=RATIONALIZER_VERSION):
 
 
 class RationalizationPlanning(unittest.TestCase):
+    def test_exclusion_reconciliation_is_structured_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as project, \
+                tempfile.TemporaryDirectory() as state, \
+                tempfile.TemporaryDirectory() as codex_root:
+            log = Path(state) / "events.jsonl"
+            codex_dir = Path(codex_root) / "2026" / "07" / "19"
+            codex_dir.mkdir(parents=True)
+
+            def write_codex(filename, session_id, source, originator):
+                rows = [{"type": "session_meta", "payload": {
+                    "id": session_id, "thread_source": "user",
+                    "source": source, "originator": originator,
+                }}, {
+                    "type": "response_item", "payload": {
+                        "type": "message", "role": "user",
+                        "content": [{"type": "input_text", "text": "conteúdo arbitrário"}],
+                    },
+                }]
+                (codex_dir / filename).write_text(
+                    "\n".join(json.dumps(row) for row in rows) + "\n")
+
+            write_codex("operator.jsonl", "operator", "cli", "codex-tui")
+            write_codex("delegated.jsonl", "delegated", "exec", "codex_exec")
+
+            first = sweep.record_session_exclusions(
+                project, log=log, codex_dir=codex_root, grok_dir=False)
+            second = sweep.record_session_exclusions(
+                project, log=log, codex_dir=codex_root, grok_dir=False)
+
+            self.assertEqual(len(first), 1)
+            self.assertEqual(first[0]["payload"], {
+                "sessao_id": "codex:delegated", "surface": "codex",
+                "reason": "codex-source:exec",
+            })
+            self.assertEqual(second, [])
+
     def test_pending_is_substantial_uncheckpointed_current_input_oldest_first(self):
         with tempfile.TemporaryDirectory() as project, tempfile.TemporaryDirectory() as state:
             log = Path(state) / "events.jsonl"
@@ -125,7 +161,8 @@ class RationalizationPlanning(unittest.TestCase):
             codex_dir.mkdir(parents=True)
             codex_rows = [
                 {"type": "session_meta",
-                 "payload": {"id": "codex-op", "thread_source": "user"}},
+                 "payload": {"id": "codex-op", "thread_source": "user",
+                             "source": "cli", "originator": "codex-tui"}},
             ]
             for index in range(5):
                 codex_rows.append({
@@ -167,6 +204,27 @@ class RationalizationPlanning(unittest.TestCase):
                 })
             (codex_dir / "rollout-w.jsonl").write_text(
                 "\n".join(json.dumps(r) for r in codex_worker) + "\n")
+
+            # Codex delegated exec may misleadingly say thread_source=user. Structured source
+            # provenance, not prompt vocabulary, must still keep it out of the operator film.
+            codex_exec = [
+                {"type": "session_meta",
+                 "payload": {"id": "codex-exec", "thread_source": "user",
+                             "source": "exec", "originator": "codex_exec"}},
+            ]
+            for index in range(5):
+                codex_exec.extend([{
+                    "type": "response_item",
+                    "payload": {"type": "message", "role": "user",
+                                "content": [{"type": "input_text",
+                                             "text": f"{HUMAN_TEXT} (e{index})"}]},
+                }, {
+                    "type": "response_item",
+                    "payload": {"type": "message", "role": "assistant",
+                                "content": [{"type": "output_text", "text": f"ee{index}"}]},
+                }])
+            (codex_dir / "rollout-exec.jsonl").write_text(
+                "\n".join(json.dumps(r) for r in codex_exec) + "\n")
 
             # Grok operator + backend tools; worker via session_kind.
             grok_op = Path(grok_root) / "%2Fhome" / "g-op"

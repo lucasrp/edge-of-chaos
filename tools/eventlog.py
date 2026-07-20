@@ -976,7 +976,7 @@ def session_topics_at(seq=None, ts=None, log=LOG):
 
 ATIVIDADE_TYPES = [
     "atividade.opened", "atividade.touched", "atividade.closed",
-    "atividade.reopened", "atividade.bears_on", "sessao.racionalizada",
+    "atividade.reopened", "atividade.bears_on", "sessao.racionalizada", "sessao.excluded",
 ]
 RUN_TYPES = ["run.opened", "run.closed", "instrumento.falhou"]
 ARCO_TYPES = ["arco.opened", "arco.closed", "arco.moved"]
@@ -989,6 +989,7 @@ WAYFIND_TYPES = [
     "map.opened", "map.state", "ticket.opened", "ticket.closed", "ticket.declined",
     "ticket.reopened", "ticket.deps_changed", "move.proposed", "move.ratified",
     "move.declined",
+    "sessao.racionalizada", "sessao.excluded",
 ]
 _MAP_STATES = ("ativado", "pausado", "arquivado")
 _MOVE_EFFECT_TYPES = {
@@ -1004,6 +1005,82 @@ _LENS_TIERS = ("asserted", "llm_judged")
 _ACTIVITY_AUTHORS = ("operador", "grill", "racionalizador")
 _ACTIVITY_STATES = ("cumprida", "abandonada", "superada_por")
 _BEARING_VALENCES = ("supports", "refutes", "qualifies", "inconclusive", "no_bearing")
+
+
+def _operator_session_overlay(events):
+    """Hide LLM derivations from sessions later classified as non-operator provenance.
+
+    ``sessao.excluded`` is an append-only correction: raw transcripts and audit events remain in
+    truth, while report-facing folds stop attributing delegated execution to the operator. An
+    asserted activity gesture pins that grain, because the operator explicitly adopted it later.
+    """
+    events = [event for event in events if isinstance(event, dict)]
+    excluded_sessions = {
+        payload["sessao_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.excluded"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("sessao_id"), str)
+        and payload["sessao_id"]
+    }
+    if not excluded_sessions:
+        return events
+    excluded_rationalizations = {
+        payload["rationalization_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.racionalizada"
+        and isinstance(payload, dict)
+        and payload.get("sessao_id") in excluded_sessions
+        and isinstance(payload.get("rationalization_id"), str)
+        and payload["rationalization_id"]
+    }
+    excluded_activity_grains = {
+        payload["ulid"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "atividade.opened"
+        and isinstance(payload, dict)
+        and (payload.get("origem_sessao") in excluded_sessions
+             or payload.get("rationalization_id") in excluded_rationalizations)
+        and isinstance(payload.get("ulid"), str)
+    }
+    pinned = {
+        payload["ref"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") in {
+            "atividade.touched", "atividade.closed", "atividade.reopened",
+            "atividade.bears_on",
+        }
+        and isinstance(payload, dict)
+        and payload.get("tier") == "asserted"
+        and payload.get("ref") in excluded_activity_grains
+    }
+    current = []
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        event_type = event.get("type")
+        if event_type == "sessao.excluded":
+            current.append(event)
+            continue
+        if event_type == "sessao.racionalizada" and payload.get("sessao_id") in excluded_sessions:
+            continue
+        belongs_to_excluded = (
+            payload.get("origem_sessao") in excluded_sessions
+            or payload.get("rationalization_id") in excluded_rationalizations
+            or (event_type == "atividade.touched"
+                and payload.get("sessao") in excluded_sessions
+                and payload.get("tier") != "asserted")
+        )
+        if belongs_to_excluded:
+            if (event_type == "atividade.opened"
+                    and payload.get("ulid") in pinned):
+                current.append(event)
+            continue
+        current.append(event)
+    return current
 
 
 class AmbiguousRef(ValueError):
@@ -1886,7 +1963,7 @@ def change_ticket_deps(*, ref, blocked_by, rationale, dispatch_id, author,
 
 def fold_wayfinds(events):
     """Pure, fail-dark fold for map/ticket state and move audit history."""
-    events = _events_with_embedded_move_effects(events)
+    events = _events_with_embedded_move_effects(_operator_session_overlay(events))
     maps, tickets = {}, {}
     maps_by_ulid, tickets_by_ulid = {}, {}
     move_records, move_order = {}, []
@@ -2766,8 +2843,7 @@ def _foldable_hypothesized_claim(payload):
 
 def fold_claims(events):
     """Pure claim fold over one caller-owned event snapshot; malformed rows fail dark."""
-    events = _events_with_embedded_move_effects(
-        event for event in events if isinstance(event, dict))
+    events = _events_with_embedded_move_effects(_operator_session_overlay(events))
     declared = fold_hypotheses([event for event in events
                                 if event.get("type") in HYPOTHESIS_TYPES])
     for item in declared.values():
@@ -2812,13 +2888,14 @@ def fold_claims(events):
 def claims_at(seq=None, ts=None, log=LOG):
     """Fold declared and hypothesized claims, retaining promotions and contest visibility."""
     return fold_claims(read(
-        types=CLAIM_TYPES + CONTEST_TYPES + ["move.ratified"],
+        types=CLAIM_TYPES + CONTEST_TYPES + [
+            "move.ratified", "sessao.racionalizada", "sessao.excluded"],
         until_seq=seq, until_ts=ts, log=log))
 
 
 def fold_presumptions(events):
     """Pure epistemic dependency graph over one event snapshot; performs zero I/O."""
-    events = [event for event in events if isinstance(event, dict)]
+    events = _operator_session_overlay(events)
     claims = fold_claims(events)
     session_operations = {}
     for event in events:
@@ -3181,7 +3258,8 @@ def _current_activity_overlay(events):
 
 def fold_atividades(events):
     """Pure, fail-dark activity fold; conversation-facing keys are full operation/num refs."""
-    events = _current_activity_overlay(_events_with_embedded_move_effects(events))
+    events = _current_activity_overlay(
+        _events_with_embedded_move_effects(_operator_session_overlay(events)))
     activities = {}
     by_ulid = {}
     rationalizations = []

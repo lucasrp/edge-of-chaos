@@ -14,7 +14,7 @@ import unicodedata
 import eventlog
 
 
-DEFAULT_VERSION = "racionalizador-v2-role-attribution"
+DEFAULT_VERSION = "racionalizador-v3-session-provenance"
 _OPERATION_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _NUMBERED_REF_RE = re.compile(r"^(?:atv|run|arc|map|tkt|fat)-\d+$")
 _ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$", re.IGNORECASE)

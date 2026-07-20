@@ -29,7 +29,10 @@ def _write_codex_session(store, sid, prompts):
     """Codex layout: flat/recursive *.jsonl with session_meta id."""
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
-    rows = [{"type": "session_meta", "payload": {"id": sid}}]
+    rows = [{"type": "session_meta", "payload": {
+        "id": sid, "thread_source": "user", "source": "cli",
+        "originator": "codex-tui",
+    }}]
     for prompt in prompts:
         rows.append({"type": "response_item",
                      "payload": {"type": "message", "role": "user",

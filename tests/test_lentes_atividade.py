@@ -1733,6 +1733,35 @@ class AtividadeLifecyclePens(unittest.TestCase):
 
 
 class AtividadeFold(unittest.TestCase):
+    def test_excluded_session_hides_derived_activity_but_preserves_operator_pin(self):
+        derived = {
+            "ulid": "DELEGATED", "num": "atv-001", "operacao": "edge",
+            "finalidade": "Atividade de execução delegada", "tier": "llm_judged",
+            "author": "racionalizador", "origem_sessao": "codex:exec-1",
+            "derivation_key": "k", "rationalization_id": "rid-exec",
+        }
+        events = [
+            {"seq": 1, "type": "sessao.racionalizada", "payload": {
+                "sessao_id": "codex:exec-1", "rationalization_id": "rid-exec"}},
+            {"seq": 2, "type": "atividade.opened", "payload": derived},
+            {"seq": 3, "type": "atividade.touched", "payload": {
+                "ref": "DELEGATED", "sessao": "codex:exec-1", "novo": "código",
+                "files": [], "spans": [], "tier": "llm_judged",
+                "rationalization_id": "rid-exec", "derivation_key": "touch"}},
+            {"seq": 4, "type": "sessao.excluded", "payload": {
+                "sessao_id": "codex:exec-1", "surface": "codex",
+                "reason": "codex-source:exec"}},
+        ]
+        self.assertEqual(eventlog.fold_atividades(events), {})
+
+        events.append({"seq": 5, "type": "atividade.touched", "payload": {
+            "ref": "DELEGATED", "sessao": "operator-session", "novo": "adotada",
+            "files": [], "spans": [], "tier": "asserted"}})
+        folded = eventlog.fold_atividades(events)
+        self.assertEqual(list(folded), ["edge/atv-001"])
+        self.assertEqual([touch["novo"] for touch in folded["edge/atv-001"]["toques"]],
+                         ["adotada"])
+
     def test_corrupt_activity_events_fail_dark_while_valid_history_folds(self):
         valid = {
             "seq": 2, "ts": "2026-07-11T00:00:00+00:00",

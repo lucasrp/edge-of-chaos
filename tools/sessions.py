@@ -5,8 +5,8 @@ Claude Code, Codex, and Grok — normalize into the same ``Turn(role, text)`` sh
 
 **Dialogue filter (rationalizer / quente / employment film):** the operator-visible corpus is
 exactly the Claude Code UI filter “conversation without terminals” — **user + assistant prose
-only**. Tool calls, tool results, queue/attachment noise, synthetic Grok lines, and agent-launched
-worker sessions are dropped *before* any a-posteriori cognition (racionalizador). That is the
+only**. Tool calls, tool results, queue/attachment noise, synthetic Grok lines, and delegated
+sessions identified by surface provenance are dropped *before* any a-posteriori cognition. That is the
 pre-processing step: dialogue first, then mentee-employment policy (not agent meta).
 
 Locator/offset-based; carries no domain semantics beyond surface normalization (ADR-0001).
@@ -41,6 +41,10 @@ SCAFFOLDING_PREFIXES = (
     "This session is being continued from a previous conversation",
     "<system-reminder>",
     "<user_info>",
+    "AUTHORITATIVE DISPATCH PLAN (mechanical; do not override):",
+)
+AUTOMATED_SESSION_PREFIXES = (
+    "AUTHORITATIVE DISPATCH PLAN (mechanical; do not override):",
 )
 
 
@@ -295,45 +299,6 @@ def claude_is_sidechain(path) -> bool:
     return False
 
 
-_AGENT_LAUNCH_PATTERNS = tuple(re.compile(p, re.IGNORECASE | re.DOTALL) for p in (
-    r"^you are the prototype producer for this run\.",
-    r"^you are (?:an|a|the) .{0,80}?(?:subagent|explorer|producer|worker|"
-    r"triage verification agent|world-reading explorer|ed-explorer)\b",
-    r"^you are drafting the new report skill\b",
-    r"^you are operating on `?ssh roberto\b",
-    r"^read-only exploration of\b",
-    r"^experiment arm \d+\b",
-    r"^produce a research artifact on\b",
-    r"^adversarial (?:design )?review\b",
-    r"^correctness review of\b",
-    r"^meta-gate\b",
-    r"^you are the meta-gate\b",
-    r"^you are (?:the|a|an) (?:adversarial|gate|reviewer|judge)\b",
-    r"^você é o meta-gate\b",
-    r"^você é o ed (?:construindo|executando|rodando|fechando|operando)\b",
-    r"^você é (?:o|a) (?:adversarial|gate|revisor|juiz)\b",
-    r"^você é um(?:a)? (?:produtor|subagente|agente)\b",
-    r"^gate final do motor integrado\b",
-    # Finding A: unmarked worker tickets that lack session_meta (Codex dual-pass).
-    r"^implement\s+ticket\b",
-    r"^implement\s+the\s+ticket\b",
-    r"^report\s+back\b",
-))
-
-
-def looks_agent_launched_prompt(text) -> bool:
-    """Conservative prompt-shape detector for one agent spawning another as a worker.
-
-    This is not a classifier for content about agents. It only catches strong launch prompts that
-    assign a worker role/ticket. Casual operator prompts like "vc é o fable..." are intentionally
-    left alone.
-    """
-    if not isinstance(text, str) or not text.strip():
-        return False
-    head = re.sub(r"\s+", " ", text).strip()[:1200]
-    return any(p.search(head) for p in _AGENT_LAUNCH_PATTERNS)
-
-
 def _strip_user_query(text: str) -> str:
     """Grok wraps operator text in <user_query>; return the inner body when present."""
     if not isinstance(text, str) or not text:
@@ -390,6 +355,10 @@ def user_session_exclusion_reason(session: Session) -> str | None:
         if meta.get("parent_thread_id"):
             return "codex-parent-thread"
         source = meta.get("source")
+        # Codex one-shot/delegated work can report thread_source=user. ``source=exec`` is the
+        # authoritative transport provenance; the wording of its generated prompt is irrelevant.
+        if source == "exec":
+            return "codex-source:exec"
         if isinstance(source, dict) and source.get("subagent"):
             return "codex-subagent"
     elif session.surface == "grok":
@@ -406,8 +375,8 @@ def user_session_exclusion_reason(session: Session) -> str | None:
             return "claude-sidechain"
 
     first = _first_human_text(session.path, surface=session.surface)
-    if looks_agent_launched_prompt(first):
-        return "agent-launch-prompt"
+    if any(first.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
+        return "automated-session-envelope"
     return None
 
 
@@ -436,13 +405,8 @@ def _claude_turn_from_obj(obj):
 
 
 def _is_scaffolding_turn(role, text):
-    """Drop UI/skill chrome and agent-launch prompts; apply to human and edge prose."""
-    if any(text.startswith(p) for p in SCAFFOLDING_PREFIXES):
-        return True
-    # Only human launches spawn workers; edge prose may *discuss* agents without being a launch.
-    if role == "human" and looks_agent_launched_prompt(text):
-        return True
-    return False
+    """Drop exact UI/skill protocol envelopes; never classify by conversation vocabulary."""
+    return any(text.startswith(p) for p in SCAFFOLDING_PREFIXES)
 
 
 def _codex_turn_from_obj(obj):
