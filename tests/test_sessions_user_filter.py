@@ -166,6 +166,18 @@ class UserSessionFilter(unittest.TestCase):
                 "texto real do usuario",
             ])
 
+    def test_claude_system_scheduled_turn_is_not_operator_voice(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = _write(Path(td) / "s.jsonl", [{
+                "type": "user", "isMeta": True, "promptSource": "system",
+                "message": {"role": "user", "content": "conteúdo agendado arbitrário"},
+            }, {
+                "type": "user", "promptSource": "typed", "origin": {"kind": "human"},
+                "message": {"role": "user", "content": "fala digitada pelo operador"},
+            }])
+            turns = sessions.read_turns(p, surface="claude")
+            self.assertEqual([turn.text for turn in turns], ["fala digitada pelo operador"])
+
     def test_codex_subagent_thread_is_excluded(self):
         with tempfile.TemporaryDirectory() as td:
             p = _codex(Path(td) / "s.jsonl", thread_source="subagent", parent="parent")

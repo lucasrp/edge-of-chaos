@@ -339,6 +339,12 @@ def _first_human_text(path, surface="claude") -> str:
             if not any(text.startswith(prefix) for prefix in SCAFFOLDING_PREFIXES):
                 return text
         elif obj.get("type") == "user":
+            origin = obj.get("origin")
+            if obj.get("isMeta") is True or obj.get("promptSource") == "system":
+                continue
+            if (isinstance(origin, dict) and origin.get("kind") is not None
+                    and origin.get("kind") != "human"):
+                continue
             text = _text_of(obj.get("message", {}).get("content")).strip()
             if any(text.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
                 return text
@@ -421,6 +427,13 @@ def _claude_turn_from_obj(obj):
     role = ROLES.get(obj.get("type"))
     if not role:
         return None
+    if role == "human":
+        origin = obj.get("origin")
+        if obj.get("isMeta") is True or obj.get("promptSource") == "system":
+            return None
+        if (isinstance(origin, dict) and origin.get("kind") is not None
+                and origin.get("kind") != "human"):
+            return None
     text = _text_of(obj.get("message", {}).get("content")).strip()
     if _is_scaffolding_turn(role, text):
         return None
