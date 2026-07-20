@@ -25,8 +25,18 @@ entram no plano e não podem alterá-lo.
 
 1. **Grounding INICIAL** — the hot look: run the mechanical entry-driver
    (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
-   recall), then a LIGHT sweep of the world — enough to see what moved, not a deep dive (depth
-   belongs to the branches, each doing its own rounds).
+   recall). On an ambient `origin: beat` wake, next run
+   `tools/edge-python tools/pauta.py candidates`: this is the only topic-opening surface and contains
+   exact current human turns, never Direction/Wayfind. Choose an actionable theme from those turns
+   and bind it before spawning any branch:
+
+   `tools/edge-python tools/pauta.py select --dispatch-id "$DISPATCH_ID" --theme "..." --decision "..." --voice-fragment "vf:..."`
+
+   Repeat `--voice-fragment` only for additional direct-human anchors. If no turn contains a real
+   problem, decision, doubt, criterion, or desired result that opens an artefact in the fixed form,
+   **finish without publishing**; an unused wake is honest. Then do a LIGHT sweep of the world —
+   enough to see what moved, not a deep dive (depth belongs to the branches, each doing its own
+   rounds).
 2. **PROPOSTA** — respeitando o `decision.producer` já fixado, o trunk produz uma proposta
    explícita: QUAIS artefatos (1..N) nessa forma, por que cada um vale, e qual ângulo. The "why" is the plan-side gates the
    close already carries (B.4): **VoI > custo** (vale surfar?), **é real** (grounded, not
@@ -49,6 +59,11 @@ entram no plano e não podem alterá-lo.
    (a) a âncora na Voz, (b) como execução/estado a suporta e (c) a **decisão utilizável pelo leitor**
    ao terminar — decidir, comparar, recalibrar um risco ou escolher um próximo movimento. Se não
    existe essa acionabilidade, o item permanece contexto e não vira artefato.
+
+   Esse limite agora é runtime, não só instrução: um publish `origin: beat` sem `dispatch.theme`
+   ancorado em `vf:*` ativo falha; no rito, o revisor final também falha se houver apenas sobreposição
+   ampla de assunto e a ação/ordem/prioridade específica tiver vindo de Direction, Wayfind ou da
+   execução. O julgamento é semântico; não use profissão, lista de palavras nem tipo de arquivo.
 
 The proposal weighs **origem**: an artefato **pedido pelo usuário** (`origin: user_requested`,
 declared at the wake — `predispatch.py --origin user_requested`) is exactly where the mentee's

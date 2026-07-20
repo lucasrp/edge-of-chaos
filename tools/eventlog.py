@@ -492,6 +492,17 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
                     "no unconsumed dispatch.open minted that id on this log (E1 identity-held "
                     "gate; ADR-0016: run tools/predispatch.py and carry ITS id; one wake per "
                     "publish)")
+            # A beat-origin wake is autonomous exploration.  Its open Direction/Wayfind state is
+            # context, not evidence that a publishable topic exists.  Require the trunk's separate
+            # Voice-grounded selection before spending the wake.  A user_requested dispatch is
+            # already opened by the user's explicit request and does not need this ambient gate.
+            if (_is_canonical_log(log)
+                    and dispatch_origin(dispatch_id, log=log) == "beat"
+                    and not dispatch_theme_is_grounded(dispatch_id, log=log)):
+                raise RuntimeError(
+                    f"no-theme: cannot publish {slug!r} under beat dispatch "
+                    f"{dispatch_id!r} — select an actionable topic from current operator Voice "
+                    "with tools/pauta.py; Direction/Wayfind are context-only")
         elif not wake_fresh(log=log):
             raise RuntimeError(
                 f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "
@@ -634,6 +645,117 @@ def dispatch_origin(dispatch_id, log=LOG):
             origin = p.get("origin")
             return origin if origin in ORIGINS else "beat"
     return "beat"
+
+
+def dispatch_theme_for(dispatch_id, log=LOG):
+    """Return the Voice-grounded topic selection for one dispatch, if any.
+
+    ``Direction`` and ``Wayfind`` are useful continuity maps, but neither is evidence that an
+    autonomous beat has an actionable topic.  The selection therefore lives on its own rail and
+    carries exact fragments from the current operator-Voice index.  Callers cannot supply the
+    snippets: :func:`record_dispatch_theme` resolves and snapshots them from ``session.topic``.
+    """
+    if not (isinstance(dispatch_id, str) and dispatch_id.strip()):
+        return None
+    selected = None
+    for event in read(types=["dispatch.theme"], log=log):
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if payload.get("dispatch_id") == dispatch_id:
+            selected = {**payload, "seq": event.get("seq"), "ts": event.get("ts")}
+    return selected
+
+
+def record_dispatch_theme(dispatch_id, theme, decision, voice_fragments, log=LOG):
+    """Bind an ambient beat's topic to exact, current human-Voice fragments.
+
+    This is deliberately a provenance gate, not a vocabulary classifier.  It neither knows the
+    operator's profession nor searches for technical/non-technical words.  It only proves that the
+    trunk chose from direct human turns; semantic relevance and actionability are judged later by
+    the rite's final reviewer.  Direction/Wayfind cannot be passed as anchors because their ids do
+    not exist in the Voice-fragment read model.
+    """
+    if not (isinstance(dispatch_id, str) and dispatch_id.strip()):
+        raise ValueError("dispatch theme needs a non-blank dispatch_id")
+    if not (isinstance(theme, str) and theme.strip()):
+        raise ValueError("dispatch theme needs a non-blank theme")
+    if not (isinstance(decision, str) and decision.strip()):
+        raise ValueError("dispatch theme needs a non-blank reader decision")
+    if not isinstance(voice_fragments, list) or not voice_fragments:
+        raise ValueError("dispatch theme needs at least one Voice fragment id")
+    if not wake_fresh_for(dispatch_id, log=log):
+        raise RuntimeError(
+            f"cannot select a theme for {dispatch_id!r}: no fresh dispatch.open minted that id")
+    if dispatch_theme_for(dispatch_id, log=log) is not None:
+        raise RuntimeError(f"dispatch {dispatch_id!r} already selected a theme")
+
+    current = session_topics_at(log=log).get("fragments", {})
+    anchors = []
+    seen = set()
+    for fragment_id in voice_fragments:
+        if not (isinstance(fragment_id, str) and fragment_id.strip()):
+            raise ValueError(f"invalid Voice fragment id: {fragment_id!r}")
+        if fragment_id in seen:
+            continue
+        fragment = current.get(fragment_id)
+        if not isinstance(fragment, dict):
+            raise ValueError(
+                f"Voice fragment {fragment_id!r} is not active in the current session corpus")
+        seen.add(fragment_id)
+        anchors.append({
+            "fragment_id": fragment_id,
+            "session_id": fragment.get("session_id"),
+            "surface": fragment.get("surface"),
+            "turn": fragment.get("turn"),
+            "snippet": fragment.get("snippet"),
+            "ts": fragment.get("ts"),
+        })
+    payload = {
+        "dispatch_id": dispatch_id,
+        "theme": " ".join(theme.split())[:500],
+        "reader_decision": " ".join(decision.split())[:1000],
+        "source": "operator-voice",
+        "voice_anchors": anchors,
+    }
+    return append("dispatch.theme", f"dispatch:{dispatch_id}", payload, log=log)
+
+
+def dispatch_theme_is_grounded(dispatch_id, log=LOG):
+    """Whether a dispatch has a well-shaped selection anchored only in operator Voice."""
+    selected = dispatch_theme_for(dispatch_id, log=log)
+    if not isinstance(selected, dict):
+        return False
+    if selected.get("source") != "operator-voice":
+        return False
+    if not (isinstance(selected.get("theme"), str) and selected["theme"].strip()
+            and isinstance(selected.get("reader_decision"), str)
+            and selected["reader_decision"].strip()):
+        return False
+    anchors = selected.get("voice_anchors")
+    if not (isinstance(anchors, list) and anchors):
+        return False
+    opens = [event for event in read(types=["dispatch.open"], log=log)
+             if isinstance(event.get("payload"), dict)
+             and event["payload"].get("dispatch_id") == dispatch_id]
+    if not opens or not isinstance(selected.get("seq"), int):
+        return False
+    if selected["seq"] <= opens[-1].get("seq", -1):
+        return False
+    current = session_topics_at(log=log).get("fragments", {})
+    for anchor in anchors:
+        if not isinstance(anchor, dict):
+            return False
+        fragment = current.get(anchor.get("fragment_id"))
+        if not isinstance(fragment, dict):
+            return False
+        # The event snapshots values resolved by record_dispatch_theme.  Rechecking them here
+        # prevents a hand-written dispatch.theme row from fabricating a quote or laundering a
+        # Direction id through a Voice-looking payload.
+        for snapshot_key, current_key in (
+                ("session_id", "session_id"), ("surface", "surface"), ("turn", "turn"),
+                ("snippet", "snippet")):
+            if anchor.get(snapshot_key) != fragment.get(current_key):
+                return False
+    return True
 
 
 def source_signal(slug, ref, kind, similarity, log=LOG):
