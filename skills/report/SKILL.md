@@ -46,7 +46,10 @@ The scaffold names three role-defined slots; report maps each to its prose-synth
   the founding context). Explorers are an **optional fan-out per facet for breadth** — when the theme has
   independent facets worth parallelism — **not the default grounding path**. Depth comes from evidence
   **and reasoning**, not assertion. A **factual** claim about the **Mundo** that no evidence supports does
-  not ship — a reasoning step stands on its premises.
+  not ship — a reasoning step stands on its premises. When the pool includes dialogue, preserve its
+  attribution: human turns establish the reader's purpose, decisions and questions; edge/assistant prose
+  and implementation traces establish execution and evidence. Reading both does not make their
+  vocabularies or actions interchangeable.
 - **`converge`** (loop2 critic) — judge whether the synthesis **changes what the mentee does next**
   (leitura cega 2026-07-05, vencedor v2-plus-visual) and is **developed to plenitude**: the arc whole,
   the load-bearing claims reasoned through with their implications drawn out, tailored to the mentee,
@@ -75,9 +78,11 @@ is EMERGENT** — it grows because a hard idea got a handle, never toward a numb
 length target or cap.
 
 Frame in the mentee's **Idiom** — their coined terms kept verbatim (the Idiom standing page).
-**Contextualization is CALIBRATED, not exhaustive** (leitura cega 2026-07-05): the mentee built this
-system and knows his own vocabulary cold — never re-explain the known (pure tax); spend the entire
-contextualization budget on what is **genuinely new** in THIS synthesis, giving each new thing one
+**Contextualization is CALIBRATED, not exhaustive** (leitura cega 2026-07-05): infer what the reader
+knows from the human side of the dialogue, never from implementation the edge/IA performed. A reader
+who directs an implementation does not thereby inherit the executor's code vocabulary; a reader who
+personally reasons through a technical trade-off does. Never re-explain what the human evidence shows
+is known (pure tax); spend the entire contextualization budget on what is **genuinely new** in THIS synthesis, giving each new thing one
 concrete handle (a worked example, a number, a before/after). Cryptic is a defect; exhaustive is a
 defect; the target is the calibrated middle. **Think before you write, then write ONCE**: plan in a
 scratchpad — what is genuinely new vs already held, the single through-line, the honest boundary of

@@ -84,6 +84,13 @@ class BeatSkillCarriesOnlyRotationNotJudgment(unittest.TestCase):
         self.assertIn("skills/_shared/pipeline.md", self.lower)
         self.assertIn("exit", self.lower)
 
+    def test_voice_opens_the_theme_and_state_only_supports_it(self):
+        self.assertIn("voz humana abre a pauta", self.lower)
+        self.assertIn("direction e wayfind não criam pauta", self.lower)
+
+    def test_every_theme_owes_reader_actionability(self):
+        self.assertIn("decisão utilizável pelo leitor", self.lower)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

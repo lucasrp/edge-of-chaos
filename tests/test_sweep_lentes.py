@@ -19,6 +19,7 @@ import sweep  # noqa: E402
 
 
 HUMAN_TEXT = "decisão substancial sobre a atividade corrente e seu próximo passo " * 5
+RATIONALIZER_VERSION = "racionalizador-v2-role-attribution"
 
 
 def write_session(directory, session_id, *, human_turns=5, mtime=None):
@@ -39,7 +40,7 @@ def write_session(directory, session_id, *, human_turns=5, mtime=None):
     return path
 
 
-def checkpoint(log, item, version="racionalizador-v1"):
+def checkpoint(log, item, version=RATIONALIZER_VERSION):
     identity = sweep.rationalization_identity(
         item["id"], item["turns"], surface=item["surface"],
         watermark=item["watermark"], racionalizador_version=version,
@@ -228,7 +229,7 @@ class RationalizationPlanning(unittest.TestCase):
                 "sessao.racionalizada", "sessao:session",
                 {"sessao_id": "session", "surface": "claude",
                  "watermark": item["watermark"],
-                 "racionalizador_version": "racionalizador-v1",
+                 "racionalizador_version": RATIONALIZER_VERSION,
                  "source_hash": "0" * 64, "rationalization_id": "f" * 64},
                 log=log,
             )

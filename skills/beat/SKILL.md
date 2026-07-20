@@ -34,6 +34,22 @@ entram no plano e não podem alterá-lo.
    taste). The editorial-compass is the living prototype of this gate. A rotação já foi consumida
    uma única vez pelo plano autoritativo; a cognição não a reabre nem faz queue-jump.
 
+   **Contrato de pauta por atribuição:** a **Voz humana abre a pauta** — um problema formulado,
+   uma decisão, uma dúvida, um critério ou um resultado desejado que os turnos humanos realmente
+   sustentam. A execução do edge/IA, commits e outros rastros de Atividade só dizem o que mudou,
+   qual risco apareceu ou o que bloqueia essa pauta. Eles não transferem ao leitor o vocabulário
+   de implementação do executor. Se o humano discutiu o trade-off técnico, o detalhe técnico é
+   legítimo; se apenas dirigiu a entrega, o detalhe fica como evidência da implicação no horizonte
+   que ele formulou. Isso é inferido semanticamente dos papéis no diálogo — nunca por profissão,
+   lista de palavras ou tipo de arquivo.
+
+   **Direction e Wayfind não criam pauta.** Estar aberto, proposto, no frontier ou sem close só
+   organiza continuidade; não prova valor editorial. Eles podem sustentar lineage, dependência ou
+   urgência de uma pauta que a Voz abriu, nunca originá-la. Para cada artefato proposto, declare:
+   (a) a âncora na Voz, (b) como execução/estado a suporta e (c) a **decisão utilizável pelo leitor**
+   ao terminar — decidir, comparar, recalibrar um risco ou escolher um próximo movimento. Se não
+   existe essa acionabilidade, o item permanece contexto e não vira artefato.
+
 The proposal weighs **origem**: an artefato **pedido pelo usuário** (`origin: user_requested`,
 declared at the wake — `predispatch.py --origin user_requested`) is exactly where the mentee's
 cognition is NOW, first-order signal that outweighs anything the beat would pick alone; a beat

@@ -3126,9 +3126,62 @@ def _suspect_batches(events):
     }
 
 
+def _current_activity_overlay(events):
+    """Hide superseded LLM-derived activity rows unless an asserted gesture pinned the grain."""
+    events = list(events)
+    superseded = {
+        payload["supersedes"]
+        for event in events if isinstance(event, dict)
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.racionalizada"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("supersedes"), str)
+        and payload["supersedes"]
+    }
+    if not superseded:
+        return events
+    derived_grains = {
+        payload["ulid"]
+        for event in events if isinstance(event, dict)
+        for payload in [event.get("payload")]
+        if event.get("type") == "atividade.opened"
+        and isinstance(payload, dict)
+        and payload.get("rationalization_id") in superseded
+        and isinstance(payload.get("ulid"), str)
+    }
+    pinned = {
+        payload["ref"]
+        for event in events if isinstance(event, dict)
+        for payload in [event.get("payload")]
+        if event.get("type") in {
+            "atividade.touched", "atividade.closed", "atividade.reopened",
+            "atividade.bears_on",
+        }
+        and isinstance(payload, dict)
+        and payload.get("tier") == "asserted"
+        and payload.get("ref") in derived_grains
+    }
+    current = []
+    for event in events:
+        if not isinstance(event, dict):
+            current.append(event)
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if (event.get("type") == "sessao.racionalizada"
+                and payload.get("rationalization_id") in superseded):
+            continue
+        if payload.get("rationalization_id") in superseded:
+            grain = payload.get("ulid") if event.get("type") == "atividade.opened" \
+                else payload.get("ref")
+            if grain not in pinned:
+                continue
+        current.append(event)
+    return current
+
+
 def fold_atividades(events):
     """Pure, fail-dark activity fold; conversation-facing keys are full operation/num refs."""
-    events = _events_with_embedded_move_effects(events)
+    events = _current_activity_overlay(_events_with_embedded_move_effects(events))
     activities = {}
     by_ulid = {}
     rationalizations = []

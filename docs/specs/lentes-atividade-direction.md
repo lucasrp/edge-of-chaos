@@ -358,7 +358,8 @@ Payload: `{alvo, evidencia, detalhe, author}`.
 
 ### `sessao.racionalizada`
 Payload: `{sessao_id, surface, operacoes, source_hash, rationalization_id,
-racionalizador_version, supersedes?, stitch: {goal, acao, entidades[]},
+racionalizador_version, supersedes?, stitch: {goal, acao, entidades[], attribution:
+{human_purpose, human_turn_indexes[], edge_execution, shared_outcome, activity_relevant}},
 epistemico: {presuncoes[]}, organizacional: {enderecos[]}}`.
 - O registro-auditoria de UMA racionalização (§Racionalizador). Identidade e versionamento
   (F4): keyed pela ENTRADA, nunca pelo output —
@@ -371,6 +372,12 @@ epistemico: {presuncoes[]}, organizacional: {enderecos[]}}`.
   nunca paralelo (§Racionalizador).
 - `operacoes` (F8): lista não-vazia das operações que a sessão tocou; as entidades do STITCH
   emitem ref plena.
+- `stitch.attribution` preserva autoria sem inferir perfil: `human_purpose` e seus
+  `human_turn_indexes` vêm de turnos humanos; `edge_execution` registra o que a IA executou;
+  `shared_outcome` liga a execução ao horizonte humano; `activity_relevant` decide
+  semanticamente se houve avanço de emprego durável. `goal`/`acao` são a projeção compatível
+  de `human_purpose`/`shared_outcome`, nunca uma mistura dos vocabulários. Nenhuma lista de
+  palavras, profissão presumida ou tipo de arquivo participa desse juízo.
 - `organizacional.enderecos`: `[{atividade, path, papel, sha256?|stat?}]` — cada endereço
   aponta a atividade dona (F7; é o join que A3 exige). Verificação MECÂNICA auto-confirmante
   (stat/hash no próximo toque) ⇒ projeta `provenance_class='computed'`, custo zero de GT,
@@ -615,11 +622,11 @@ spec — extensão da tuple própria do canon, NÃO do enum `provenance_class`);
     No fold, os eventos derivados tier-hipótese da racionalização superseded saem do estado
     CORRENTE (ficam no histórico); os da nova valem. EXCEÇÃO pinada: grão hipotetizado que já
     recebeu gesto asserted (touch/fecho/promote do grill) está PROMOVIDO — o overlay nunca o
-    remove (curado nunca é re-derivado, §Congelado). Antes de abrir atividade nova, o
-    racionalizador resolve contra o fold (atividades abertas da operação); `derivation_key =
-    sha256(source_hash + kind + ordinal)` gravada nos grãos derivados dá estabilidade de ref
-    quando a segmentação coincide. Resultado testável: re-backfill com N maior e output LLM
-    diferente ⇒ ZERO atividades paralelas duplicadas (A29).
+    remove (curado nunca é re-derivado, §Congelado). Uma contribuição não-pinada ganha novo
+    grão imutável no log e substitui a anterior no fold; uma atividade pinada por gesto asserted
+    é reutilizada. `derivation_key = sha256(source_hash + kind + ordinal)` identifica cada
+    contribuição. Resultado testável: re-backfill com N maior e output LLM diferente ⇒ UMA
+    contribuição corrente, sem atividades paralelas no fold (A29).
 - **Custo bounded (F5 — por SWEEP, não só por sessão):** knobs no agent.yaml (fenótipo), família
   `lentes.*`:
   - `lentes.backfill_days: N` — horizonte do backfill a-posteriori (ausente = sem limite;
@@ -637,9 +644,11 @@ spec — extensão da tuple própria do canon, NÃO do enum `provenance_class`);
     **A lei "UMA chamada" está CORRIGIDA (F5): a lei é o TETO TOTAL** — ≤ `ceil(cenas/janela)`
     chamadas de cena + 1 de consolidação, tudo dentro do `sweep_token_budget`; o número de
     chamadas é consequência, não dogma. Sessão que mesmo assim não coube volta ao backlog.
-- **Pergunta (reancorada):** NÃO "resuma esta sessão" — "esta sessão tocou QUAIS atividades:
-  continua uma aberta, abre nova, fecha alguma?". O casamento sessão→atividade é inferência em
-  tier-hipótese; é a classe onde o GT do grill mais vale.
+- **Pergunta (reancorada e atribuída):** NÃO "resuma esta sessão" — "qual finalidade os turnos
+  humanos sustentam, o que a IA executou e o que isso mudou para aquela finalidade?". A execução
+  delegada pode ser técnica sem transformar o vocabulário técnico em finalidade do humano; ela só
+  vira finalidade técnica quando os próprios turnos humanos raciocinam nesse grão. O casamento
+  sessão→atividade é inferência em tier-hipótese; é a classe onde o GT do grill mais vale.
 - **Critério de registro da conversa-livre:** "muda algo no que eu faço?" — sessão substancial
   que não muda nada emite `sessao.racionalizada` mínima (stitch + zero derivados), nunca
   atividade fantasma.

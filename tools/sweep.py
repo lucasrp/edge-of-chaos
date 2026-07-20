@@ -304,7 +304,7 @@ def _lentes_config(path=None):
 
 
 def rationalization_identity(session_id, turns, *, surface="claude", watermark=None,
-                             racionalizador_version="racionalizador-v1"):
+                             racionalizador_version="racionalizador-v2-role-attribution"):
     """Compute the exact public checkpoint identity using the rationalizer's normalization."""
     import racionalizador
     normalized_turns = racionalizador._normalized_turns(turns)
@@ -327,7 +327,7 @@ def rationalization_identity(session_id, turns, *, surface="claude", watermark=N
 
 def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None, grok_dir=None,
                           backfill_days=None, now=None,
-                          racionalizador_version="racionalizador-v1"):
+                          racionalizador_version="racionalizador-v2-role-attribution"):
     """Return current substantial inputs lacking a log checkpoint, oldest first.
 
     The raw transcript is append-only, so ``session + surface + watermark + version`` identifies
@@ -532,7 +532,7 @@ def rationalize_pending_sessions(
     max_sessions_per_sweep=DEFAULT_MAX_SESSIONS_PER_SWEEP,
     sweep_token_budget=DEFAULT_SWEEP_TOKEN_BUDGET,
     scene_turn_limit=DEFAULT_SCENE_TURN_LIMIT,
-    racionalizador_version="racionalizador-v1",
+    racionalizador_version="racionalizador-v2-role-attribution",
 ):
     """Rationalize an oldest-first prefix under one aggregate sweep budget.
 
@@ -1102,7 +1102,8 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
     """
     config = _lentes_config() if lentes_config is None else dict(lentes_config)
     backfill_days = config.get("backfill_days")
-    version = config.get("racionalizador_version", "racionalizador-v1")
+    version = config.get(
+        "racionalizador_version", "racionalizador-v2-role-attribution")
     pending = plan_rationalizations(
         project_dir, log=log, codex_dir=codex_dir, backfill_days=backfill_days,
         racionalizador_version=version,
