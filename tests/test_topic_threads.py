@@ -61,6 +61,26 @@ def _write_grok_session(store, sid, prompts):
 
 
 class TopicThreadsProjectDirection(unittest.TestCase):
+    def test_excluded_session_disappears_from_voice_index_and_auto_direction(self):
+        with tempfile.TemporaryDirectory() as st:
+            log = Path(st) / "log.jsonl"
+            eventlog.record_session_topic(
+                "grok:delegated", "implementation-noise", title="noise", surface="grok",
+                fragments=[{"session": "grok:delegated", "surface": "grok", "turn": 1,
+                            "snippet": "arbitrary delegated content"}], log=log)
+            eventlog.propose(
+                "topic-7d:implementation-noise", "automatic proposal",
+                relates_to=[{"kind": "voz.fragment", "session": "grok:delegated"}], log=log)
+            eventlog.append("sessao.excluded", "sessao:grok:delegated", {
+                "sessao_id": "grok:delegated", "surface": "grok",
+                "reason": "grok-unknown-provenance",
+            }, log=log)
+
+            self.assertEqual(eventlog.session_topics_at(log=log), {
+                "sessions": {}, "topics": {}, "fragments": {},
+            })
+            self.assertEqual(eventlog.direction_at(log=log), {"set": [], "proposed": []})
+
     def test_recent_voice_topics_are_indexed_by_session_topic_and_fragment(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             log = Path(st) / "log.jsonl"
@@ -240,6 +260,7 @@ class TopicThreadsSurfaceDiscovery(unittest.TestCase):
             _write_claude_session(Path(claude_root) / "proj" / "s1.jsonl", ["claude noise"])
             _write_grok_session(grok, "g-all", [
                 "quero indexar sessoes por topics e navegar pelos fragmentos",
+                "quero continuar a conversa preservando a sessao",
             ])
             frags = topic_threads.collect_voice_fragments(
                 project_dir=None, claude_root=claude_root, codex_dir=False, grok_dir=grok,

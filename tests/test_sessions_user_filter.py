@@ -176,11 +176,33 @@ class UserSessionFilter(unittest.TestCase):
             )
 
     def test_grok_operator_session_is_kept(self):
-        """Operator Grok sessions have no session_kind (or absent field) — keep as Voz."""
+        """An authoritative operator marker keeps even a one-turn Grok conversation."""
         with tempfile.TemporaryDirectory() as td:
             p = _grok(Path(td) / "019f-op", "que dia esse virtualbox foi criado?",
-                      session_id="019f-op")
+                      session_kind="operator", session_id="019f-op")
             s = sessions.Session(id="019f-op", path=p, surface="grok")
+            self.assertIsNone(sessions.user_session_exclusion_reason(s))
+
+    def test_grok_unmarked_one_shot_fails_closed_without_reading_its_vocabulary(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = _grok(Path(td) / "019f-one", "uma mensagem de conteúdo arbitrário",
+                      session_id="019f-one")
+            s = sessions.Session(id="019f-one", path=p, surface="grok")
+            self.assertEqual(
+                sessions.user_session_exclusion_reason(s),
+                "grok-unknown-provenance",
+            )
+
+    def test_grok_unmarked_multi_turn_dialogue_is_kept(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "019f-dialogue"
+            p = _grok(root, "primeira fala", session_id="019f-dialogue")
+            with p.open("a") as fh:
+                fh.write(json.dumps({
+                    "type": "user",
+                    "content": [{"type": "text", "text": "<user_query>segunda fala</user_query>"}],
+                }) + "\n")
+            s = sessions.Session(id="019f-dialogue", path=p, surface="grok")
             self.assertIsNone(sessions.user_session_exclusion_reason(s))
 
     def test_grok_subagent_session_kind_is_excluded(self):

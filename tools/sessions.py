@@ -310,7 +310,7 @@ def _strip_user_query(text: str) -> str:
 
 
 def _first_human_text(path, surface="claude") -> str:
-    """First raw human/user message, before scaffolding filters."""
+    """First human/user message after exact surface scaffolding envelopes."""
     try:
         lines = Path(path).read_text(errors="replace").splitlines()
     except OSError:
@@ -325,13 +325,25 @@ def _first_human_text(path, surface="claude") -> str:
                 continue
             payload = obj.get("payload") or {}
             if payload.get("type") == "message" and payload.get("role") == "user":
-                return _text_of(payload.get("content")).strip()
+                text = _text_of(payload.get("content")).strip()
+                if any(text.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
+                    return text
+                if not any(text.startswith(prefix) for prefix in SCAFFOLDING_PREFIXES):
+                    return text
         elif surface == "grok":
             if obj.get("type") != "user" or obj.get("synthetic_reason"):
                 continue
-            return _strip_user_query(_text_of(obj.get("content")))
+            text = _strip_user_query(_text_of(obj.get("content")))
+            if any(text.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
+                return text
+            if not any(text.startswith(prefix) for prefix in SCAFFOLDING_PREFIXES):
+                return text
         elif obj.get("type") == "user":
-            return _text_of(obj.get("message", {}).get("content")).strip()
+            text = _text_of(obj.get("message", {}).get("content")).strip()
+            if any(text.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
+                return text
+            if not any(text.startswith(prefix) for prefix in SCAFFOLDING_PREFIXES):
+                return text
     return ""
 
 
@@ -341,6 +353,7 @@ def user_session_exclusion_reason(session: Session) -> str | None:
     The edge's memory should index operator-facing conversations. Agent-to-agent worker sessions
     remain useful execution trace, but they are not the default recall corpus.
     """
+    grok_unmarked = False
     if session.surface == "codex":
         meta = codex_session_meta(session.path)
         # Finding A / gate P1: fail closed without authoritative operator provenance.
@@ -370,6 +383,8 @@ def user_session_exclusion_reason(session: Session) -> str | None:
             k = kind.strip()
             if k.lower() not in {"user", "operator"}:
                 return f"grok-session-kind:{k}"
+        else:
+            grok_unmarked = True
     else:
         if claude_is_sidechain(session.path):
             return "claude-sidechain"
@@ -377,6 +392,14 @@ def user_session_exclusion_reason(session: Session) -> str | None:
     first = _first_human_text(session.path, surface=session.surface)
     if any(first.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
         return "automated-session-envelope"
+    if grok_unmarked:
+        # Old Grok root one-shots do not record whether --prompt-file or a person launched them.
+        # With no authoritative marker, fail closed unless the transcript itself proves an
+        # interactive exchange. This is topology/provenance, never a vocabulary classifier.
+        human_turns = sum(
+            turn.role == "human" for turn in read_turns(session.path, surface="grok"))
+        if human_turns < 2:
+            return "grok-unknown-provenance"
     return None
 
 

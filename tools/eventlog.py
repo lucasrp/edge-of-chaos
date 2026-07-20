@@ -127,7 +127,7 @@ def read(types=None, until_seq=None, until_ts=None, log=LOG):
     return events
 
 
-DIRECTION_TYPES = ["direction.proposed", "direction.set", "direction.dropped"]
+DIRECTION_TYPES = ["direction.proposed", "direction.set", "direction.dropped", "sessao.excluded"]
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
 
 
@@ -148,6 +148,15 @@ def fold_direction(events):
     def _key(v):  # a usable dict key = a hashable str; anything else is corrupt → not a key
         return v if isinstance(v, str) else None
 
+    events = [event for event in events if isinstance(event, dict)]
+    excluded_sessions = {
+        payload["sessao_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.excluded"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("sessao_id"), str)
+    }
     items = {}  # id -> item (carries 'tier')
     for e in events:
         t = e.get("type")
@@ -160,10 +169,16 @@ def fold_direction(events):
             iid = _key(p.get("id"))
             if iid is None:
                 continue  # absent OR corrupt-typed id — not a foldable proposed item
+            relates_to = p.get("relates_to")
+            if (isinstance(relates_to, list)
+                    and any(isinstance(ref, dict)
+                            and ref.get("session") in excluded_sessions
+                            for ref in relates_to)):
+                continue  # automatic proposal has contaminated/non-operator voice evidence
             if items.get(iid, {}).get("tier") == "set":
                 continue  # set outranks proposed
             items[iid] = {"id": iid, "body": p.get("body", ""), "kind": p.get("kind", "thread"),
-                          "from_artefato": p.get("from_artefato"), "relates_to": p.get("relates_to"),
+                          "from_artefato": p.get("from_artefato"), "relates_to": relates_to,
                           "tier": "proposed"}
         elif t == "direction.set":
             raw_id = p.get("id")
@@ -785,7 +800,7 @@ def artefato_assets_at(seq=None, ts=None, log=LOG):
     return fold_artefato_assets(read(types=ASSET_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
-SESSION_TOPIC_TYPES = ["session.topic"]
+SESSION_TOPIC_TYPES = ["session.topic", "sessao.excluded"]
 SESSION_TOPIC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
@@ -892,6 +907,15 @@ def fold_session_topics(events):
     enter memory from different questions: "what happened in this session?", "where is this topic
     alive?", or "which exact utterance grounded this?".
     """
+    events = [event for event in events if isinstance(event, dict)]
+    excluded_sessions = {
+        payload["sessao_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.excluded"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("sessao_id"), str)
+    }
     latest = {}
     for e in events:
         if e.get("type") != "session.topic":
@@ -899,6 +923,8 @@ def fold_session_topics(events):
         p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
         sid, tid = p.get("session_id"), p.get("topic_id")
         if not (isinstance(sid, str) and isinstance(tid, str)):
+            continue
+        if sid in excluded_sessions:
             continue
         latest[(sid, tid)] = (e, p)
 
