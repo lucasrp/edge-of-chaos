@@ -800,7 +800,7 @@ def artefato_assets_at(seq=None, ts=None, log=LOG):
     return fold_artefato_assets(read(types=ASSET_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
-SESSION_TOPIC_TYPES = ["session.topic", "sessao.excluded"]
+SESSION_TOPIC_TYPES = ["session.topic", "session.topics.snapshot", "sessao.excluded"]
 SESSION_TOPIC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
@@ -900,6 +900,29 @@ def record_session_topic(session_id, topic_id, *, title, surface, path=None, sco
     return append("session.topic", f"session:{session_id}", payload, log=log)
 
 
+def record_session_topics_snapshot(session_id, topic_ids, *, window_days=None, log=LOG):
+    """Declare the current automatic topic set for one operator session.
+
+    Topic events stay append-only. A later snapshot can retire a topic that no longer has valid
+    voice fragments after provenance/scaffolding corrections, without deleting its audit trail.
+    """
+    session_id = _validated_session_topic_id(session_id, "session_id")
+    if not isinstance(topic_ids, list):
+        raise ValueError("session topic snapshot topic_ids must be a list")
+    clean = sorted({_validated_session_topic_id(topic_id, "topic_id")
+                    for topic_id in topic_ids})
+    payload = {"session_id": session_id, "topic_ids": clean, "window_days": window_days}
+    payload["content_hash"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    for event in reversed(read(types=["session.topics.snapshot"], log=log)):
+        previous = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if previous.get("session_id") == session_id:
+            if previous.get("content_hash") == payload["content_hash"]:
+                return event
+            break
+    return append("session.topics.snapshot", f"session:{session_id}", payload, log=log)
+
+
 def fold_session_topics(events):
     """Pure fold of `session.topic` -> sessions/topics/fragments navigation index.
 
@@ -916,6 +939,15 @@ def fold_session_topics(events):
         and isinstance(payload, dict)
         and isinstance(payload.get("sessao_id"), str)
     }
+    snapshots = {}
+    for event in events:
+        if event.get("type") != "session.topics.snapshot":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        sid, topic_ids = payload.get("session_id"), payload.get("topic_ids")
+        if (isinstance(sid, str) and isinstance(topic_ids, list)
+                and all(isinstance(topic_id, str) for topic_id in topic_ids)):
+            snapshots[sid] = (event.get("seq", -1), set(topic_ids))
     latest = {}
     for e in events:
         if e.get("type") != "session.topic":
@@ -925,6 +957,10 @@ def fold_session_topics(events):
         if not (isinstance(sid, str) and isinstance(tid, str)):
             continue
         if sid in excluded_sessions:
+            continue
+        snapshot = snapshots.get(sid)
+        if (snapshot is not None and e.get("seq", -1) < snapshot[0]
+                and tid not in snapshot[1]):
             continue
         latest[(sid, tid)] = (e, p)
 

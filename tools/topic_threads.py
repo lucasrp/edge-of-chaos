@@ -361,7 +361,10 @@ def index_session_topics(
         if isinstance(sid, str) and isinstance(tid, str) and isinstance(ch, str):
             existing[(sid, tid)] = ch
     written = 0
-    for topic in infer_session_topics(fragments, min_score=min_score):
+    inferred = infer_session_topics(fragments, min_score=min_score)
+    topics_by_session: dict[str, list[str]] = defaultdict(list)
+    for topic in inferred:
+        topics_by_session[topic.session_id].append(topic.topic_id)
         ev = eventlog.record_session_topic(
             topic.session_id,
             topic.topic_id,
@@ -379,6 +382,10 @@ def index_session_topics(
         if isinstance(ch, str) and existing.get(key) != ch:
             written += 1
             existing[key] = ch
+    for session_id in sorted({fragment.session_id for fragment in fragments}):
+        eventlog.record_session_topics_snapshot(
+            session_id, topics_by_session.get(session_id, []),
+            window_days=window_days, log=log)
     return written
 
 

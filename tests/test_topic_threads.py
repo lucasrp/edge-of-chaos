@@ -110,6 +110,23 @@ class TopicThreadsProjectDirection(unittest.TestCase):
             )
             self.assertEqual(again["topics"], 0, "same topic index must be idempotent")
 
+    def test_latest_session_snapshot_retires_topics_without_current_voice(self):
+        with tempfile.TemporaryDirectory() as st:
+            log = Path(st) / "log.jsonl"
+            old = topic_threads.VoiceFragment(
+                "s1", "claude", "/tmp/s1.jsonl", 1,
+                "report artefato com storytelling e grounding",
+            )
+            neutral = topic_threads.VoiceFragment(
+                "s1", "claude", "/tmp/s1.jsonl", 2,
+                "jabuticaba silenciosa",
+            )
+            topic_threads.index_session_topics([old], min_score=1, log=log)
+            self.assertIn("report-rite", eventlog.session_topics_at(log=log)["topics"])
+
+            topic_threads.index_session_topics([neutral], min_score=1, log=log)
+            self.assertNotIn("report-rite", eventlog.session_topics_at(log=log)["topics"])
+
     def test_recent_voice_topics_become_direction_proposed_with_evidence_refs(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             log = Path(st) / "log.jsonl"
