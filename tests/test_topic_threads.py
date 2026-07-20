@@ -127,6 +127,25 @@ class TopicThreadsProjectDirection(unittest.TestCase):
             topic_threads.index_session_topics([neutral], min_score=1, log=log)
             self.assertNotIn("report-rite", eventlog.session_topics_at(log=log)["topics"])
 
+    def test_authoritative_generation_retires_sessions_outside_recent_window(self):
+        with tempfile.TemporaryDirectory() as st:
+            log = Path(st) / "log.jsonl"
+            old = topic_threads.VoiceFragment(
+                "old-session", "claude", "/tmp/old.jsonl", 1,
+                "report artefato com storytelling e grounding",
+            )
+            current = topic_threads.VoiceFragment(
+                "current-session", "claude", "/tmp/current.jsonl", 1,
+                "jabuticaba silenciosa",
+            )
+            topic_threads.index_session_topics(
+                [old], min_score=1, authoritative=True, log=log)
+            self.assertIn("old-session", eventlog.session_topics_at(log=log)["sessions"])
+
+            topic_threads.index_session_topics(
+                [current], min_score=1, authoritative=True, log=log)
+            self.assertNotIn("old-session", eventlog.session_topics_at(log=log)["sessions"])
+
     def test_recent_voice_topics_become_direction_proposed_with_evidence_refs(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             log = Path(st) / "log.jsonl"

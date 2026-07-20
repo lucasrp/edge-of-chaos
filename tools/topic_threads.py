@@ -352,6 +352,7 @@ def index_session_topics(
     *,
     window_days: int = WINDOW_DAYS,
     min_score: int = 1,
+    authoritative: bool = False,
     log=eventlog.LOG,
 ) -> int:
     existing = {}
@@ -385,6 +386,10 @@ def index_session_topics(
     for session_id in sorted({fragment.session_id for fragment in fragments}):
         eventlog.record_session_topics_snapshot(
             session_id, topics_by_session.get(session_id, []),
+            window_days=window_days, log=log)
+    if authoritative:
+        eventlog.record_session_topics_generation(
+            sorted({fragment.session_id for fragment in fragments}),
             window_days=window_days, log=log)
     return written
 
@@ -541,7 +546,8 @@ def sync_recent_topic_memory(
                                         claude_root=claude_root,
                                         all_stores=all_stores, now=now)
     topics_written = index_session_topics(fragments, window_days=window_days,
-                                          min_score=index_min_score, log=log)
+                                          min_score=index_min_score,
+                                          authoritative=(all_stores is True), log=log)
     directions = infer_topic_directions(fragments, window_days=window_days,
                                         min_fragments=min_fragments, min_score=min_score)
     status = _direction_status(log)

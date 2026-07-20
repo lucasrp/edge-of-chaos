@@ -127,7 +127,10 @@ def read(types=None, until_seq=None, until_ts=None, log=LOG):
     return events
 
 
-DIRECTION_TYPES = ["direction.proposed", "direction.set", "direction.dropped", "sessao.excluded"]
+DIRECTION_TYPES = [
+    "direction.proposed", "direction.set", "direction.dropped", "sessao.excluded",
+    "session.topics.generation",
+]
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
 
 
@@ -157,6 +160,14 @@ def fold_direction(events):
         and isinstance(payload, dict)
         and isinstance(payload.get("sessao_id"), str)
     }
+    generations = [
+        event for event in events
+        if event.get("type") == "session.topics.generation"
+        and isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("session_ids"), list)
+    ]
+    active_generation = (set(generations[-1]["payload"]["session_ids"])
+                         if generations else None)
     items = {}  # id -> item (carries 'tier')
     for e in events:
         t = e.get("type")
@@ -175,6 +186,11 @@ def fold_direction(events):
                             and ref.get("session") in excluded_sessions
                             for ref in relates_to)):
                 continue  # automatic proposal has contaminated/non-operator voice evidence
+            if (active_generation is not None and isinstance(relates_to, list)
+                    and any(isinstance(ref, dict) and isinstance(ref.get("session"), str)
+                            and ref["session"] not in active_generation
+                            for ref in relates_to)):
+                continue  # recent-topic proposal no longer has evidence in the active generation
             if items.get(iid, {}).get("tier") == "set":
                 continue  # set outranks proposed
             items[iid] = {"id": iid, "body": p.get("body", ""), "kind": p.get("kind", "thread"),
@@ -800,7 +816,10 @@ def artefato_assets_at(seq=None, ts=None, log=LOG):
     return fold_artefato_assets(read(types=ASSET_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
-SESSION_TOPIC_TYPES = ["session.topic", "session.topics.snapshot", "sessao.excluded"]
+SESSION_TOPIC_TYPES = [
+    "session.topic", "session.topics.snapshot", "session.topics.generation",
+    "sessao.excluded",
+]
 SESSION_TOPIC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
@@ -923,6 +942,23 @@ def record_session_topics_snapshot(session_id, topic_ids, *, window_days=None, l
     return append("session.topics.snapshot", f"session:{session_id}", payload, log=log)
 
 
+def record_session_topics_generation(session_ids, *, window_days=None, log=LOG):
+    """Declare the sessions in the latest authoritative recent-voice scan."""
+    if not isinstance(session_ids, list):
+        raise ValueError("session topic generation session_ids must be a list")
+    clean = sorted({_validated_session_topic_id(session_id, "session_id")
+                    for session_id in session_ids})
+    payload = {"session_ids": clean, "window_days": window_days}
+    payload["content_hash"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    previous_events = read(types=["session.topics.generation"], log=log)
+    if previous_events:
+        previous = previous_events[-1].get("payload")
+        if isinstance(previous, dict) and previous.get("content_hash") == payload["content_hash"]:
+            return previous_events[-1]
+    return append("session.topics.generation", "session-topics", payload, log=log)
+
+
 def fold_session_topics(events):
     """Pure fold of `session.topic` -> sessions/topics/fragments navigation index.
 
@@ -948,6 +984,15 @@ def fold_session_topics(events):
         if (isinstance(sid, str) and isinstance(topic_ids, list)
                 and all(isinstance(topic_id, str) for topic_id in topic_ids)):
             snapshots[sid] = (event.get("seq", -1), set(topic_ids))
+    generations = [
+        event for event in events
+        if event.get("type") == "session.topics.generation"
+        and isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("session_ids"), list)
+    ]
+    generation = ((generations[-1].get("seq", -1),
+                   set(generations[-1]["payload"]["session_ids"]))
+                  if generations else None)
     latest = {}
     for e in events:
         if e.get("type") != "session.topic":
@@ -957,6 +1002,8 @@ def fold_session_topics(events):
         if not (isinstance(sid, str) and isinstance(tid, str)):
             continue
         if sid in excluded_sessions:
+            continue
+        if generation is not None and e.get("seq", -1) < generation[0] and sid not in generation[1]:
             continue
         snapshot = snapshots.get(sid)
         if (snapshot is not None and e.get("seq", -1) < snapshot[0]
