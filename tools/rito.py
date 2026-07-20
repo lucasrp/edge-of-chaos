@@ -206,7 +206,12 @@ Set ACCEPTANCE: FAIL unless the artefact's actual actionable question and reader
 reasonably direct continuation of those human turns. Mere subject overlap is insufficient. Commits,
 agent execution, Direction, Wayfind, frontier, and open bets may support state/lineage only; if they
 supply the specific action, order, priority, or problem that the human Voice did not formulate, fail.
-Judge meaning and dialog roles, never vocabulary, profession, filenames, or a technical-word list.
+Also fail when the artefact makes the reader adopt the delegated agent's implementation altitude —
+file/symbol/command-level decisions or executor jargon as the spine/action list — unless the human
+turns themselves reasoned about the trade-off at that level. Implementation may prove what changed;
+it must be translated into the human's purpose, decision horizon, and vocabulary before it becomes
+reader-facing guidance. Infer this from dialog roles and meaning, never profession, vocabulary,
+filenames, or a technical-word list.
 """.rstrip()
 
 

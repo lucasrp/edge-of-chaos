@@ -99,6 +99,8 @@ class RitoThemeReview(unittest.TestCase):
             self.assertIn("Quero comparar os dois riscos", contract)
             self.assertIn("Mere subject overlap is insufficient", contract)
             self.assertIn("Direction, Wayfind", contract)
+            self.assertIn("delegated agent's implementation altitude", contract)
+            self.assertIn("human's purpose, decision horizon, and vocabulary", contract)
 
     def test_rite_fails_before_work_when_ambient_selection_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
