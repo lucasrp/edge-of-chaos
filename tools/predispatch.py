@@ -446,6 +446,21 @@ def main(argv=None):
     print(briefing_text)
     print("\n\n---\n")
     print(recall_text)
+    # Theme candidates for beat/producer PROPOSTA (operator 2026-07-24):
+    # Δ mente first, ranked in *this* install's domain. Fail-soft — never gate the wake.
+    try:
+        import theme_suggest as _theme_suggest
+        from pathlib import Path as _Path
+        _home = _Path(__file__).resolve().parent.parent
+        # EDGE_HOME / cwd may differ; prefer install root containing agent.yaml near tools/
+        for _cand in (_Path.cwd(), _home):
+            if (_cand / "agent.yaml").is_file():
+                _home = _cand
+                break
+        print("\n\n---\n")
+        print(_theme_suggest.format_briefing_section(_home, n=6))
+    except Exception as e:  # noqa: BLE001
+        print(f"predispatch: theme_suggest DARK ({type(e).__name__}: {e})", file=sys.stderr)
 
 
 if __name__ == "__main__":
