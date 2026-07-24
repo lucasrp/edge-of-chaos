@@ -38,10 +38,25 @@ entram no plano e não podem alterá-lo.
    enough to see what moved, not a deep dive (depth belongs to the branches, each doing its own
    rounds).
 2. **PROPOSTA** — respeitando o `decision.producer` já fixado, o trunk produz uma proposta
-   explícita: QUAIS artefatos (1..N) nessa forma, por que cada um vale, e qual ângulo. The "why" is the plan-side gates the
-   close already carries (B.4): **VoI > custo** (vale surfar?), **é real** (grounded, not
-   manufactured), **é pra ele** (serves the mentee's live work — except `lazer`, which owes only
-   taste). The editorial-compass is the living prototype of this gate. A rotação já foi consumida
+   explícita: QUAIS artefatos (1..N) nessa forma, por que cada um vale, e qual ângulo.
+
+   **Theme choice (operator 2026-07-24) — mandatory for beat picks:**
+   - Run (or read from the wake if already printed):
+     `tools/edge-python tools/theme_suggest.py --edge-home "$PWD" -n 6 --form <decision.producer>`
+     (omit `--form` if the producer is not a form in the tool's choices; still run the tool).
+   - Primary gate is **Δ mente / abertura / bom-para-mim**: the mentee can say
+     *“eu não estava vendo X — e isso muda o jogo para mim”* **no domínio deste install**
+     (mission + Direction *set* already rank the candidates). Utility for code/board is
+     **optional and secondary** — never the default success criterion.
+   - Prefer candidates from that list (or invent a peer that passes the same DV). Reject
+     activity redigest (exp-as-title, placar, thrash, “o que se liga”, next arm) even if
+     Direction is noisy with tickets. Direction **profiles domain**; it does **not** monopolize theme.
+   - GraphRAG-class success is the template: a **world mechanism** that reopens what the
+     operator is already doing — not a safe remapping of open bets.
+
+   The "why" also carries the plan-side gates (B.4): **VoI > custo**, **é real**, **é pra ele**
+   (except `lazer`, taste only) — and for beat origin, **Δ mente no domínio** is first among
+   them. The editorial-compass is the living prototype of this gate. A rotação já foi consumida
    uma única vez pelo plano autoritativo; a cognição não a reabre nem faz queue-jump.
 
    **Contrato de pauta por atribuição:** a **Voz humana abre a pauta** — um problema formulado,

@@ -1,36 +1,29 @@
-"""theme_suggest — Artefato theme proposals (old edge-of-chaos shape + dual metric).
+"""theme_suggest — Artefato theme proposals (Δ mente + install domain).
 
 Policy (operator conversation 2026-07-24, genotype):
 
 **Dual metric (order matters):**
 1. **Δ mente / abertura / bom-para-mim** — primary. Passes only if the reader can
-   truthfully say: *“eu não estava vendo X — e isso muda o jogo para mim”*
-   (not merely *“agora sei o que testar no exp”*).
-2. **Utilidade (código / produto / bet)** — secondary, optional. Never required as the
-   close of a research/report theme. Good for handoff instruments; bad as the *default*
-   objective of genus research.
+   truthfully say: *"eu não estava vendo X — e isso muda o jogo para mim"*
+   (not merely *"agora sei o que testar no exp"*).
+2. **Utilidade (código / produto / bet)** — secondary, optional.
+
+**Install domain:** themes are *ranked for this edge_home* using mission + Direction
+**set** (curated) so Δ mente lands in *that* operator's domain (legal/IR vs mentor/memory
+vs product gate). Direction still does **not** seed ticket redigest — open bets are
+denylist + domain profile only.
 
 **Good theme**
-- Something the reader **does not already know**: world mechanism, field tension,
-  strategic bet/anti-bet, portable method, or operator-self unknown.
-- World hook with external lastro (paper / field / public docs).
-- Apply at **human altitude** first (identity, priority, time, power, trust, fear of ship)
-  or product altitude — never a path inventory / open-bet continuation.
+- World mechanism / field tension / strategic bet the reader does not already know
+- Apply at human altitude, bound to *this* install's mission
+- Exp/bet only as *case*, never title-source
 
 **Bad theme**
-- Redigest of own activity: open-bet continuation, thrash-guard, sitting card, exp-as-title.
-- “Safe near current work” that only remaps what is already in blog/Direction.
-- Success = next arm / next cycle / “o que se liga”.
-
-**Direction** open bets deny thrash; they do **not** monopolize theme generation.
-Recent self-corpus + ticket-ish stems are a *denylist*, never the primary seed pool.
-
-Offline by default (no network). Optional later: live Mundo probes can extend the pool
-without changing the shape contract.
+- Activity redigest / safe near current work / success = next arm
 
 CLI::
 
-    tools/edge-python tools/theme_suggest.py [--edge-home PATH] [-n 8] [--json]
+    tools/edge-python tools/theme_suggest.py [--edge-home PATH] [-n 8] [--form research] [--json]
 """
 from __future__ import annotations
 
@@ -41,7 +34,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Ticket / self-pipeline vocabulary — genotype-agnostic markers of activity-redigest.
 _REDIGEST = re.compile(
     r"(?:"
     r"\bexp\d{2,}\b"
@@ -68,7 +60,6 @@ _REDIGEST = re.compile(
     re.IGNORECASE,
 )
 
-# Apply lines that only point at code/paths — utility-only, fails dual metric primary.
 _CODE_ONLY_APPLY = re.compile(
     r"(?:"
     r"\b(tools/|skills/|tests/|state/|blog/entries)\b"
@@ -79,23 +70,18 @@ _CODE_ONLY_APPLY = re.compile(
     re.IGNORECASE,
 )
 
-# Tokenize for overlap against recent published stems.
 _WORD = re.compile(r"[a-z0-9]{3,}", re.IGNORECASE)
 
-# Content-class shapes (not form skill).
 SHAPES = (
-    "mechanism",        # how a real subsystem works
-    "cost_truth",       # numbers that reframe a decision (token OR attention)
-    "field_pattern",    # what the world is doing now
-    "portable_method",  # scientific / eng method that travels
-    "product_altitude", # product problem without code inventory
-    "strategic_bet",    # market/field bet or anti-bet; vision-level
-    "operator_self",    # mentee/unknown-unknowns about the human running the agent
+    "mechanism",
+    "cost_truth",
+    "field_pattern",
+    "portable_method",
+    "product_altitude",
+    "strategic_bet",
+    "operator_self",
 )
 
-# Seed pool: world-first + strategic + operator-self.
-# Application lines stay install-generic and prefer **human altitude** over code paths.
-# Exp/bet may appear only as *case* inside apply — never as title source.
 _SEED_POOL: list[dict[str, str]] = [
     # --- strategic / mind-open (lista-B spirit, genotype-portable) ---
     {
@@ -326,23 +312,78 @@ _SEED_POOL: list[dict[str, str]] = [
     },
 ]
 
+_FACET_SIGNALS: dict[str, tuple[str, ...]] = {
+    "legal_ir": (
+        "legal", "juríd", "jurid", "retrieval", "juris", "índice", "indice", "v10",
+        "busca", "search", "ranking", "ranker", "processo", "prova", "valorado",
+        "narrado", "pocket", "episteme", "instrução", "instrucao", "jurídico",
+    ),
+    "agent_memory": (
+        "memory", "memória", "memoria", "cortex", "assemble", "recall", "knows-years",
+        "staleness", "graphrag", "hierarchical", "nugget", "episodic", "semantic",
+    ),
+    "mentor": (
+        "mentor", "mentee", "persona", "telos", "unknown-unknown", "altitude",
+        "continuidade", "continuity", "shipável", "shipavel", "anti-pm", "operator",
+    ),
+    "product_gate": (
+        "gate", "triagem", "closavo", "score", "prontidão", "prontidao", "user-novo",
+        "placa", "superfície", "superficie", "qualifica",
+    ),
+    "eval_judge": (
+        "judge", "placar", "eval", "tournament", "campeonato", "llm-as-judge",
+        "variance", "variância", "variancia",
+    ),
+    "rite_agency": (
+        "rito", "agency", "authorial", "feynman", "genus", "artefato", "report",
+    ),
+    "systems": (
+        "caching", "context", "token", "multi-agent", "topology", "pipeline", "routing",
+    ),
+}
+
+_TITLE_DOMAIN_HINTS: list[tuple[str, list[str]]] = [
+    ("search as product", ["legal_ir"]),
+    ("containment vs decomposition", ["legal_ir", "agent_memory"]),
+    ("mean is the wrong", ["legal_ir", "eval_judge"]),
+    ("llm-as-judge", ["eval_judge", "legal_ir"]),
+    ("fact, narrative", ["legal_ir"]),
+    ("individualization vs recall", ["legal_ir", "agent_memory"]),
+    ("agent observability", ["mentor", "product_gate"]),
+    ("staleness of memory", ["agent_memory", "mentor"]),
+    ("preregistration", ["eval_judge", "mentor"]),
+    ("mentee of themselves", ["mentor"]),
+    ("cognitive cost of multi-model", ["eval_judge", "mentor"]),
+    ("legal-tech marketing", ["legal_ir"]),
+    ("prompt caching", ["systems"]),
+    ("grounding pass", ["systems", "rite_agency"]),
+    ("agent-memory products", ["agent_memory", "mentor"]),
+    ("graphrag", ["agent_memory", "legal_ir"]),
+    ("eval theater", ["eval_judge", "mentor"]),
+    ("multi-agent graphs", ["systems"]),
+    ("intermediate representations", ["agent_memory", "mentor"]),
+    ("blind first-draft", ["rite_agency", "mentor"]),
+    ("context stuffing", ["systems", "agent_memory"]),
+    ("operator altitude", ["mentor"]),
+    ("source-sufficiency", ["mentor"]),
+    ("green install", ["mentor", "product_gate"]),
+    ("two subjects, two contexts", ["agent_memory", "mentor"]),
+]
+
 
 def _normalize(text: str) -> str:
     return " ".join((text or "").lower().split())
 
 
 def is_activity_redigest(text: str) -> bool:
-    """True if the title/body smells like ticket/activity redigest (not world-new)."""
     return bool(_REDIGEST.search(text or ""))
 
 
 def is_code_only_apply(apply: str) -> bool:
-    """True if apply is utility-to-code only — fails primary Δ mente bar."""
     return bool(_CODE_ONLY_APPLY.search(apply or ""))
 
 
 def recent_entry_stems(blog_entries: Path, *, limit: int = 40) -> list[str]:
-    """Recent published HTML stems under blog/entries (mtime desc)."""
     root = Path(blog_entries)
     if not root.is_dir():
         return []
@@ -359,7 +400,6 @@ def _token_set(text: str) -> set[str]:
 
 
 def overlaps_self_corpus(title: str, stems: list[str], *, min_shared: int = 3) -> bool:
-    """True if title shares too many tokens with a recent self-published stem."""
     title_toks = _token_set(title)
     if len(title_toks) < min_shared:
         return False
@@ -371,7 +411,6 @@ def overlaps_self_corpus(title: str, stems: list[str], *, min_shared: int = 3) -
 
 
 def validate_card(card: dict[str, Any], *, stems: list[str] | None = None) -> list[str]:
-    """Structural + policy checks for one theme card. Returns violation codes."""
     required = ("shape", "form", "title", "unknown", "world_hook", "apply")
     bad: list[str] = []
     for k in required:
@@ -388,39 +427,142 @@ def validate_card(card: dict[str, Any], *, stems: list[str] | None = None) -> li
     form = card.get("form") or ""
     if form not in ("report", "research", "map", "plan", "discovery", "prototype", "critique"):
         bad.append("bad-form")
-    # World-first: world_hook must not be only internal state
     wh = _normalize(str(card.get("world_hook") or ""))
     if wh and not any(
         k in wh
         for k in (
-            "paper",
-            "arxiv",
-            "hn",
-            "field",
-            "docs",
-            "vendor",
-            "post",
-            "survey",
-            "x/",
-            "public",
-            "literature",
-            "product",
-            "writeup",
-            "benchmark",
-            "essay",
-            "primer",
-            "note",
+            "paper", "arxiv", "hn", "field", "docs", "vendor", "post", "survey",
+            "x/", "public", "literature", "product", "writeup", "benchmark",
+            "essay", "primer", "note",
         )
     ):
         if "blog/entries" in wh or "direction" in wh or "open bet" in wh:
             bad.append("world-hook-internal")
-    # Dual metric: apply must not be code/path-only utility
     if is_code_only_apply(str(card.get("apply") or "")):
         bad.append("code-only-apply")
-    # Prefer explicit mind_open; if present must be non-empty when key exists
     if "mind_open" in card and not str(card.get("mind_open") or "").strip():
         bad.append("missing:mind_open")
     return bad
+
+
+def _yaml_simple_load_identity(edge_home: Path) -> dict[str, str]:
+    path = Path(edge_home) / "agent.yaml"
+    out = {"name": "", "mission": "", "voice": "", "codename": ""}
+    if not path.is_file():
+        return out
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return out
+    for line in raw.splitlines():
+        s = line.strip()
+        if s.startswith("#") or ":" not in s:
+            continue
+        key, _, val = s.partition(":")
+        key = key.strip()
+        if key not in out:
+            continue
+        val = val.strip().strip('"').strip("'")
+        if val:
+            out[key] = val
+    return out
+
+
+def _direction_set_text(edge_home: Path) -> str:
+    path = Path(edge_home) / "state" / "direction.md"
+    if not path.is_file():
+        return ""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    lines: list[str] = []
+    in_set = False
+    for line in raw.splitlines():
+        if line.startswith("## Set"):
+            in_set = True
+            continue
+        if line.startswith("## ") and in_set:
+            break
+        if in_set and line.strip().startswith("-"):
+            if is_activity_redigest(line):
+                continue
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def load_install_context(edge_home: Path | None) -> dict[str, Any]:
+    if edge_home is None:
+        return {
+            "name": "", "mission": "", "voice": "", "direction_set": "",
+            "facets": set(), "domain_tokens": set(), "stems": [],
+        }
+    home = Path(edge_home)
+    ident = _yaml_simple_load_identity(home)
+    direction = _direction_set_text(home)
+    blob = " ".join([
+        ident.get("name") or "",
+        ident.get("mission") or "",
+        ident.get("voice") or "",
+        direction,
+    ]).lower()
+    facets: set[str] = set()
+    for facet, signals in _FACET_SIGNALS.items():
+        if any(sig.lower() in blob for sig in signals):
+            facets.add(facet)
+    if not facets:
+        facets.add("general")
+    tokens = _token_set(blob)
+    tokens -= {"the", "and", "for", "not", "with", "from", "that", "this", "are", "was", "que", "para", "com"}
+    return {
+        "name": ident.get("name") or "",
+        "mission": ident.get("mission") or "",
+        "voice": ident.get("voice") or "",
+        "direction_set": direction,
+        "facets": facets,
+        "domain_tokens": tokens,
+        "stems": recent_entry_stems(home / "blog" / "entries"),
+    }
+
+
+def seed_domains(card: dict[str, Any]) -> list[str]:
+    if card.get("domains"):
+        return list(card["domains"])  # type: ignore[return-value]
+    title = (card.get("title") or "").lower()
+    for hint, doms in _TITLE_DOMAIN_HINTS:
+        if hint in title:
+            return list(doms)
+    return ["general"]
+
+
+def domain_score(card: dict[str, Any], ctx: dict[str, Any]) -> float:
+    facets = ctx.get("facets") or set()
+    doms = set(seed_domains(card))
+    facet_hit = len(doms & set(facets))
+    blob = " ".join(str(card.get(k) or "") for k in ("title", "unknown", "mind_open", "world_hook"))
+    overlap = len(_token_set(blob) & (ctx.get("domain_tokens") or set()))
+    mo = 1.0 if str(card.get("mind_open") or "").strip() else 0.0
+    general_floor = 0.15 if ("general" in doms or not facets or facets == {"general"}) else 0.0
+    return mo * 2.0 + facet_hit * 3.0 + min(overlap, 8) * 0.35 + general_floor
+
+
+def bind_apply_to_domain(card: dict[str, Any], ctx: dict[str, Any]) -> str:
+    apply = str(card.get("apply") or "").strip()
+    mission = (ctx.get("mission") or "").strip()
+    name = (ctx.get("name") or "this install").strip()
+    if not mission:
+        return apply
+    if "Δ mente must land" in apply or "mission:" in apply:
+        return apply
+    snip = mission[:160].rstrip().rstrip(".")
+    if len(mission) > 160:
+        snip += "…"
+    bind = (
+        f" Δ mente must land for **{name}** in its live domain — mission: {snip}. "
+        "Exp/board may appear only as a case, never as the title-source."
+    )
+    base = apply.rstrip().rstrip(".")
+    return base + "." + bind
 
 
 def suggest_themes(
@@ -429,48 +571,57 @@ def suggest_themes(
     n: int = 8,
     pool: list[dict[str, str]] | None = None,
     prefer_mind_open: bool = True,
+    form: str | None = None,
+    domain_rank: bool = True,
 ) -> list[dict[str, Any]]:
-    """Return up to n theme cards that pass the dual-metric policy filter.
-
-    Reads local blog/entries only to *exclude* self-redigest — never as theme seeds.
-    When prefer_mind_open, cards with mind_open and strategic/operator shapes sort first.
-    """
-    stems: list[str] = []
-    if edge_home is not None:
-        stems = recent_entry_stems(Path(edge_home) / "blog" / "entries")
-
+    """Return up to n theme cards (dual metric + install domain rank)."""
+    ctx = load_install_context(edge_home)
+    stems: list[str] = list(ctx.get("stems") or [])
     raw_pool = list(pool if pool is not None else _SEED_POOL)
-    if prefer_mind_open:
-        priority = {
-            "strategic_bet": 0,
-            "operator_self": 1,
-            "field_pattern": 2,
-            "product_altitude": 3,
-            "portable_method": 4,
-            "cost_truth": 5,
-            "mechanism": 6,
-        }
+    if form:
+        filtered = [c for c in raw_pool if (c.get("form") or "") == form]
+        raw_pool = filtered or raw_pool
 
-        def _key(c: dict[str, str]) -> tuple[int, int]:
-            has_mo = 0 if str(c.get("mind_open") or "").strip() else 1
-            return (has_mo, priority.get(c.get("shape") or "", 9))
+    shape_priority = {
+        "strategic_bet": 0,
+        "operator_self": 1,
+        "field_pattern": 2,
+        "product_altitude": 3,
+        "portable_method": 4,
+        "cost_truth": 5,
+        "mechanism": 6,
+    }
 
-        raw_pool = sorted(raw_pool, key=_key)
+    def _sort_key(c: dict[str, str]) -> tuple:
+        has_mo = 0 if str(c.get("mind_open") or "").strip() else 1
+        dscore = -domain_score(c, ctx) if domain_rank and edge_home is not None else 0.0
+        sp = shape_priority.get(c.get("shape") or "", 9) if prefer_mind_open else 0
+        return (has_mo, dscore, sp)
 
+    raw_pool = sorted(raw_pool, key=_sort_key)
     out: list[dict[str, Any]] = []
     for raw in raw_pool:
         card = dict(raw)
+        card["domains"] = seed_domains(card)
         card["slug_hint"] = re.sub(r"[^a-z0-9]+", "-", card["title"].lower()).strip("-")[:80]
         viol = validate_card(card, stems=stems)
         if viol:
             continue
+        if edge_home is not None:
+            card["apply"] = bind_apply_to_domain(card, ctx)
+            if is_code_only_apply(card["apply"]):
+                continue
+        dscore = domain_score(card, ctx) if edge_home is not None else 0.0
+        card["domain_score"] = round(dscore, 3)
+        card["install_facets"] = sorted(ctx.get("facets") or [])
         card["policy"] = {
-            "source": "world-seed-pool",
-            "direction_role": "denylist-only",
+            "source": "world-seed-pool+install-domain-rank",
+            "direction_role": "domain-profile+denylist",
             "not": "open-bet-continuation",
             "primary_metric": "mind-open-bom-para-mim",
             "secondary_metric": "code-product-utility-optional",
-            "dv": "reader can say: I wasn't seeing X — that changes the game for me",
+            "domain": "install-mission+direction-set",
+            "dv": "reader can say: I wasn't seeing X — that changes the game for me (in this domain)",
         }
         out.append(card)
         if len(out) >= n:
@@ -478,20 +629,27 @@ def suggest_themes(
     return out
 
 
-def format_markdown(cards: list[dict[str, Any]]) -> str:
-    """Human-readable smoke output."""
+def format_markdown(cards: list[dict[str, Any]], *, ctx: dict[str, Any] | None = None) -> str:
     lines = [
-        "# Theme smoke — dual metric (Δ mente first, utility optional)",
+        "# Theme candidates — Δ mente first, **install domain** ranked",
         "",
-        "Primary: **abertura / bom-para-mim** — not activity redigest, not code-only close.",
-        "Direction open bets are **denylist only**. Self-corpus stems filter overlap; they do not seed.",
-        "Each card: unknown + world hook + human-altitude apply + mind_open.",
+        "Primary: **abertura / bom-para-mim** (not activity redigest, not code-only close).",
+        "Domain: mission + Direction *set* rank the world pool — they do **not** seed tickets.",
+        "DV: *I wasn't seeing X — that changes the game for me* (in **this** domain).",
         "",
     ]
+    if ctx:
+        lines += [
+            f"- **install:** `{ctx.get('name') or '?'}`",
+            f"- **mission:** {(ctx.get('mission') or '')[:220]}",
+            f"- **facets:** `{', '.join(sorted(ctx.get('facets') or []))}`",
+            "",
+        ]
     for i, c in enumerate(cards, 1):
         lines += [
             f"## {i}. {c['title']}",
-            f"- **form:** `{c['form']}` · **shape:** `{c['shape']}`",
+            f"- **form:** `{c['form']}` · **shape:** `{c['shape']}` · **domain_score:** `{c.get('domain_score', '')}`",
+            f"- **domains:** `{', '.join(c.get('domains') or [])}`",
             f"- **slug_hint:** `{c.get('slug_hint', '')}`",
             f"- **unknown (why new):** {c['unknown']}",
             f"- **world hook:** {c['world_hook']}",
@@ -504,24 +662,37 @@ def format_markdown(cards: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def format_briefing_section(edge_home: Path, *, n: int = 6, form: str | None = None) -> str:
+    cards = suggest_themes(edge_home=edge_home, n=n, form=form, prefer_mind_open=True, domain_rank=True)
+    ctx = load_install_context(edge_home)
+    return format_markdown(cards, ctx=ctx)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument(
-        "--edge-home",
-        default=None,
-        help="Install root (default: parent of tools/). Used only to denylist recent entries.",
-    )
+    ap.add_argument("--edge-home", default=None, help="Install root (domain rank + denylist)")
     ap.add_argument("-n", type=int, default=8, help="Max themes (default 8)")
+    ap.add_argument(
+        "--form", default=None,
+        choices=("report", "research", "map", "plan", "discovery", "prototype", "critique"),
+        help="Filter seed form to match beat producer",
+    )
     ap.add_argument("--json", action="store_true", help="Machine-readable cards")
     args = ap.parse_args(argv)
-
     edge_home = Path(args.edge_home).expanduser() if args.edge_home else Path(__file__).resolve().parent.parent
-    cards = suggest_themes(edge_home=edge_home, n=args.n)
+    cards = suggest_themes(edge_home=edge_home, n=args.n, form=args.form)
+    ctx = load_install_context(edge_home)
     if args.json:
-        print(json.dumps(cards, ensure_ascii=False, indent=2))
+        print(json.dumps({
+            "context": {
+                "name": ctx.get("name"),
+                "mission": ctx.get("mission"),
+                "facets": sorted(ctx.get("facets") or []),
+            },
+            "themes": cards,
+        }, ensure_ascii=False, indent=2))
     else:
-        print(format_markdown(cards), end="")
-    # Smoke exit: must produce at least half of requested (or all if n small)
+        print(format_markdown(cards, ctx=ctx), end="")
     need = max(1, min(args.n, 4))
     return 0 if len(cards) >= need else 1
 

@@ -2,7 +2,7 @@
 
 The producer-loop every producer-skill inherits (ADR-0012). A producer-skill — `report`,
 `map`, `research`, `plan`, … — does **not** write its own loop. It inherits this scaffold,
-supplies the theme and the producing cognition, and fills three **role-defined slots**. The
+supplies the theme and the producing cognition, and fills three **role-defined slots**. **Theme policy (beats and autonomous producers):** when the theme is not a direct `user_requested` title from the mentee, choose it under **Δ mente first** in *this* install's domain — run `tools/edge-python tools/theme_suggest.py --edge-home "$PWD" -n 6` (optional `--form <this skill>`). Success = the operator can say they weren't seeing X and that changes the game for them; code/board utility is optional. Never seed from open-bet / exp ticket vocabulary. The
 loop structure and the context-denial ladder are the same for every producer; only the slot
 *content* differs.
 
