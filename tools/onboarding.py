@@ -70,6 +70,53 @@ def inventory_secrets(secrets: Path | str) -> dict[str, Any]:
     return {"files": files, "vars": vars_, "by_file": by_file, "path": str(root)}
 
 
+# O que o lookback do primeiro assemble/wake vai comer, por harness instalado.
+# ponytail: taxa fixa; calibrar quando houver medição real de assemble/min.
+_EST_MB_PER_MIN = 5.0
+
+_SESSION_STORES = {
+    "claude": ".claude/projects",
+    "codex": ".codex/sessions",
+    "grok": ".grok/sessions",
+}
+
+
+def backfill_estimate(days: int, home: Path | str | None = None,
+                      env: Optional[dict] = None) -> dict[str, Any]:
+    """Quanto histórico o lookback de `days` pega (o cheque do 'não vai demorar demais').
+
+    Varre `*.jsonl` mais novos que `days` nos session stores dos harnesses PRESENTES
+    (mesma detecção do bootstrap: diretório-home do harness existe). Devolve números
+    mecânicos — {surfaces: {nome: {files, mb}}, files, mb, est_minutes}; o juízo de
+    "absurdo" é semântico e fica com o agente que guia o onboarding, nunca aqui."""
+    import time as _time
+    home = Path(home).expanduser() if home else Path.home()
+    cutoff = _time.time() - int(days) * 86400
+    surfaces: dict[str, dict] = {}
+    total_files, total_bytes = 0, 0
+    for name, rel in _SESSION_STORES.items():
+        harness_home = home / rel.split("/")[0]
+        if not harness_home.is_dir():
+            continue
+        store = home / rel
+        files, size = 0, 0
+        if store.is_dir():
+            for p in store.rglob("*.jsonl"):
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                if st.st_mtime >= cutoff:
+                    files += 1
+                    size += st.st_size
+        surfaces[name] = {"files": files, "mb": round(size / 1e6, 2)}
+        total_files += files
+        total_bytes += size
+    mb = round(total_bytes / 1e6, 2)
+    return {"surfaces": surfaces, "files": total_files, "mb": mb,
+            "days": int(days), "est_minutes": round(mb / _EST_MB_PER_MIN, 1)}
+
+
 def require_name(cli_value: Optional[str], env: Optional[dict] = None) -> str:
     env = env if env is not None else os.environ
     name = (cli_value or env.get("EDGE_AGENT_NAME") or "").strip()

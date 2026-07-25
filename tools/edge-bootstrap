@@ -52,6 +52,39 @@ def cmd_bootstrap(args) -> int:
     return 0
 
 
+def cmd_estimate(args) -> int:
+    """O cheque do lookback: quanto história `--days` pega e a estimativa de minutos.
+    Números mecânicos — o juízo de 'absurdo' é do agente que guia o onboarding."""
+    est = onboarding.backfill_estimate(args.days)
+    for name, row in est["surfaces"].items():
+        print(f"estimate: {name}: {row['files']} sessões, {row['mb']} MB")
+    print(f"estimate: total {est['files']} sessões, {est['mb']} MB em {est['days']} dias")
+    print(f"estimate: primeiro assemble/wake ~{est['est_minutes']} min")
+    print(json.dumps(est, indent=2))
+    return 0
+
+
+def cmd_runtime(args) -> int:
+    """Sobe o runtime local (Neo4j pinado via docker) no caminho first-run — antes só
+    edge-apply --provision-runtime fazia isso. Idempotente; sem docker, falha explicada."""
+    if not args.home:
+        print("edge-bootstrap runtime: --home or EDGE_HOME required", file=sys.stderr)
+        return 2
+    import _provision
+    home = Path(os.path.expanduser(args.home))
+    env_dir = onboarding.secrets_dir(home)
+    try:
+        secret = _provision.provision_neo4j(home, env_dir)
+    except RuntimeError as e:
+        print(f"runtime: DARK — {e}", file=sys.stderr)
+        return 3
+    print(f"runtime: neo4j up (container {_provision.NEO4J_CONTAINER}, "
+          f"image {_provision.NEO4J_IMAGE})")
+    print(f"runtime: secret → {secret}")
+    print(json.dumps({"ok": True, "secret": str(secret)}, indent=2))
+    return 0
+
+
 def cmd_finish(args) -> int:
     if not args.home:
         print("edge-bootstrap finish: --home or EDGE_HOME required", file=sys.stderr)
@@ -97,6 +130,12 @@ def main(argv=None) -> int:
     b.add_argument("--primary", default="claude")
     b.add_argument("--no-provision-skills", action="store_true")
 
+    e = sub.add_parser("estimate", help="lookback check: sessions/MB/minutes for --days")
+    e.add_argument("--days", type=int, required=True)
+
+    r = sub.add_parser("runtime", help="bring up local Neo4j (docker) for first-run")
+    r.add_argument("--home", default=os.environ.get("EDGE_HOME"))
+
     f = sub.add_parser("finish", help="after mentor: grill_gate + emit agent.yaml")
     f.add_argument("--home", default=os.environ.get("EDGE_HOME"))
     f.add_argument("--log", default=None)
@@ -108,6 +147,10 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.cmd == "finish":
         return cmd_finish(args)
+    if args.cmd == "estimate":
+        return cmd_estimate(args)
+    if args.cmd == "runtime":
+        return cmd_runtime(args)
     return cmd_bootstrap(args)
 
 

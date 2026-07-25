@@ -18,7 +18,14 @@ On **ed** and **roberto** (all three CLIs present), a normal install fills all t
 
 ## First-run (no `agent.yaml` yet)
 
-`agent.yaml` is the **output** of onboarding, not the seed. Order:
+**Agentic path (recommended):** clone, open your CLI (Claude/Codex/Grok) in the repo and
+ask for the guided install — the `onboard` skill (`skills/onboard/SKILL.md`; `/ed-onboard`
+once provisioned) interviews you (name, home, secrets, backfill days **with a cost check**
+— `edge-bootstrap estimate --days N`), runs every step below explaining as it goes,
+brings up the Neo4j runtime (`edge-bootstrap runtime`), and flows straight into the first
+mentor session before closing with `finish` + heartbeat + the local blog URL.
+
+The manual road underneath: `agent.yaml` is the **output** of onboarding, not the seed. Order:
 
 1. **Deliver secrets** into a folder the install will read  
 2. **Bootstrap** (name, lookback days, adversarials, optional embeddings)  
@@ -69,9 +76,10 @@ Heartbeat stays **off** until onboarding completes.
 
 ### After bootstrap
 
-1. Run **wake / predispatch** (lookback = install `backfill_days`) — auto-stamps `state/onboarding-insumo.md` (wake package **without** Direction).  
-2. Run **`/ed-mentor`** with that insumo — mentor creates objective/direction/leveling.  
-3. Close install:
+1. Bring up the local runtime: `tools/edge-python tools/edge-bootstrap runtime --home "$EDGE_HOME"` — pinned Neo4j 5.x in docker (container `edge-neo4j`, generated password → `secrets/neo4j.env`, idempotent). No docker → declared-dark (FTS covers zero-key).  
+2. Run **wake / predispatch** (lookback = install `backfill_days`) — auto-stamps `state/onboarding-insumo.md` (wake package **without** Direction).  
+3. Run **`/ed-mentor`** with that insumo — mentor creates objective/direction/leveling.  
+4. Close install:
 
 ```bash
 tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
@@ -79,7 +87,7 @@ tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
 # optional: --enable-heartbeat
 ```
 
-4. Only then may autonomous beat/heartbeat be enabled.
+5. Only then may autonomous beat/heartbeat be enabled (`--enable-heartbeat` = systemd user timer + linger). Artifacts read at **http://127.0.0.1:8766** (`blog-server`, loopback-only).
 
 Full contract: [`docs/specs/onboarding-first-run.md`](docs/specs/onboarding-first-run.md).
 
