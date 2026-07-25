@@ -126,8 +126,10 @@ mission-and-voice form-fill. The bar:
 1. **SENTIR first, with provenance** — open with what you READ in the insumo, never with
    a blank question, and every observation about the operator's work NAMES where it was
    seen, naturally in-speech: "vi aqui no teu GitHub que...", "nas tuas sessões de 12/jun
-   você...", "o teu repo X faz...". Contextualize their work back to them — a claim about
-   the operator with no visible source reads as guessing, and being seen is the point.
+   você...", "o teu repo X faz...". CITE the communities the graph formed (by name) and
+   what you already know about the mentee from the wake — perfil, frentes abertas,
+   hábitos — so the operator hears their own map read back. A claim about the operator
+   with no visible source reads as guessing, and being seen is the point.
 2. **Grill the person, not the form** — telos, driver, values, constraints, active
    frontier. When they name a goal ("virar um SaaS"), do not record it and move on: grill
    WHY, for WHOM, what breaks first, what they are afraid of, what they already tried.
