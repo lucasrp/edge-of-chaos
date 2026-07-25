@@ -326,13 +326,32 @@ def _render_tpl(text, agent_yaml=AGENT_YAML):
     """Substitute {{var}} from agent.yaml identity fields (same convention as templates/).
     FAIL-CLOSED (gate root-cause #1): a referenced identity field (name/mission/voice) that is
     absent or blank in agent.yaml raises BriefingIdentityError rather than silently substituting
-    empty — a thin identity must fail loud, never blank the personality tattoo."""
+    empty — a thin identity must fail loud, never blank the personality tattoo.
+
+    First-run soft path: when agent.yaml is absent but state/bootstrap.json exists, fill name
+    from bootstrap and temporary mission/voice placeholders so wake/assemble can orient.
+    """
     import re
     import yaml
     cfg = {}
     p = Path(agent_yaml)
     if p.exists():
         cfg = yaml.safe_load(p.read_text()) or {}
+    else:
+        # onboarding: soft identity from bootstrap
+        try:
+            import onboarding as _onb
+            home = os.environ.get("EDGE_HOME")
+            if home and (Path(os.path.expanduser(home)) / "state" / "bootstrap.json").is_file():
+                boot = _onb.load_bootstrap(home)
+                cfg = {
+                    "name": boot.get("name") or "edge",
+                    "codename": boot.get("name") or "edge",
+                    "mission": "(first-run — mission born in mentor)",
+                    "voice": "(first-run — voice born in mentor)",
+                }
+        except Exception:
+            cfg = {}
     cfg.setdefault("codename", cfg.get("name", ""))
     refs = set(re.findall(r"\{\{\s*(\w+)\s*\}\}", text))
     missing = [k for k in REQUIRED_IDENTITY if k in refs and not str(cfg.get(k, "")).strip()]

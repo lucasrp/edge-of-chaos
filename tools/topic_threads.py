@@ -352,6 +352,7 @@ def index_session_topics(
     *,
     window_days: int = WINDOW_DAYS,
     min_score: int = 1,
+    authoritative: bool = False,
     log=eventlog.LOG,
 ) -> int:
     existing = {}
@@ -361,7 +362,10 @@ def index_session_topics(
         if isinstance(sid, str) and isinstance(tid, str) and isinstance(ch, str):
             existing[(sid, tid)] = ch
     written = 0
-    for topic in infer_session_topics(fragments, min_score=min_score):
+    inferred = infer_session_topics(fragments, min_score=min_score)
+    topics_by_session: dict[str, list[str]] = defaultdict(list)
+    for topic in inferred:
+        topics_by_session[topic.session_id].append(topic.topic_id)
         ev = eventlog.record_session_topic(
             topic.session_id,
             topic.topic_id,
@@ -379,6 +383,14 @@ def index_session_topics(
         if isinstance(ch, str) and existing.get(key) != ch:
             written += 1
             existing[key] = ch
+    for session_id in sorted({fragment.session_id for fragment in fragments}):
+        eventlog.record_session_topics_snapshot(
+            session_id, topics_by_session.get(session_id, []),
+            window_days=window_days, log=log)
+    if authoritative:
+        eventlog.record_session_topics_generation(
+            sorted({fragment.session_id for fragment in fragments}),
+            window_days=window_days, log=log)
     return written
 
 
@@ -534,7 +546,8 @@ def sync_recent_topic_memory(
                                         claude_root=claude_root,
                                         all_stores=all_stores, now=now)
     topics_written = index_session_topics(fragments, window_days=window_days,
-                                          min_score=index_min_score, log=log)
+                                          min_score=index_min_score,
+                                          authoritative=(all_stores is True), log=log)
     directions = infer_topic_directions(fragments, window_days=window_days,
                                         min_fragments=min_fragments, min_score=min_score)
     status = _direction_status(log)

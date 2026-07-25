@@ -247,6 +247,46 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
     return routers
 
 
+# Known secret files → optional phenotype wiring (names only; values never leave secrets/).
+_KNOWN_SECRET_SOURCES = (
+    # (file, var, source_name, kind, description)
+    ("exa.env", "EXA_API_KEY", "exa", "api",
+     "Neural/semantic web + paper search (Mundo/Atividade)."),
+    ("xai.env", "XAI_API_KEY", "x", "api",
+     "X/Twitter practitioner chatter (Mundo) — API fallback; prefer grok CLI when present."),
+    ("github.env", "GITHUB_TOKEN", "github", "cli",
+     "GitHub via gh CLI (Atividade + Mundo)."),
+)
+
+
+def _sources_from_inventory(inventory: Optional[dict]) -> list[dict]:
+    """Declare sources only when the matching secret file/var is present in secrets/."""
+    if not inventory:
+        return []
+    files = set(inventory.get("files") or [])
+    vars_ = set(inventory.get("vars") or [])
+    by_file = inventory.get("by_file") or {}
+    out: list[dict] = []
+    for fname, var, sname, kind, desc in _KNOWN_SECRET_SOURCES:
+        if fname not in files and var not in vars_:
+            continue
+        # prefer exact file that holds the var
+        secret_file = fname
+        for f, names in by_file.items():
+            if var in (names or []):
+                secret_file = f
+                break
+        entry = {
+            "name": sname,
+            "kind": kind,
+            "description": desc,
+        }
+        if kind == "api":
+            entry["secret_ref"] = f"{secret_file}:{var}"
+        out.append(entry)
+    return out
+
+
 def bootstrap_cfg(
     *,
     home: Path | str,
@@ -257,20 +297,48 @@ def bootstrap_cfg(
     inventory: Optional[dict] = None,
     primary: str = "claude",
 ) -> dict:
-    """Minimal phenotype-shaped cfg for bootstrap (pre–agent.yaml)."""
-    home_s = str(Path(home).expanduser())
+    """Minimal phenotype-shaped cfg for bootstrap (pre–agent.yaml).
+
+    Always declares ``env_dir`` as the install secrets folder (CONTRACT C4): the operator
+    delivers keys there; apply/onboarding only read. Values never enter this cfg.
+    """
+    home_p = Path(home).expanduser()
+    home_s = str(home_p)
     if home_s.startswith(str(Path.home())):
         # keep ~ form when under home for readability
         try:
-            home_s = "~/" + str(Path(home).expanduser().relative_to(Path.home()))
+            home_s = "~/" + str(home_p.relative_to(Path.home()))
         except ValueError:
             pass
+    if not home_s.endswith("/"):
+        home_s = home_s + "/"
+    # env_dir: absolute secrets path preferred (apply expanduser); relative "secrets" also works
+    sdir = secrets_dir(home_p)
+    try:
+        env_dir_s = str(sdir.relative_to(home_p))  # typically "secrets"
+    except ValueError:
+        env_dir_s = str(sdir)
     cast = adversarials or resolve_adversarial_cast([], primary=primary)
+    routers = _routers_for_cfg(cast, cast.get("primary") or primary, embedding)
+    # neo4j is not a router — graph password lives in secrets/neo4j.env (EDGE_NEO4J_PASSWORD)
+    sources = _sources_from_inventory(inventory)
+    # Multi-CLI: declare every surface installed on this host (claude + codex + grok)
+    try:
+        import surfaces_cfg as _surfaces
+        surfaces_block = _surfaces.surfaces_block_for_installed()
+    except Exception:
+        surfaces_block = {
+            "claude": {"enabled": True},
+            "codex": {"enabled": True, "home": "~/.codex"},
+            "grok": {"enabled": True, "home": "~/.grok"},
+        }
     cfg: dict[str, Any] = {
         "name": name,
         "codename": name,
         "graph_group": os.environ.get("EDGE_GROUP") or name,
-        "edge_home": home_s if home_s.endswith("/") else home_s + "/",
+        "edge_home": home_s,
+        # CONTRACT C4 — secrets live here; installer verifies, never invents keys
+        "env_dir": env_dir_s,
         "skill_prefix": name if name != "edge" else "ed",
         "tool_prefix": "edge",
         "language": "en",
@@ -278,14 +346,17 @@ def bootstrap_cfg(
         "voice": "",
         "lentes": {"backfill_days": int(backfill_days)},
         "adversarials": _adversarials_for_cfg(cast, cast.get("primary") or primary),
-        "routers": _routers_for_cfg(cast, cast.get("primary") or primary, embedding),
-        "sources": [],  # filled later / dark until phenotype
+        "routers": routers,
+        "sources": sources,
+        "surfaces": surfaces_block,
         "heartbeat_interval": "8h",
     }
     if inventory is not None:
-        cfg["_secrets_inventory"] = {
-            "files": inventory.get("files") or [],
-            "vars": inventory.get("vars") or [],
+        # durable inventory of *names* present at emit (not values)
+        cfg["secrets"] = {
+            "dir": env_dir_s,
+            "files": list(inventory.get("files") or []),
+            "vars": list(inventory.get("vars") or []),
         }
     return cfg
 
@@ -525,8 +596,17 @@ def emit_phenotype(
         cfg["voice"] = voice
     if mentee:
         cfg["mentee"] = mentee
-    # strip internal keys
+    # strip any non-yaml internal markers
     cfg.pop("_secrets_inventory", None)
+    # re-assert secrets block from live inventory at emit time
+    if inv:
+        env_dir_s = cfg.get("env_dir") or "secrets"
+        cfg["secrets"] = {
+            "dir": env_dir_s,
+            "files": list(inv.get("files") or []),
+            "vars": list(inv.get("vars") or []),
+        }
+        cfg["sources"] = _sources_from_inventory(inv)
     path = phenotype_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".yaml.tmp")
@@ -535,6 +615,93 @@ def emit_phenotype(
         encoding="utf-8",
     )
     tmp.replace(path)
+    return path
+
+
+def resolve_install_home(home: Optional[Path | str] = None, env: Optional[dict] = None) -> Optional[Path]:
+    """Resolve install root: arg → EDGE_HOME → path with state/bootstrap.json near cwd/repo."""
+    env = env if env is not None else os.environ
+    if home is not None:
+        return Path(home).expanduser()
+    raw = env.get("EDGE_HOME")
+    if raw:
+        return Path(os.path.expanduser(str(raw)))
+    for cand in (Path.cwd(), Path(__file__).resolve().parent.parent):
+        if (cand / "state" / BOOTSTRAP_NAME).is_file():
+            return cand
+    return None
+
+
+def is_first_run(home: Path | str) -> bool:
+    """True when bootstrap exists and phenotype is not yet present (mentor not finished)."""
+    home = Path(home).expanduser()
+    if not (home / "state" / BOOTSTRAP_NAME).is_file():
+        return False
+    return not is_phenotype_present(home)
+
+
+def maybe_stamp_insumo(
+    home: Optional[Path | str] = None,
+    *,
+    briefing_text: str = "",
+    recall_text: str = "",
+    quente_text: str = "",
+    delta_text: str = "",
+) -> Optional[Path]:
+    """Stamp mentor insumo when first-run; no-op if settled phenotype or no bootstrap.
+
+    Called after predispatch/wake so mentor has structured material (observe FIRST).
+    """
+    home_p = resolve_install_home(home)
+    if home_p is None or not is_first_run(home_p):
+        return None
+    boot = load_bootstrap(home_p)
+    if not boot:
+        return None
+    inv = inventory_secrets(secrets_dir(home_p))
+    delta = secrets_delta(home_p, inv)
+    # Prefer full briefing as assemble body; recall as recall leg
+    text = compose_insumo(
+        home=home_p,
+        bootstrap=boot,
+        inventory=inv,
+        secrets_delta_=delta,
+        assemble_text=briefing_text or "",
+        quente_text=quente_text or "",
+        delta_text=delta_text or "",
+        recall_text=recall_text or "",
+    )
+    path = write_insumo(home_p, text)
+    stamp_secrets_cursor(home_p, inv)
+    return path
+
+
+def finish_onboarding(
+    home: Path | str,
+    *,
+    log=None,
+    mission: str = "",
+    voice: str = "",
+    mentee: Optional[str] = None,
+    enable_heartbeat: bool = False,
+    run=None,
+) -> Path:
+    """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable."""
+    home = Path(home).expanduser()
+    import grill_gate
+    import eventlog as _eventlog
+
+    log_path = log if log is not None else _eventlog.LOG
+    grill_gate.assert_grill_complete(log=log_path)
+    path = emit_phenotype(
+        home, mission=mission, voice=voice, mentee=mentee
+    )
+    if enable_heartbeat:
+        import _provision
+        kwargs = {}
+        if run is not None:
+            kwargs["run"] = run
+        _provision.enable_heartbeat(**kwargs)
     return path
 
 
@@ -577,17 +744,54 @@ def run_bootstrap(
         inventory=inv,
         primary=primary,
     )
+    # Place canonical skills under install home so Claude/Codex/Grok wrappers resolve
+    try:
+        import shutil
+        repo = Path(__file__).resolve().parent.parent
+        src_skills = repo / "skills"
+        if src_skills.is_dir():
+            dst_skills = home / "skills"
+            if not dst_skills.exists():
+                shutil.copytree(
+                    src_skills, dst_skills,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                )
+            else:
+                # merge: copy any missing skill dirs
+                for child in src_skills.iterdir():
+                    if child.is_dir() and not (dst_skills / child.name).exists():
+                        shutil.copytree(
+                            child, dst_skills / child.name,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                        )
+    except Exception as e:  # noqa: BLE001
+        payload["skills_copy_warning"] = f"{type(e).__name__}: {e}"
+
     if provision_skills:
         try:
+            import surfaces_cfg
             import _claude_provision
             import _grok_provision
             import _codex_provision
 
             repo = Path(__file__).resolve().parent.parent
-            claude_home = Path.home() / ".claude"
-            _claude_provision.provision_claude(cfg, repo, claude_home)
-            _grok_provision.provision_grok(cfg, repo, home, Path.home() / ".grok")
-            _codex_provision.provision_codex(cfg, repo, home, Path.home() / ".codex")
+            installed = surfaces_cfg.detect_installed_surfaces()
+            provisioned = []
+            # Always try all installed harnesses (operator: install on claude + codex + grok)
+            if installed.get("claude", True):
+                claude_home = Path.home() / ".claude"
+                for row in _claude_provision.provision_claude(cfg, repo, claude_home):
+                    provisioned.append(f"claude: {row}")
+            if installed.get("codex", False) or surfaces_cfg.provision_surface("codex", cfg=cfg):
+                codex_home = Path.home() / ".codex"
+                for row in _codex_provision.provision_codex(cfg, repo, home, codex_home):
+                    provisioned.append(f"codex: {row}")
+            if installed.get("grok", False) or surfaces_cfg.provision_surface("grok", cfg=cfg):
+                grok_home = Path.home() / ".grok"
+                for row in _grok_provision.provision_grok(cfg, repo, home, grok_home):
+                    provisioned.append(f"grok: {row}")
+            payload["provisioned_surfaces"] = provisioned
+            payload["installed_surfaces"] = installed
         except Exception as e:  # noqa: BLE001 — bootstrap still succeeds; report
             payload["provision_warning"] = f"{type(e).__name__}: {e}"
     # never call install_heartbeat here

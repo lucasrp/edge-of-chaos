@@ -23,6 +23,13 @@ def _nothing_changed():
             "goal": "implementar as lentes",
             "acao": "revisou o contrato",
             "entidades": [],
+            "attribution": {
+                "human_purpose": "implementar as lentes",
+                "human_turn_indexes": [0],
+                "edge_execution": "revisou o contrato",
+                "shared_outcome": "revisou o contrato",
+                "activity_relevant": True,
+            },
         },
         "epistemico": {"presuncoes": []},
         "organizacional": {"enderecos": []},
@@ -86,6 +93,98 @@ class NothingChangedTracerBullet(unittest.TestCase):
             self.assertEqual(open_payload["author"], "racionalizador")
             self.assertEqual(open_payload["origem_sessao"], "session-1")
             self.assertEqual(written[2]["payload"]["novo"], "revisou o contrato")
+
+
+class HumanPurposeOwnsTheActivity(unittest.TestCase):
+    def test_edge_execution_cannot_replace_the_human_purpose(self):
+        """The dialogue is shared, but the portfolio records the human's employment horizon."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["stitch"] = {
+                "goal": "implementar POST /billing/recurrence com idempotency_key",
+                "acao": "adicionou rota, migration e testes",
+                "entidades": [],
+                "attribution": {
+                    "human_purpose": "controlar cobranças recorrentes a partir da conversa",
+                    "human_turn_indexes": [0],
+                    "edge_execution": "adicionou rota, migration e testes",
+                    "shared_outcome": "a cobrança recorrente passou a ter um fluxo controlado",
+                    "activity_relevant": True,
+                },
+            }
+            turns = [
+                {"role": "human", "text": (
+                    "quero gerar uma cobrança ou cadastrar recorrência da conversa; "
+                    "a IA deve ficar controlada nesse fluxo"
+                )},
+                {"role": "edge", "text": (
+                    "Implementei POST /billing/recurrence com idempotency_key, migration e testes."
+                )},
+            ]
+
+            result = racionalizador.rationalize(
+                "session-role-attribution", turns,
+                lambda _prompt: json.dumps(output), log=log,
+            )
+
+            opened = next(e for e in result["emitted"] if e["type"] == "atividade.opened")
+            touched = next(e for e in result["emitted"] if e["type"] == "atividade.touched")
+            self.assertEqual(
+                opened["payload"]["finalidade"],
+                "controlar cobranças recorrentes a partir da conversa",
+            )
+            self.assertEqual(
+                touched["payload"]["novo"],
+                "a cobrança recorrente passou a ter um fluxo controlado",
+            )
+            self.assertEqual(
+                result["emitted"][0]["payload"]["stitch"]["attribution"]["edge_execution"],
+                "adicionou rota, migration e testes",
+            )
+
+    def test_attribution_must_cite_a_human_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = _nothing_changed()
+            output["stitch"]["attribution"]["human_turn_indexes"] = [1]
+
+            result = racionalizador.rationalize(
+                "session-wrong-speaker",
+                [
+                    {"role": "human", "text": "quero decidir o risco aceitável"},
+                    {"role": "edge", "text": "implementei o lock"},
+                ],
+                lambda _prompt: json.dumps(output),
+                log=log,
+            )
+
+            self.assertEqual(result["skipped_reason"], "invalid_output")
+            self.assertIn("must cite human turns: 1", result["error"])
+            self.assertEqual(eventlog.read(log=log), [])
+
+    def test_a_human_technical_tradeoff_remains_a_valid_purpose(self):
+        output = _nothing_changed()
+        output["stitch"]["attribution"].update({
+            "human_purpose": "decidir entre lock pessimista e transação serializável",
+            "human_turn_indexes": [0],
+            "edge_execution": "comparou as duas estratégias com um teste de concorrência",
+            "shared_outcome": "o trade-off ficou explícito para a decisão",
+        })
+
+        validated = racionalizador._validated_output(
+            json.dumps(output),
+            turns=racionalizador._normalized_turns([
+                {"role": "human", "text": (
+                    "quero discutir lock pessimista versus transação serializável"
+                )},
+            ]),
+        )
+
+        self.assertEqual(
+            validated["derived_events"][0]["payload"]["finalidade"],
+            "decidir entre lock pessimista e transação serializável",
+        )
 
 
 class AllOrNothingValidation(unittest.TestCase):
@@ -325,6 +424,37 @@ class AllOrNothingValidation(unittest.TestCase):
 
 
 class InputIdentityAndOverlay(unittest.TestCase):
+    def test_new_attribution_supersedes_unpinned_activity_from_old_rationalization(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            old = _nothing_changed()
+            old["stitch"]["attribution"].update({
+                "human_purpose": "implementar lock e migration no endpoint",
+                "shared_outcome": "lock e migration implementados",
+            })
+            new = _nothing_changed()
+            new["stitch"]["attribution"].update({
+                "human_purpose": "tornar a cobrança recorrente segura para uso real",
+                "shared_outcome": "o risco de cobrança duplicada foi reduzido",
+            })
+            turns = [{"role": "human", "text": "quero cobrança recorrente segura"}]
+
+            racionalizador.rationalize(
+                "session-reframed", turns, lambda _prompt: json.dumps(old),
+                log=log, racionalizador_version="prompt-v1",
+            )
+            racionalizador.rationalize(
+                "session-reframed", turns, lambda _prompt: json.dumps(new),
+                log=log, racionalizador_version="prompt-v2",
+            )
+
+            folded = eventlog.atividades_at(log=log)
+            self.assertEqual(len(folded), 1)
+            self.assertEqual(
+                next(iter(folded.values()))["finalidade"],
+                "tornar a cobrança recorrente segura para uso real",
+            )
+
     def test_grown_session_changes_identity_and_audit_supersedes_pointer(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
@@ -348,8 +478,9 @@ class InputIdentityAndOverlay(unittest.TestCase):
             self.assertEqual(
                 second_payload["supersedes"], first_payload["rationalization_id"]
             )
-            # first: audit+open+touch; second: audit+touch (reuses session activity)
-            self.assertEqual(len(eventlog.read(log=log)), 5)
+            # Each unpinned derivation is immutable in the raw log; the fold keeps
+            # only the newer contribution named by supersedes.
+            self.assertEqual(len(eventlog.read(log=log)), 6)
 
     def test_version_changes_rationalization_identity_not_evidence_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -416,7 +547,7 @@ class InputIdentityAndOverlay(unittest.TestCase):
             self.assertEqual(len(result["emitted"]), 3)
             self.assertEqual(len(eventlog.read(log=log)), 4)
 
-    def test_a29_different_rebackfill_output_reuses_activity_instead_of_parallel_grain(self):
+    def test_a29_different_rebackfill_output_replaces_unpinned_grain(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             first_output = _nothing_changed()
@@ -441,11 +572,12 @@ class InputIdentityAndOverlay(unittest.TestCase):
                 lambda _prompt: json.dumps(second_output), log=log, watermark=2,
             )
             self.assertEqual(len(eventlog.atividades_at(log=log)), 1)
-            self.assertEqual(len(eventlog.read(types=["atividade.opened"], log=log)), 1)
+            self.assertEqual(len(eventlog.read(types=["atividade.opened"], log=log)), 2)
             self.assertNotEqual(first["emitted"][0]["payload"]["rationalization_id"],
                                 second["emitted"][0]["payload"]["rationalization_id"])
             self.assertEqual([event["type"] for event in second["emitted"]],
-                             ["sessao.racionalizada", "atividade.touched"])
+                             ["sessao.racionalizada", "atividade.opened",
+                              "atividade.touched"])
 
 
 class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
@@ -467,7 +599,10 @@ class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
                         "summary": " | ".join(turn["text"] for turn in request["turns"])
                     })
                 output = _nothing_changed()
-                output["stitch"]["goal"] = "MIDDLE_OBJECTIVE_CHANGE"
+                output["stitch"]["attribution"].update({
+                    "human_purpose": "MIDDLE_OBJECTIVE_CHANGE",
+                    "shared_outcome": "MIDDLE_OBJECTIVE_CHANGE",
+                })
                 return json.dumps(output)
 
             result = racionalizador.rationalize(
@@ -489,6 +624,11 @@ class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
             self.assertIn("MIDDLE_OBJECTIVE_CHANGE", scene_text)
             self.assertIn("turn-19", scene_text)
             self.assertEqual(requests[-1]["stage"], "consolidate")
+            self.assertTrue(all(
+                isinstance(scene["human_turn_indexes"], list)
+                and scene["human_turn_indexes"]
+                for scene in requests[-1]["scene_summaries"]
+            ))
             self.assertEqual(result["usage"]["calls"], 4)
             self.assertLessEqual(result["usage"]["estimated_tokens"], 10_000)
             self.assertEqual(
@@ -544,7 +684,7 @@ class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
                 [{"role": "human", "text": "resposta enorme"}],
                 lambda _prompt: json.dumps(output),
                 log=log,
-                sweep_token_budget=400,
+                sweep_token_budget=800,
             )
 
             self.assertEqual(result["skipped_reason"], "budget_exhausted")
@@ -630,6 +770,10 @@ class PendingS6Integrations(unittest.TestCase):
                         "summary": " | ".join(turn["text"] for turn in request["turns"])
                     })
                 output = _nothing_changed()
+                output["stitch"]["attribution"].update({
+                    "human_purpose": "MIDDLE_OBJECTIVE_CHANGE",
+                    "shared_outcome": "objetivo mudou no meio",
+                })
                 output["derived_events"] = [{
                     "type": "atividade.opened", "subject": "atividade:middle",
                     "payload": {"operacao": "edge",
@@ -736,12 +880,18 @@ class PendingS6Integrations(unittest.TestCase):
             self.assertEqual(len(eventlog.atividades_at(log=log)), 1)
 
     def test_meta_noise_empty_derived_does_not_floor_atividade_opened(self):
-        """G1: pure meta/noise stitch must not invent phantom atividades."""
+        """G1: sem relevância de atividade, a atribuição não inventa emprego."""
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             output = _nothing_changed()
             output["stitch"]["goal"] = "status check do portfolio"
             output["stitch"]["acao"] = "Revisei; nada muda no que fazemos."
+            output["stitch"]["attribution"].update({
+                "human_purpose": "status check do portfolio",
+                "edge_execution": "Revisei; nada muda no que fazemos.",
+                "shared_outcome": "nada mudou no que fazemos",
+                "activity_relevant": False,
+            })
             output["derived_events"] = []
             validated = racionalizador._validated_output(json.dumps(output))
             self.assertEqual(validated["derived_events"], [])
@@ -761,7 +911,7 @@ class PendingS6Integrations(unittest.TestCase):
             self.assertEqual(eventlog.atividades_at(log=log), {})
 
     def test_agent_meta_work_does_not_floor_or_backfill_atividade(self):
-        """Portfolio = mentee employment — codex/plugin/agent loops never become Atividade."""
+        """Execução delegada pode ser semanticamente irrelevante ao emprego do humano."""
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             output = _nothing_changed()
@@ -772,13 +922,15 @@ class PendingS6Integrations(unittest.TestCase):
                 "Declined to launch the review after confirming the working directory "
                 "is not a git repository"
             )
+            output["stitch"]["attribution"].update({
+                "human_purpose": output["stitch"]["goal"],
+                "edge_execution": output["stitch"]["acao"],
+                "shared_outcome": "a revisão não foi iniciada",
+                "activity_relevant": False,
+            })
             output["derived_events"] = []
             validated = racionalizador._validated_output(json.dumps(output))
             self.assertEqual(validated["derived_events"], [])
-            self.assertTrue(racionalizador._is_agent_meta_work(
-                output["stitch"]["goal"], output["stitch"]["acao"]))
-            self.assertFalse(racionalizador._mentee_employment_eligible(
-                output["stitch"]["goal"], output["stitch"]["acao"]))
 
             result = racionalizador.rationalize(
                 "session-agent-meta",
@@ -800,17 +952,21 @@ class PendingS6Integrations(unittest.TestCase):
             self.assertEqual(eventlog.atividades_at(log=log), {})
 
     def test_generic_agent_task_does_not_floor_atividade(self):
-        """Finding B: negative blacklist alone is not enough — generic agent tasks fail closed."""
+        """Atribuição sem relevância fecha, independentemente do vocabulário da tarefa."""
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             output = _nothing_changed()
             output["stitch"]["goal"] = "Review the pull request"
             output["stitch"]["acao"] = "Summarized findings"
+            output["stitch"]["attribution"].update({
+                "human_purpose": output["stitch"]["goal"],
+                "edge_execution": output["stitch"]["acao"],
+                "shared_outcome": output["stitch"]["acao"],
+                "activity_relevant": False,
+            })
             output["derived_events"] = []
             validated = racionalizador._validated_output(json.dumps(output))
             self.assertEqual(validated["derived_events"], [])
-            self.assertFalse(racionalizador._mentee_employment_eligible(
-                output["stitch"]["goal"], output["stitch"]["acao"]))
 
             result = racionalizador.rationalize(
                 "session-agent-task",
@@ -828,15 +984,19 @@ class PendingS6Integrations(unittest.TestCase):
             self.assertEqual(eventlog.atividades_at(log=log), {})
 
     def test_unknown_prose_without_positive_evidence_does_not_floor(self):
-        """Gate P0: unknown stitch is not automatic mentee employment."""
+        """O juízo semântico de irrelevância não depende de palavra positiva."""
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             output = _nothing_changed()
             output["stitch"]["goal"] = "Arrange the Tuesday calendar"
             output["stitch"]["acao"] = "Moved three blocks around"
+            output["stitch"]["attribution"].update({
+                "human_purpose": output["stitch"]["goal"],
+                "edge_execution": output["stitch"]["acao"],
+                "shared_outcome": output["stitch"]["acao"],
+                "activity_relevant": False,
+            })
             output["derived_events"] = []
-            self.assertFalse(racionalizador._mentee_employment_eligible(
-                output["stitch"]["goal"], output["stitch"]["acao"]))
             validated = racionalizador._validated_output(json.dumps(output))
             self.assertEqual(validated["derived_events"], [])
             result = racionalizador.rationalize(
@@ -851,11 +1011,16 @@ class PendingS6Integrations(unittest.TestCase):
             )
             self.assertEqual(eventlog.atividades_at(log=log), {})
 
-    def test_agent_meta_derived_open_is_stripped(self):
-        """Completer-emitted agent-meta atividade.opened must not land."""
+    def test_edge_execution_open_is_reframed_by_human_purpose(self):
+        """A finalidade humana enquadra a execução emitida pelo completer."""
         output = _nothing_changed()
         output["stitch"]["goal"] = "ship the mentee product feature"
         output["stitch"]["acao"] = "opened a PR for the feature"
+        output["stitch"]["attribution"].update({
+            "human_purpose": "ship the mentee product feature",
+            "edge_execution": "Wire predispatch and edge-apply on the host",
+            "shared_outcome": "opened a PR for the feature",
+        })
         output["derived_events"] = [{
             "type": "atividade.opened",
             "subject": "atividade:agent",
@@ -866,7 +1031,8 @@ class PendingS6Integrations(unittest.TestCase):
             },
         }]
         validated = racionalizador._validated_output(json.dumps(output))
-        # agent open stripped; mentee goal floors a real open instead
+        # The execution is retained as evidence, while its activity is framed by
+        # the purpose cited from the human side of the dialogue.
         opens = [item for item in validated["derived_events"]
                  if item["type"] == "atividade.opened"]
         self.assertEqual(len(opens), 1)
@@ -912,6 +1078,10 @@ class PendingS6Integrations(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             output = _nothing_changed()
+            output["stitch"]["attribution"].update({
+                "human_purpose": "Finalidade explícita do completer",
+                "shared_outcome": "toque explícito",
+            })
             output["derived_events"] = [{
                 "type": "atividade.opened",
                 "subject": "atividade:explicit",
@@ -960,6 +1130,13 @@ class PendingS6Integrations(unittest.TestCase):
                         "goal": "Backfill lentes portfolio employment",
                         "acao": "Backfill acao da feature",
                         "entidades": [],
+                        "attribution": {
+                            "human_purpose": "Backfill lentes portfolio employment",
+                            "human_turn_indexes": [0],
+                            "edge_execution": "Backfill acao da feature",
+                            "shared_outcome": "Backfill acao da feature",
+                            "activity_relevant": True,
+                        },
                     },
                     "epistemico": {"presuncoes": []},
                     "organizacional": {"enderecos": []},
@@ -1003,6 +1180,13 @@ class PendingS6Integrations(unittest.TestCase):
                         "goal": "Repair incomplete lentes backfill",
                         "acao": "open landed; touch did not",
                         "entidades": [],
+                        "attribution": {
+                            "human_purpose": "Repair incomplete lentes backfill",
+                            "human_turn_indexes": [0],
+                            "edge_execution": "open landed; touch did not",
+                            "shared_outcome": "open landed; touch did not",
+                            "activity_relevant": True,
+                        },
                     },
                     "epistemico": {"presuncoes": []},
                     "organizacional": {"enderecos": []},

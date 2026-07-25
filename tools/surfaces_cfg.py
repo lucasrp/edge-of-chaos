@@ -34,6 +34,50 @@ _ABSENT_BLOCK_DEFAULTS = {
     "grok": {"enabled": True, "home": "~/.grok"},
 }
 
+# CLI harness homes (relative to $HOME). Presence of the home dir = surface is installed.
+_SURFACE_HOMES = {
+    "claude": ".claude",
+    "codex": ".codex",
+    "grok": ".grok",
+}
+
+
+def detect_installed_surfaces(env=None, home=None) -> dict[str, bool]:
+    """Which CLI surfaces exist on this host (home directory present).
+
+    Assemble and bootstrap use this so install + film cover **everything installed**
+    (Claude, Codex, Grok) — not a single CLI.
+    """
+    env = os.environ if env is None else env
+    home = Path(home).expanduser() if home else Path.home()
+    out = {}
+    for name, rel in _SURFACE_HOMES.items():
+        # env overrides for home paths
+        if name == "codex" and env.get("CODEX_HOME"):
+            p = Path(os.path.expanduser(env["CODEX_HOME"]))
+        elif name == "grok" and env.get("GROK_HOME"):
+            p = Path(os.path.expanduser(env["GROK_HOME"]))
+        else:
+            p = home / rel
+        out[name] = p.is_dir()
+    return out
+
+
+def surfaces_block_for_installed(env=None, home=None) -> dict:
+    """Phenotype `surfaces:` block enabling every installed harness."""
+    installed = detect_installed_surfaces(env=env, home=home)
+    block = {}
+    for name, ok in installed.items():
+        if not ok:
+            continue
+        if name == "claude":
+            block[name] = {"enabled": True}
+        elif name == "codex":
+            block[name] = {"enabled": True, "home": "~/.codex"}
+        elif name == "grok":
+            block[name] = {"enabled": True, "home": "~/.grok"}
+    return block
+
 
 def load_agent_cfg(agent_yaml=None) -> dict:
     """Load agent.yaml as a dict. Prefer injectible path for tests."""
@@ -145,8 +189,12 @@ def include_optional_surface(name: str, project_or_store_dir, explicit_dir,
       - explicit_dir is False → off (tests)
       - explicit_dir is a path → on (tests / override)
       - explicit_dir is None and project_or_store_dir is None → real host; honor agent.yaml
-      - explicit_dir is None and project_or_store_dir is set → hermetic Claude-only unless yaml
+        **and** only film if the surface is installed on the host
+      - explicit_dir is None and project_or_store_dir is set → hermetic Claude-only unless
         tests pass explicit_dir
+
+    Assemble rule (operator): pick up **everything installed** — if the harness home exists
+    and agent.yaml enables the surface (or no surfaces block → all enabled by default), include it.
     """
     if explicit_dir is False:
         return False
@@ -154,12 +202,22 @@ def include_optional_surface(name: str, project_or_store_dir, explicit_dir,
         return True
     if project_or_store_dir is not None:
         return False
-    return surface_enabled(name, cfg=cfg, agent_yaml=agent_yaml)
+    if not surface_enabled(name, cfg=cfg, agent_yaml=agent_yaml):
+        return False
+    # Only film surfaces that are actually installed (home dir present)
+    installed = detect_installed_surfaces()
+    return bool(installed.get(name, False))
 
 
 def provision_surface(name: str, cfg: dict | None = None, agent_yaml=None) -> bool:
-    """Whether edge-apply should provision skills into this surface's home."""
-    # Claude is always provisioned (identity + skills); optional surfaces honor enabled.
+    """Whether edge-apply / bootstrap should provision skills into this surface's home.
+
+    Claude is always provisioned when its home will be written. Codex/Grok: enabled in yaml
+    **or** installed on the host (first-run / multi-CLI default — provision everything installed).
+    """
     if name == "claude":
         return True
-    return surface_enabled(name, cfg=cfg, agent_yaml=agent_yaml)
+    if surface_enabled(name, cfg=cfg, agent_yaml=agent_yaml):
+        return True
+    # No yaml / first-run: still provision every installed CLI
+    return bool(detect_installed_surfaces().get(name, False))

@@ -74,12 +74,33 @@ Then:
    capture): per row `source × interface | literal query as-run | hits | outcome
    (closed / dry-suspect / dry-pending-fold / dark: reason) | cost`. Plus one line: the
    answer, or the declared dryness.
+   **Mark which rows were actually used** (closed the gap or support the finding) vs only
+   swept — assemble and the yield fold need **use**, not the full sweep list.
 2. **Topic file to memory** — write the grounded finding as `memory/<slug>.md` in the
    house topic-file idiom (frontmatter name/description/metadata + body carrying the
-   evidence refs), and index it in `memory/MEMORY.md`. This is the dig's only durable
-   write. No Artefato, no Direction write, no wiki page.
+   evidence refs), and index it in `memory/MEMORY.md`. This is the dig's durable write.
+   **Required in the topic file** (so assemble can identify without inventing):
+   - frontmatter: `dig: <ISO-date or id>` (and name/description as usual)
+   - body section **`## Sources used`** — only the sources that **carried** the finding:
+     `| source | ref | role (closed\|support) | one-line why |`
+     Never list dry-only or ignored hits here.
+3. **Register used sources for calibration** (hypothesis-tier `source.signal`, ADR-0009) —
+   so assemble / yield / grill see dig utility, not only Artefato cites:
+
+```
+tools/edge-python -c "
+import sys; sys.path.insert(0,'tools')
+import eventlog
+eventlog.source_signal('dig:<slug>', '<ref>', '<mundo|atividade>', <similarity 0..1>)
+"
+```
+
+   One signal per **used** row (not per dry sweep). Skip if already logged for this dig+ref.
+   Similarity = judged relevance of that ref to the finding; `0.0` if unknown (count still
+   accrues). No Artefato, no Direction write, no wiki page.
 
 ## What you never do
 No genus, no close, no publish, no steer. No manifest emission — reads are harvested
 (`grounding.manifest` is mined from the transcript by the substrate; there is no emission
-act for you to forget). Read-only on the world (CONTRACT C1).
+act for you to forget). Read-only on the world (CONTRACT C1) except the dig's own durable
+writes: topic file + optional `source.signal` for used sources.

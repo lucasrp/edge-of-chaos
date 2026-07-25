@@ -14,7 +14,7 @@ import unicodedata
 import eventlog
 
 
-DEFAULT_VERSION = "racionalizador-v1"
+DEFAULT_VERSION = "racionalizador-v3-session-provenance"
 _OPERATION_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _NUMBERED_REF_RE = re.compile(r"^(?:atv|run|arc|map|tkt|fat)-\d+$")
 _ULID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$", re.IGNORECASE)
@@ -37,142 +37,33 @@ _DERIVED_TYPES = {
 # answers the question in prose; rationalize needs JSON. Hints ride in the request payload
 # as a short instruction (keep small — session prompts already carry the turns).
 _SCENE_JSON_INSTRUCTION = (
-    'Return ONLY JSON: {"summary":"<one short paragraph>"}. No markdown/prose.'
+    'Return ONLY JSON: {"summary":"<one short paragraph>"}. Preserve who did what: '
+    "the human's purpose/decision and the edge's execution are distinct. The input turn_index "
+    "is evidence identity; do not renumber turns. No markdown/prose."
 )
 _SESSION_JSON_INSTRUCTION = (
     "Return ONLY a JSON object (no markdown fences). Schema:\n"
     '{"operacoes":["edge"],'
-    '"stitch":{"goal":"non-blank goal","acao":"non-blank action taken","entidades":[]},'
+    '"stitch":{"attribution":{"human_purpose":"why the human is doing this",'
+    '"human_turn_indexes":[0],"edge_execution":"what the AI/edge did",'
+    '"shared_outcome":"what changed for the human purpose",'
+    '"activity_relevant":true},"entidades":[]},'
     '"epistemico":{"presuncoes":[]},'
     '"organizacional":{"enderecos":[]},'
     '"derived_events":[{"type":"atividade.opened","subject":"atividade:auto",'
     '"payload":{"operacao":"edge","finalidade":"the work purpose","novo":"what changed"}}]}\n'
     "Rules: operacoes = short lowercase slugs ^[a-z0-9][a-z0-9-]*$ (e.g. edge), never "
-    "descriptions. stitch.goal and stitch.acao MUST be non-blank strings about this "
-    "session. When stitch names the MENTEE's real employment work, include \u22651 "
-    "derived_events item type atividade.opened with operacao + finalidade (claims alone "
-    "are not enough). NEVER open atividades for agent-runtime work (codex/plugin loops, "
-    "predispatch, deploy, skill wrappers, edge infra). Empty derived for pure noise/meta "
-    "(e.g. acao 'nada muda') OR agent meta with no mentee employment purpose."
+    "descriptions. Attribution is semantic, never keyword-based: human_purpose states WHY the "
+    "human initiated or continued the work, at the granularity their own turns support; "
+    "human_turn_indexes cites those original human turns; edge_execution records what the AI "
+    "implemented/reviewed/explained and NEVER replaces human_purpose; shared_outcome says what "
+    "that execution changed for the human purpose. Set activity_relevant=false when the scene "
+    "does not advance a durable human purpose. A technical purpose is valid when the human "
+    "actually reasons about that technical trade-off; delegation alone does not transfer the "
+    "edge's implementation vocabulary to the human. Epistemic presumptions and derived claims "
+    "must likewise bear on human_purpose; edge-only implementation details may support them but "
+    "must not become standalone concerns."
 )
-
-# Meta/noise stitch: floor must not invent phantom atividades (Codex G1).
-_NO_WORK_STITCH_RE = re.compile(
-    r"(nada\s+muda|nothing\s+changes|no\s+changes?|reviewed\s+only|"
-    r"apenas\s+revis|sem\s+trabalho|no\s+work|pure\s+meta|meta[\s-]?only)",
-    re.IGNORECASE,
-)
-
-# Portfolio = emprego do MENTEE (spec #131). Agent runtime/meta work must never become
-# Atividade — floor + backfill filter hard (operator 2026-07-13).
-_AGENT_META_WORK_RE = re.compile(
-    r"("
-    r"codex(\s+adversarial|\s+review|\s+cli|\s+plugin|[\s-]*exec)?|"
-    r"plugin\s+runtime|"
-    r"subagente?s?|"
-    r"predispatch|rationaliz|edge-apply|edge-python|edge-heartbeat|"
-    r"systemd|unit\s+file|"
-    r"\bsweep(\.py)?\b|\bblog/server\b|agent\.yaml|"
-    r"SKILL\.md|grok\s+skills?|"
-    r"wake\s+floor|cortex\s+(fix|fold|projection)|"
-    r"fcntl|cursors\.json|"
-    r"unittest|pytest|test_[a-z0-9_]+|"
-    r"deploy\s+(fleet|overlay|bundle)|"
-    r"neo4j\s+(secrets?|bootstrap)|"
-    r"\b(llm_judged|graphiti)\b"
-    r")",
-    re.IGNORECASE,
-)
-
-# Generic agent-imperative tasks that are not mentee employment (Codex dual-pass Finding B).
-# Fail closed: negative agent-meta alone was too narrow ("Review the PR" opened Atividade).
-_GENERIC_AGENT_TASK_RE = re.compile(
-    r"("
-    r"review\s+(the\s+)?(pull\s+request|\bpr\b|diff|code|merge|repo|rite|path)|"
-    r"code[\s-]?review|"
-    r"adjudicate\s+a\s+prior|"
-    r"signal[\s-]?vs[\s-]?noise|"
-    r"gate\s+a\s+(first[\s-]?pass\s+)?adversarial|"
-    r"audit\s+whether|"
-    r"verify\s+the\s+closure|"
-    r"implement\s+ticket|"
-    r"summariz(e|ed)\s+findings|"
-    r"fix\s+the\s+bug|"
-    r"write\s+tests?\s+for|"
-    r"run\s+the\s+(test\s+)?suite|"
-    r"report\s+back|"
-    r"check\s+(the\s+)?(build|ci)\b"
-    r")",
-    re.IGNORECASE,
-)
-
-
-def _is_no_work_stitch(goal, action):
-    """True when stitch describes pure meta/noise rather than real work."""
-    return bool(_NO_WORK_STITCH_RE.search(action) or _NO_WORK_STITCH_RE.search(goal))
-
-
-def _is_agent_meta_work(goal, action=""):
-    """True when goal/acao is agent-runtime work, not mentee employment.
-
-    Spec: the portfolio records the mentee's employment — never the mentor/agent's
-    tooling loops (codex review, predispatch, deploy, skill wrappers, …).
-    """
-    text = f"{goal or ''}\n{action or ''}"
-    return bool(_AGENT_META_WORK_RE.search(text))
-
-
-def _is_generic_agent_task(goal, action=""):
-    """True when stitch is a generic agent imperative without mentee-employment substance."""
-    text = f"{goal or ''}\n{action or ''}"
-    return bool(_GENERIC_AGENT_TASK_RE.search(text))
-
-
-# Gate P0: floor needs *positive* mentee-employment evidence, not only "not blacklisted".
-# Provenance-bearing: non-empty stitch.entidades / organizacional.enderecos, OR goal/acao
-# names product/domain work (lentes, mapa, feature, …). Unknown prose stays closed.
-_MENTEE_WORK_POSITIVE_RE = re.compile(
-    r"("
-    r"lentes?|mapa|ticket|atividade|portfolio|wayfind|"
-    r"episteme|cortex|direction|artefato|emprego|"
-    r"implementar|implement|desenhar|design|"
-    r"produto|feature|spec|contrato|mentee|finalidade|"
-    r"edge\s+of\s+chaos|edge-next|operador|"
-    r"ship\s+the\b"
-    r")",
-    re.IGNORECASE,
-)
-
-
-def _has_positive_mentee_evidence(goal, action="", entities=None, addresses=None):
-    """True when stitch carries positive signal of mentee employment (not mere absence of meta)."""
-    if entities:
-        return True
-    if addresses:
-        return True
-    text = f"{goal or ''}\n{action or ''}"
-    return bool(_MENTEE_WORK_POSITIVE_RE.search(text))
-
-
-def _mentee_employment_eligible(goal, action="", *, entities=None, addresses=None):
-    """Floor/backfill may open Atividade only for mentee employment (not agent meta/noise).
-
-    Fail closed on: blank goal, no-work stitch, agent-runtime meta, generic agent tasks,
-    and goals that lack positive mentee-employment evidence (gate P0).
-    """
-    if not isinstance(goal, str) or not goal.strip():
-        return False
-    if _is_no_work_stitch(goal, action or ""):
-        return False
-    if _is_agent_meta_work(goal, action or ""):
-        return False
-    if _is_generic_agent_task(goal, action or ""):
-        return False
-    if not _has_positive_mentee_evidence(
-            goal, action or "", entities=entities, addresses=addresses):
-        return False
-    return True
-
 
 def _has_activity_derived(derived_events):
     return any(
@@ -211,7 +102,7 @@ def _normalized_turns(turns):
         text = unicodedata.normalize("NFC", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
         if not text:
             continue
-        normalized.append({"role": role, "text": text})
+        normalized.append({"turn_index": index, "role": role, "text": text})
     if not normalized:
         raise ValueError("turns must contain at least one dialogue turn")
     if not any(t["role"] == "human" for t in normalized):
@@ -292,7 +183,46 @@ def _loads_json_loose(raw):
     raise ValueError("could not parse JSON object from completer output")
 
 
-def _validated_output(raw):
+def _validated_attribution(stitch, turns=None):
+    attribution = stitch.get("attribution")
+    if not isinstance(attribution, dict):
+        raise ValueError("stitch.attribution must be an object")
+    human_purpose = _nonblank(
+        attribution.get("human_purpose"), "stitch.attribution.human_purpose")
+    edge_execution = _nonblank(
+        attribution.get("edge_execution"), "stitch.attribution.edge_execution")
+    shared_outcome = _nonblank(
+        attribution.get("shared_outcome"), "stitch.attribution.shared_outcome")
+    indexes = attribution.get("human_turn_indexes")
+    if (not isinstance(indexes, list) or not indexes
+            or any(not isinstance(index, int) or isinstance(index, bool) or index < 0
+                   for index in indexes)):
+        raise ValueError(
+            "stitch.attribution.human_turn_indexes must be non-empty non-negative integers")
+    indexes = list(dict.fromkeys(indexes))
+    if turns is not None:
+        human_indexes = {
+            turn["turn_index"] for turn in turns
+            if isinstance(turn, dict) and turn.get("role") == "human"
+        }
+        missing = [index for index in indexes if index not in human_indexes]
+        if missing:
+            raise ValueError(
+                "stitch.attribution.human_turn_indexes must cite human turns: "
+                + ", ".join(map(str, missing)))
+    activity_relevant = attribution.get("activity_relevant")
+    if not isinstance(activity_relevant, bool):
+        raise ValueError("stitch.attribution.activity_relevant must be boolean")
+    return {
+        "human_purpose": human_purpose,
+        "human_turn_indexes": indexes,
+        "edge_execution": edge_execution,
+        "shared_outcome": shared_outcome,
+        "activity_relevant": activity_relevant,
+    }
+
+
+def _validated_output(raw, turns=None):
     try:
         output = _loads_json_loose(raw)
     except ValueError as exc:
@@ -314,8 +244,9 @@ def _validated_output(raw):
     stitch = output.get("stitch")
     if not isinstance(stitch, dict):
         raise ValueError("stitch must be an object")
-    goal = _nonblank(stitch.get("goal"), "stitch.goal")
-    action = _nonblank(stitch.get("acao"), "stitch.acao")
+    attribution = _validated_attribution(stitch, turns=turns)
+    goal = attribution["human_purpose"]
+    action = attribution["shared_outcome"]
     entities = stitch.get("entidades")
     # Completer sometimes omits entidades or returns a non-list — coerce to [] (same as empty).
     if entities is None:
@@ -403,31 +334,23 @@ def _validated_output(raw):
             raise ValueError(f"derived_events[{index}].payload must be an object")
         normalized_derived.append({"type": event_type, "subject": subject, "payload": payload})
 
-    # Drop agent-meta / generic agent-task opens the completer invented (portfolio = mentee).
-    # Positive-evidence requirement is for the *mechanical floor* (empty derived), not for
-    # completer-emitted opens that already name a specific objective (scene middle, etc.).
-    mentee_derived = []
+    # Role attribution owns the activity surface. The model may still emit a detailed
+    # implementation payload, but that detail belongs to edge_execution, never to the
+    # portfolio's purpose. No vocabulary/occupation filter participates in this decision.
+    attributed_derived = []
     for item in normalized_derived:
         if item.get("type") in ("atividade.opened", "atividade.touched"):
-            payload = item.get("payload") or {}
-            purpose = str(payload.get("finalidade") or payload.get("novo") or goal)
-            novo = str(payload.get("novo") or action)
-            if _is_agent_meta_work(purpose, novo) or _is_generic_agent_task(purpose, novo):
+            if not attribution["activity_relevant"]:
                 continue
-            if _is_no_work_stitch(purpose, novo):
-                continue
-        mentee_derived.append(item)
-    normalized_derived = mentee_derived
+            payload = dict(item["payload"])
+            if item["type"] == "atividade.opened":
+                payload["finalidade"] = goal
+            payload["novo"] = action
+            item = {**item, "payload": payload}
+        attributed_derived.append(item)
+    normalized_derived = attributed_derived
 
-    # Mechanical floor: mentee employment goal with no activity-typed derived ⇒ one open.
-    # Never floor agent-runtime work (codex/predispatch/deploy/…) or pure noise.
-    # Claim-only / move-only derived still undercounts — floor when open/touch absent.
-    # Gate P0: require positive mentee evidence (entities/addresses or product vocabulary).
-    if (not _has_activity_derived(normalized_derived)
-            and _mentee_employment_eligible(
-                goal, action,
-                entities=normalized_entities,
-                addresses=addresses)):
+    if attribution["activity_relevant"] and not _has_activity_derived(normalized_derived):
         normalized_derived.append({
             "type": "atividade.opened",
             "subject": "atividade:auto",
@@ -440,7 +363,8 @@ def _validated_output(raw):
 
     return {
         "operacoes": normalized_operations,
-        "stitch": {"goal": goal, "acao": action, "entidades": normalized_entities},
+        "stitch": {"goal": goal, "acao": action, "entidades": normalized_entities,
+                   "attribution": attribution},
         "epistemico": {"presuncoes": presumptions},
         "organizacional": {"enderecos": addresses},
         "derived_events": normalized_derived,
@@ -488,7 +412,13 @@ def _existing_session_activities(session_id, operation, log):
                 or not isinstance(payload.get("ulid"), str)):
             continue
         item = next((item for item in folded.values() if item["ulid"] == payload["ulid"]), None)
-        if item is not None and item["estado"] in ("aberta", "reaberta"):
+        pinned = item is not None and any(
+            row.get("tier") == "asserted"
+            for field in ("toques", "fechos", "bears_on")
+            for row in item.get(field, [])
+            if isinstance(row, dict)
+        )
+        if (item is not None and item["estado"] in ("aberta", "reaberta") and pinned):
             candidates.append((event.get("seq", 0), item, payload))
     return [candidate for _seq, candidate, _payload in sorted(candidates)]
 
@@ -673,14 +603,13 @@ def _build_derived_batch(output, session_id, source_hash, rationalization_id, lo
 def backfill_atividades_from_rationalizations(log=eventlog.LOG):
     """Emit missing atividade.opened/touched for rationalized sessions (no re-LLM).
 
-    For each ``sessao.racionalizada`` whose stitch is **mentee employment** (not agent meta):
+    For each ``sessao.racionalizada`` whose role attribution marks durable human activity:
     - if no ``atividade.opened`` carries ``origem_sessao == sessao_id``, open and
       touch one activity via public eventlog pens (tier llm_judged, author racionalizador);
     - if open exists but no ``atividade.touched`` for that session×activity, append
       the missing touch only (repairs incomplete prior backfill / crash window).
 
-    Agent-runtime sessions (codex plugin loops, predispatch, deploy, …) are skipped so
-    the portfolio is not polluted with the mentor's own tooling (operator 2026-07-13).
+    Eligibility comes from the rationalizer's role attribution, never from vocabulary.
     """
     emitted = []
     for event in eventlog.read(types=["sessao.racionalizada"], log=log):
@@ -689,7 +618,11 @@ def backfill_atividades_from_rationalizations(log=eventlog.LOG):
         if not isinstance(session_id, str) or not session_id.strip():
             continue
         stitch = payload.get("stitch") if isinstance(payload.get("stitch"), dict) else {}
-        goal = stitch.get("goal")
+        attribution = (stitch.get("attribution")
+                       if isinstance(stitch.get("attribution"), dict) else {})
+        if attribution.get("activity_relevant") is not True:
+            continue
+        goal = attribution.get("human_purpose")
         if not isinstance(goal, str) or not goal.strip():
             continue
         operations = payload.get("operacoes")
@@ -699,14 +632,8 @@ def backfill_atividades_from_rationalizations(log=eventlog.LOG):
         rationalization_id = payload.get("rationalization_id")
         if not isinstance(rationalization_id, str) or not rationalization_id.strip():
             continue
-        acao = stitch.get("acao")
+        acao = attribution.get("shared_outcome")
         acao_s = acao.strip() if isinstance(acao, str) and acao.strip() else ""
-        entities = stitch.get("entidades") if isinstance(stitch.get("entidades"), list) else []
-        org = payload.get("organizacional") if isinstance(payload.get("organizacional"), dict) else {}
-        addresses = org.get("enderecos") if isinstance(org.get("enderecos"), list) else []
-        if not _mentee_employment_eligible(
-                goal.strip(), acao_s, entities=entities, addresses=addresses):
-            continue
         novo = acao_s or goal.strip()
 
         session_opens = []
@@ -850,7 +777,10 @@ def rationalize(
             for index, scene in enumerate(scenes):
                 raw_scene = _complete({
                     "stage": "scene",
-                    "question": "Que atividade esta cena continua, abre ou muda?",
+                    "question": (
+                        "Que finalidade os turnos humanos sustentam, o que o edge executou "
+                        "e o que isso mudou para aquela finalidade?"
+                    ),
                     "instruction": _SCENE_JSON_INSTRUCTION,
                     "session_id": session_id,
                     "scene_index": index,
@@ -869,10 +799,19 @@ def rationalize(
                         ) from exc
                 if not isinstance(scene_output, dict):
                     raise ValueError(f"scene[{index}] output must be an object")
-                summaries.append(_nonblank(scene_output.get("summary"), f"scene[{index}].summary"))
+                summaries.append({
+                    "summary": _nonblank(
+                        scene_output.get("summary"), f"scene[{index}].summary"),
+                    "human_turn_indexes": [
+                        turn["turn_index"] for turn in scene if turn["role"] == "human"
+                    ],
+                })
             raw_output = _complete({
                 "stage": "consolidate",
-                "question": "Esta sessão muda algo no que fazemos?",
+                "question": (
+                    "Qual finalidade humana esta sessão avança, o que o edge executou e "
+                    "qual resultado compartilhado houve?"
+                ),
                 "instruction": _SESSION_JSON_INSTRUCTION,
                 "session_id": session_id,
                 "surface": surface,
@@ -882,14 +821,17 @@ def rationalize(
         else:
             raw_output = _complete({
                 "stage": "session",
-                "question": "Esta sessão muda algo no que fazemos?",
+                "question": (
+                    "Qual finalidade humana esta sessão avança, o que o edge executou e "
+                    "qual resultado compartilhado houve?"
+                ),
                 "instruction": _SESSION_JSON_INSTRUCTION,
                 "session_id": session_id,
                 "surface": surface,
                 "watermark": watermark,
                 "turns": normalized_turns,
             })
-        output = _validated_output(raw_output)
+        output = _validated_output(raw_output, turns=normalized_turns)
     except _BudgetExhausted:
         return {
             "emitted": [],

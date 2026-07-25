@@ -31,6 +31,17 @@ DEFAULT_HEARTBEAT_CLI_MIX = (
     ("fable", 16.5),
 )
 
+# Headless beat runtimes. `opus`/`fable` are Anthropic model aliases on the claude CLI
+# (`claude --model opus|fable`); there is no separate fable binary on the fleet.
+FIXED_HEARTBEAT_CLIS = frozenset({"claude", "grok", "codex", "opus", "fable"})
+# Operator mix 2026-07-13: 33% grok · 33% codex · 16.5% opus · 16.5% fable (sum 99).
+DEFAULT_HEARTBEAT_CLI_MIX = (
+    ("grok", 33.0),
+    ("codex", 33.0),
+    ("opus", 16.5),
+    ("fable", 16.5),
+)
+
 
 @contextmanager
 def heartbeat_lock(home):

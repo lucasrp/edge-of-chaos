@@ -135,14 +135,21 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
     """
     repo = Path(repo)
     claude_home = Path(claude_home)
-    prefix = str(cfg.get("skill_prefix", cfg.get("codename", "")))
+    # Same dual-prefix rule as Codex/Grok: skill_prefix (ed-*) + tool_prefix (edge-*)
+    try:
+        from _codex_provision import codex_prefixes as _prefixes
+        prefixes = _prefixes(cfg)
+    except Exception:
+        prefixes = [str(cfg.get("skill_prefix", cfg.get("codename", "ed")) or "ed")]
+    if not prefixes:
+        prefixes = ["ed"]
     rows = []
 
     # 1. CLAUDE.md
     _write_if_changed(claude_home / "CLAUDE.md", render_claude_md(cfg))
     rows.append(f"CLAUDE.md → {claude_home / 'CLAUDE.md'}")
 
-    # 2. skills/{name}/SKILL.md → skills/{prefix}-{name}/SKILL.md
+    # 2. skills/{name}/SKILL.md → skills/{prefix}-{name}/SKILL.md for each prefix
     skills_src = repo / "skills"
     installed = 0
     if skills_src.exists():
@@ -150,13 +157,18 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
             if not skill_dir.is_dir() or skill_dir.name.startswith("."):
                 continue
             skill_file = skill_dir / "SKILL.md"
-            if not skill_file.exists():
+            if not skill_file.exists() or skill_dir.name == "_shared":
                 continue
-            rendered = render_skill(skill_file.read_text(), name=skill_dir.name, prefix=prefix)
-            dst = claude_home / "skills" / f"{prefix}-{skill_dir.name}" / "SKILL.md"
-            _write_if_changed(dst, rendered)
-            installed += 1
-    rows.append(f"{installed} skills → ~/.claude/skills/{prefix}-*")
+            for prefix in prefixes:
+                rendered = render_skill(
+                    skill_file.read_text(), name=skill_dir.name, prefix=prefix
+                )
+                dst = claude_home / "skills" / f"{prefix}-{skill_dir.name}" / "SKILL.md"
+                _write_if_changed(dst, rendered)
+                installed += 1
+    rows.append(
+        f"{installed} skills → ~/.claude/skills/ ({', '.join(p + '-*' for p in prefixes)})"
+    )
 
     # 2a. skills/_shared/* → ~/.claude/skills/_shared/*
     # Shared files are support material read by prefixed skills; they are not slash-invocable.

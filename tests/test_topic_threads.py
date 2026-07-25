@@ -29,7 +29,10 @@ def _write_codex_session(store, sid, prompts):
     """Codex layout: flat/recursive *.jsonl with session_meta id."""
     store = Path(store)
     store.mkdir(parents=True, exist_ok=True)
-    rows = [{"type": "session_meta", "payload": {"id": sid}}]
+    rows = [{"type": "session_meta", "payload": {
+        "id": sid, "thread_source": "user", "source": "cli",
+        "originator": "codex-tui",
+    }}]
     for prompt in prompts:
         rows.append({"type": "response_item",
                      "payload": {"type": "message", "role": "user",
@@ -58,6 +61,26 @@ def _write_grok_session(store, sid, prompts):
 
 
 class TopicThreadsProjectDirection(unittest.TestCase):
+    def test_excluded_session_disappears_from_voice_index_and_auto_direction(self):
+        with tempfile.TemporaryDirectory() as st:
+            log = Path(st) / "log.jsonl"
+            eventlog.record_session_topic(
+                "grok:delegated", "implementation-noise", title="noise", surface="grok",
+                fragments=[{"session": "grok:delegated", "surface": "grok", "turn": 1,
+                            "snippet": "arbitrary delegated content"}], log=log)
+            eventlog.propose(
+                "topic-7d:implementation-noise", "automatic proposal",
+                relates_to=[{"kind": "voz.fragment", "session": "grok:delegated"}], log=log)
+            eventlog.append("sessao.excluded", "sessao:grok:delegated", {
+                "sessao_id": "grok:delegated", "surface": "grok",
+                "reason": "grok-unknown-provenance",
+            }, log=log)
+
+            self.assertEqual(eventlog.session_topics_at(log=log), {
+                "sessions": {}, "topics": {}, "fragments": {},
+            })
+            self.assertEqual(eventlog.direction_at(log=log), {"set": [], "proposed": []})
+
     def test_recent_voice_topics_are_indexed_by_session_topic_and_fragment(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             log = Path(st) / "log.jsonl"
@@ -86,6 +109,42 @@ class TopicThreadsProjectDirection(unittest.TestCase):
                 project_dir=proj, codex_dir=False, grok_dir=False, all_stores=False, log=log,
             )
             self.assertEqual(again["topics"], 0, "same topic index must be idempotent")
+
+    def test_latest_session_snapshot_retires_topics_without_current_voice(self):
+        with tempfile.TemporaryDirectory() as st:
+            log = Path(st) / "log.jsonl"
+            old = topic_threads.VoiceFragment(
+                "s1", "claude", "/tmp/s1.jsonl", 1,
+                "report artefato com storytelling e grounding",
+            )
+            neutral = topic_threads.VoiceFragment(
+                "s1", "claude", "/tmp/s1.jsonl", 2,
+                "jabuticaba silenciosa",
+            )
+            topic_threads.index_session_topics([old], min_score=1, log=log)
+            self.assertIn("report-rite", eventlog.session_topics_at(log=log)["topics"])
+
+            topic_threads.index_session_topics([neutral], min_score=1, log=log)
+            self.assertNotIn("report-rite", eventlog.session_topics_at(log=log)["topics"])
+
+    def test_authoritative_generation_retires_sessions_outside_recent_window(self):
+        with tempfile.TemporaryDirectory() as st:
+            log = Path(st) / "log.jsonl"
+            old = topic_threads.VoiceFragment(
+                "old-session", "claude", "/tmp/old.jsonl", 1,
+                "report artefato com storytelling e grounding",
+            )
+            current = topic_threads.VoiceFragment(
+                "current-session", "claude", "/tmp/current.jsonl", 1,
+                "jabuticaba silenciosa",
+            )
+            topic_threads.index_session_topics(
+                [old], min_score=1, authoritative=True, log=log)
+            self.assertIn("old-session", eventlog.session_topics_at(log=log)["sessions"])
+
+            topic_threads.index_session_topics(
+                [current], min_score=1, authoritative=True, log=log)
+            self.assertNotIn("old-session", eventlog.session_topics_at(log=log)["sessions"])
 
     def test_recent_voice_topics_become_direction_proposed_with_evidence_refs(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
@@ -237,6 +296,7 @@ class TopicThreadsSurfaceDiscovery(unittest.TestCase):
             _write_claude_session(Path(claude_root) / "proj" / "s1.jsonl", ["claude noise"])
             _write_grok_session(grok, "g-all", [
                 "quero indexar sessoes por topics e navegar pelos fragmentos",
+                "quero continuar a conversa preservando a sessao",
             ])
             frags = topic_threads.collect_voice_fragments(
                 project_dir=None, claude_root=claude_root, codex_dir=False, grok_dir=grok,

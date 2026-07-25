@@ -171,6 +171,47 @@ def _grok_baseline(cursors, grok_dir=None):
     return cursors
 
 
+def record_session_exclusions(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
+                              grok_dir=None):
+    """Append provenance corrections for non-operator sessions, once per session.
+
+    This is deliberately mechanical and model-free. The raw transcript remains intact; report
+    folds use the correction to stop projecting prior delegated activity as operator activity.
+    """
+    include_codex = _codex_enabled(project_dir, codex_dir)
+    include_grok = _grok_enabled(project_dir, grok_dir)
+    if project_dir is None:
+        project_dir = _identity.project_dir()
+    discovered = list(sessions.list_sessions(project_dir))
+    if include_codex:
+        discovered.extend(sessions.list_codex_sessions(codex_dir))
+    if include_grok:
+        discovered.extend(sessions.list_grok_sessions(grok_dir))
+    already = {
+        payload["sessao_id"]
+        for event in eventlog.read(types=["sessao.excluded"], log=log)
+        for payload in [event.get("payload")]
+        if isinstance(payload, dict)
+        and isinstance(payload.get("sessao_id"), str)
+        and payload["sessao_id"]
+    }
+    additions = []
+    for session in discovered:
+        session_id = _cursor_id(session)
+        if session_id in already:
+            continue
+        reason = sessions.user_session_exclusion_reason(session)
+        if reason is None:
+            continue
+        additions.append((
+            "sessao.excluded",
+            f"sessao:{session_id}",
+            {"sessao_id": session_id, "surface": session.surface, "reason": reason},
+        ))
+        already.add(session_id)
+    return eventlog.append_batch(additions, log=log) if additions else []
+
+
 def _load_install_env():
     """Load this install's secrets for real runtime sweeps. Hermetic tests pass project_dir."""
     try:
@@ -304,7 +345,7 @@ def _lentes_config(path=None):
 
 
 def rationalization_identity(session_id, turns, *, surface="claude", watermark=None,
-                             racionalizador_version="racionalizador-v1"):
+                             racionalizador_version="racionalizador-v3-session-provenance"):
     """Compute the exact public checkpoint identity using the rationalizer's normalization."""
     import racionalizador
     normalized_turns = racionalizador._normalized_turns(turns)
@@ -327,7 +368,7 @@ def rationalization_identity(session_id, turns, *, surface="claude", watermark=N
 
 def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None, grok_dir=None,
                           backfill_days=None, now=None,
-                          racionalizador_version="racionalizador-v1"):
+                          racionalizador_version="racionalizador-v3-session-provenance"):
     """Return current substantial inputs lacking a log checkpoint, oldest first.
 
     The raw transcript is append-only, so ``session + surface + watermark + version`` identifies
@@ -532,7 +573,7 @@ def rationalize_pending_sessions(
     max_sessions_per_sweep=DEFAULT_MAX_SESSIONS_PER_SWEEP,
     sweep_token_budget=DEFAULT_SWEEP_TOKEN_BUDGET,
     scene_turn_limit=DEFAULT_SCENE_TURN_LIMIT,
-    racionalizador_version="racionalizador-v1",
+    racionalizador_version="racionalizador-v3-session-provenance",
 ):
     """Rationalize an oldest-first prefix under one aggregate sweep budget.
 
@@ -1055,6 +1096,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     lock_wait = CURSORS_LOCK_WAIT_S if cursors_lock_wait_s is None else float(cursors_lock_wait_s)
     lock_path = Path(cursors_path).with_name(Path(cursors_path).name + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    corrected = False
     with lock_path.open("w") as lk:
         if not _acquire_cursors_lock(lk, wait_s=lock_wait):
             print(f"sweep: cursors lock DARK (held >{lock_wait:g}s) — skipping sweep this wake "
@@ -1062,6 +1104,12 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             return 0
         try:
             cursors = load_cursors(cursors_path)
+            excluded = record_session_exclusions(
+                project_dir, log=log, codex_dir=codex_dir, grok_dir=grok_dir)
+            corrected = bool(excluded)
+            if excluded:
+                print(f"sweep: excluded {len(excluded)} delegated/protocol session(s) "
+                      "from operator projections")
             if _codex_enabled(project_dir, codex_dir):
                 cursors = _codex_baseline(cursors, codex_dir)
             if _grok_enabled(project_dir, grok_dir):
@@ -1075,7 +1123,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
 
-    if (n or proposed) and reproject_fn is not False:
+    if (n or proposed or corrected) and reproject_fn is not False:
         (reproject_fn or reproject)()
     elif reproject_fn is None:
         # Communities are the automatic consolidation leg of the wake. They must still refresh on a
@@ -1102,7 +1150,8 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
     """
     config = _lentes_config() if lentes_config is None else dict(lentes_config)
     backfill_days = config.get("backfill_days")
-    version = config.get("racionalizador_version", "racionalizador-v1")
+    version = config.get(
+        "racionalizador_version", "racionalizador-v3-session-provenance")
     pending = plan_rationalizations(
         project_dir, log=log, codex_dir=codex_dir, backfill_days=backfill_days,
         racionalizador_version=version,

@@ -504,6 +504,7 @@ class MenteeDialogueForRationalize(unittest.TestCase):
             ]))
             (root / "summary.json").write_text(json.dumps({
                 "info": {"id": "g1", "cwd": "/tmp"},
+                "session_kind": "operator",
             }))
             session = sessions.Session(id="g1", path=p, surface="grok")
             packed = sessions.mentee_dialogue_for_rationalize(session)

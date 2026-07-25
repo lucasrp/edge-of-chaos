@@ -232,6 +232,42 @@ class SecretsDeltaAndInsumo(unittest.TestCase):
             self.assertEqual(cfg["lentes"]["backfill_days"], 3)
             self.assertIn("self", cfg.get("adversarials") or {})
 
+    def test_emit_phenotype_declares_secrets_folder_and_inventory(self):
+        """Phenotype must name the secrets dir and list files/vars present (no values)."""
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            sdir = home / "secrets"
+            sdir.mkdir(parents=True)
+            (sdir / "openai.env").write_text("OPENAI_API_KEY=sk-secret-must-not-appear\n")
+            (sdir / "exa.env").write_text("EXA_API_KEY=exa-secret-must-not-appear\n")
+            onboarding.run_bootstrap(
+                home=home, name="bolao", backfill_days=60, provision_skills=False
+            )
+            path = onboarding.emit_phenotype(
+                home, mission="workshop bolao", voice="direto"
+            )
+            import yaml
+
+            cfg = yaml.safe_load(path.read_text())
+            self.assertEqual(cfg.get("env_dir"), "secrets")
+            secrets = cfg.get("secrets") or {}
+            self.assertEqual(secrets.get("dir"), "secrets")
+            self.assertIn("openai.env", secrets.get("files") or [])
+            self.assertIn("exa.env", secrets.get("files") or [])
+            self.assertIn("OPENAI_API_KEY", secrets.get("vars") or [])
+            self.assertIn("EXA_API_KEY", secrets.get("vars") or [])
+            # embedding wired from secrets/
+            self.assertEqual(
+                (cfg.get("routers") or {}).get("embedding", {}).get("secret_ref"),
+                "openai.env:OPENAI_API_KEY",
+            )
+            # exa source only when secret file present
+            source_names = [s.get("name") for s in (cfg.get("sources") or [])]
+            self.assertIn("exa", source_names)
+            blob = path.read_text()
+            self.assertNotIn("sk-secret-must-not-appear", blob)
+            self.assertNotIn("exa-secret-must-not-appear", blob)
+
 
 class EdgeBootstrapCLI(unittest.TestCase):
     def test_cli_requires_home(self):
@@ -416,3 +452,211 @@ class HeartbeatEnableFlag(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class AutoStampInsumo(unittest.TestCase):
+    """Seam: maybe_stamp_insumo after wake/predispatch when first-run."""
+
+    def test_stamps_when_bootstrap_and_no_phenotype(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=7, provision_skills=False
+            )
+            path = onboarding.maybe_stamp_insumo(
+                home,
+                briefing_text="## Assemble\n\nbrief body",
+                recall_text="# Recall\n\nmem",
+                quente_text="hot threads",
+                delta_text="world new",
+            )
+            self.assertIsNotNone(path)
+            self.assertTrue(path.is_file())
+            text = path.read_text()
+            self.assertIn("## Quente", text)
+            self.assertIn("lookback_days", text)
+            self.assertIn("nasce no mentor", text)
+            self.assertIn("brief body", text)
+            self.assertIn("hot threads", text)
+
+    def test_no_stamp_when_no_bootstrap(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            path = onboarding.maybe_stamp_insumo(home, briefing_text="x")
+            self.assertIsNone(path)
+
+    def test_no_stamp_when_phenotype_already_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=7, provision_skills=False
+            )
+            onboarding.emit_phenotype(home, mission="m", voice="v")
+            path = onboarding.maybe_stamp_insumo(home, briefing_text="should not write")
+            self.assertIsNone(path)
+
+
+class FinishOnboarding(unittest.TestCase):
+    """Seam: finish_onboarding = grill_gate + emit_phenotype (+ optional heartbeat)."""
+
+    def test_finish_emits_phenotype_after_grill(self):
+        import eventlog
+        import grill_writeback
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            log = home / "log.jsonl"
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=14, provision_skills=False
+            )
+            eventlog.set_objective("learn", log=log)
+            eventlog.propose("d1", "direction body", log=log)
+            eventlog.report_direction("steer", log=log)
+            grill_writeback.leveling(
+                "diario", "sem update de persona; residual = x",
+                root=home / "lv", log=log,
+            )
+            path = onboarding.finish_onboarding(
+                home, log=log, mission="learn", voice="direct", enable_heartbeat=False
+            )
+            self.assertTrue(path.is_file())
+            self.assertTrue(onboarding.is_onboarding_complete(home, log=log))
+            onboarding.assert_production_allowed(home, log=log)
+
+    def test_finish_refuses_without_grill(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            log = home / "log.jsonl"
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=5, provision_skills=False
+            )
+            with self.assertRaises(ValueError):
+                onboarding.finish_onboarding(home, log=log, mission="m", voice="v")
+
+
+class PredispatchStampsInsumo(unittest.TestCase):
+    """Seam: predispatch.run stamps insumo on first-run (injectable home)."""
+
+    def test_run_stamps_insumo_via_stamp_fn(self):
+        import predispatch
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            log = home / "log.jsonl"
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=10, provision_skills=False
+            )
+            stamped = {}
+
+            def stamp(**kw):
+                stamped["ok"] = True
+                return onboarding.maybe_stamp_insumo(home=home, **{
+                    k: kw[k] for k in (
+                        "briefing_text", "recall_text", "quente_text", "delta_text"
+                    ) if k in kw
+                })
+
+            predispatch.run(
+                sweep_fn=lambda: 0,
+                briefing_fn=lambda: "BRIEFING TEXT",
+                recall_fn=lambda: "RECALL TEXT",
+                harvest_fn=lambda: 0,
+                probe_fn=lambda _s: None,
+                ready_fn=lambda: None,
+                drain_fn=lambda: None,
+                log=log,
+                origin="user_requested",
+                stamp_insumo_fn=lambda **kw: stamp(
+                    briefing_text=kw.get("briefing_text", ""),
+                    recall_text=kw.get("recall_text", ""),
+                ),
+            )
+            self.assertTrue(stamped.get("ok"))
+
+
+class MultiCliInstall(unittest.TestCase):
+    """Install provisions Claude+Codex+Grok; phenotype lists installed surfaces."""
+
+    def test_detect_installed_surfaces_sees_existing_homes(self):
+        import surfaces_cfg
+        # Hermetic: only dirs we create count as installed
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / ".claude").mkdir()
+            (home / ".codex").mkdir()
+            # no .grok
+            got = surfaces_cfg.detect_installed_surfaces(home=home)
+            self.assertTrue(got["claude"])
+            self.assertTrue(got["codex"])
+            self.assertFalse(got["grok"])
+
+    def test_phenotype_surfaces_match_installed(self):
+        import surfaces_cfg
+        with tempfile.TemporaryDirectory() as td:
+            host = Path(td)
+            (host / ".claude").mkdir()
+            (host / ".codex").mkdir()
+            (host / ".grok").mkdir()
+            block = surfaces_cfg.surfaces_block_for_installed(home=host)
+            self.assertTrue(block["claude"]["enabled"])
+            self.assertTrue(block["codex"]["enabled"])
+            self.assertTrue(block["grok"]["enabled"])
+
+    def test_bootstrap_cfg_includes_surfaces_block(self):
+        inv = {"files": [], "vars": [], "by_file": {}}
+        cast = onboarding.resolve_adversarial_cast([], primary="claude")
+        cfg = onboarding.bootstrap_cfg(
+            home=Path("/tmp/h"),
+            name="ed",
+            backfill_days=30,
+            adversarials=cast,
+            embedding=None,
+            inventory=inv,
+        )
+        self.assertIn("surfaces", cfg)
+        # At least claude when host has it; block is from real host detection
+        self.assertIsInstance(cfg["surfaces"], dict)
+
+    def test_include_optional_only_if_installed(self):
+        import surfaces_cfg
+        with tempfile.TemporaryDirectory() as td:
+            host = Path(td)
+            (host / ".codex").mkdir()
+            # patch detect to use this host
+            real = surfaces_cfg.detect_installed_surfaces
+            surfaces_cfg.detect_installed_surfaces = lambda env=None, home=None: {
+                "claude": False, "codex": True, "grok": False
+            }
+            try:
+                # real host path: project_dir None, explicit None, surface enabled by default
+                self.assertTrue(
+                    surfaces_cfg.include_optional_surface(
+                        "codex", None, None, cfg={}
+                    )
+                )
+                self.assertFalse(
+                    surfaces_cfg.include_optional_surface(
+                        "grok", None, None, cfg={}
+                    )
+                )
+            finally:
+                surfaces_cfg.detect_installed_surfaces = real
+
+    def test_provision_surface_true_when_installed_even_if_yaml_empty(self):
+        import surfaces_cfg
+        real = surfaces_cfg.detect_installed_surfaces
+        surfaces_cfg.detect_installed_surfaces = lambda env=None, home=None: {
+            "claude": True, "codex": True, "grok": True
+        }
+        try:
+            # cfg with surfaces block that disables nothing listed — empty surfaces means
+            # absent-block defaults when load_agent_cfg; pass cfg without surfaces:
+            self.assertTrue(surfaces_cfg.provision_surface("codex", cfg={}))
+            self.assertTrue(surfaces_cfg.provision_surface("grok", cfg={}))
+        finally:
+            surfaces_cfg.detect_installed_surfaces = real

@@ -26,8 +26,10 @@ def _claude(path, prompt, *, sidechain=False):
     return _write(path, rows)
 
 
-def _codex(path, *, thread_source="user", parent=None, prompt="vamos trabalhar"):
-    payload = {"id": "codex-1", "thread_source": thread_source}
+def _codex(path, *, thread_source="user", parent=None, prompt="vamos trabalhar",
+           source="cli", originator="codex-tui"):
+    payload = {"id": "codex-1", "thread_source": thread_source,
+               "source": source, "originator": originator}
     if parent:
         payload["parent_thread_id"] = parent
     rows = [
@@ -72,23 +74,37 @@ class UserSessionFilter(unittest.TestCase):
             s = sessions.Session(id="s", path=p, surface="claude")
             self.assertEqual(sessions.user_session_exclusion_reason(s), "claude-sidechain")
 
-    def test_worker_prompt_in_root_session_is_excluded(self):
+    def test_implementation_vocabulary_in_direct_session_is_not_a_filter(self):
         with tempfile.TemporaryDirectory() as td:
             p = _claude(
                 Path(td) / "s.jsonl",
-                "You are the prototype producer for this run. Your ONLY behavioral instructions are...",
+                "Implement ticket 42 e faça um adversarial review da solução.",
             )
             s = sessions.Session(id="s", path=p, surface="claude")
-            self.assertEqual(sessions.user_session_exclusion_reason(s), "agent-launch-prompt")
+            self.assertIsNone(sessions.user_session_exclusion_reason(s))
 
-    def test_adversarial_gate_prompt_in_root_session_is_excluded(self):
+    def test_codex_exec_is_excluded_even_when_thread_source_says_user(self):
         with tempfile.TemporaryDirectory() as td:
             p = _codex(
                 Path(td) / "s.jsonl",
-                prompt="Você é o ADVERSARIAL de um build. ATAQUE o trabalho.",
+                prompt="uma tarefa delegada com conteúdo arbitrário",
+                source="exec",
+                originator="codex_exec",
             )
             s = sessions.Session(id="codex-1", path=p, surface="codex")
-            self.assertEqual(sessions.user_session_exclusion_reason(s), "agent-launch-prompt")
+            self.assertEqual(sessions.user_session_exclusion_reason(s), "codex-source:exec")
+
+    def test_heartbeat_protocol_envelope_is_excluded(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = _claude(
+                Path(td) / "s.jsonl",
+                "AUTHORITATIVE DISPATCH PLAN (mechanical; do not override):\nrun beat",
+            )
+            s = sessions.Session(id="s", path=p, surface="claude")
+            self.assertEqual(
+                sessions.user_session_exclusion_reason(s),
+                "automated-session-envelope",
+            )
 
     def test_codex_user_thread_is_kept(self):
         with tempfile.TemporaryDirectory() as td:
@@ -144,7 +160,23 @@ class UserSessionFilter(unittest.TestCase):
                 "Base directory for this skill: /home/vboxuser/.claude/skills/grill-me"}}))
             p.write_text("\n".join(rows) + "\n")
             turns = sessions.read_turns(p, surface="claude")
-            self.assertEqual([t.text for t in turns], ["texto real do usuario"])
+            self.assertEqual([t.text for t in turns], [
+                "ADVERSARIAL REVIEW — tente refutar este trabalho.",
+                "META-GATE (signal vs noise judge). Julgue cada achado.",
+                "texto real do usuario",
+            ])
+
+    def test_claude_system_scheduled_turn_is_not_operator_voice(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = _write(Path(td) / "s.jsonl", [{
+                "type": "user", "isMeta": True, "promptSource": "system",
+                "message": {"role": "user", "content": "conteúdo agendado arbitrário"},
+            }, {
+                "type": "user", "promptSource": "typed", "origin": {"kind": "human"},
+                "message": {"role": "user", "content": "fala digitada pelo operador"},
+            }])
+            turns = sessions.read_turns(p, surface="claude")
+            self.assertEqual([turn.text for turn in turns], ["fala digitada pelo operador"])
 
     def test_codex_subagent_thread_is_excluded(self):
         with tempfile.TemporaryDirectory() as td:
@@ -156,11 +188,33 @@ class UserSessionFilter(unittest.TestCase):
             )
 
     def test_grok_operator_session_is_kept(self):
-        """Operator Grok sessions have no session_kind (or absent field) — keep as Voz."""
+        """An authoritative operator marker keeps even a one-turn Grok conversation."""
         with tempfile.TemporaryDirectory() as td:
             p = _grok(Path(td) / "019f-op", "que dia esse virtualbox foi criado?",
-                      session_id="019f-op")
+                      session_kind="operator", session_id="019f-op")
             s = sessions.Session(id="019f-op", path=p, surface="grok")
+            self.assertIsNone(sessions.user_session_exclusion_reason(s))
+
+    def test_grok_unmarked_one_shot_fails_closed_without_reading_its_vocabulary(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = _grok(Path(td) / "019f-one", "uma mensagem de conteúdo arbitrário",
+                      session_id="019f-one")
+            s = sessions.Session(id="019f-one", path=p, surface="grok")
+            self.assertEqual(
+                sessions.user_session_exclusion_reason(s),
+                "grok-unknown-provenance",
+            )
+
+    def test_grok_unmarked_multi_turn_dialogue_is_kept(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "019f-dialogue"
+            p = _grok(root, "primeira fala", session_id="019f-dialogue")
+            with p.open("a") as fh:
+                fh.write(json.dumps({
+                    "type": "user",
+                    "content": [{"type": "text", "text": "<user_query>segunda fala</user_query>"}],
+                }) + "\n")
+            s = sessions.Session(id="019f-dialogue", path=p, surface="grok")
             self.assertIsNone(sessions.user_session_exclusion_reason(s))
 
     def test_grok_subagent_session_kind_is_excluded(self):

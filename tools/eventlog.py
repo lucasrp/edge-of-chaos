@@ -127,7 +127,10 @@ def read(types=None, until_seq=None, until_ts=None, log=LOG):
     return events
 
 
-DIRECTION_TYPES = ["direction.proposed", "direction.set", "direction.dropped"]
+DIRECTION_TYPES = [
+    "direction.proposed", "direction.set", "direction.dropped", "sessao.excluded",
+    "session.topics.generation",
+]
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
 
 
@@ -148,6 +151,23 @@ def fold_direction(events):
     def _key(v):  # a usable dict key = a hashable str; anything else is corrupt → not a key
         return v if isinstance(v, str) else None
 
+    events = [event for event in events if isinstance(event, dict)]
+    excluded_sessions = {
+        payload["sessao_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.excluded"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("sessao_id"), str)
+    }
+    generations = [
+        event for event in events
+        if event.get("type") == "session.topics.generation"
+        and isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("session_ids"), list)
+    ]
+    active_generation = (set(generations[-1]["payload"]["session_ids"])
+                         if generations else None)
     items = {}  # id -> item (carries 'tier')
     for e in events:
         t = e.get("type")
@@ -160,10 +180,21 @@ def fold_direction(events):
             iid = _key(p.get("id"))
             if iid is None:
                 continue  # absent OR corrupt-typed id — not a foldable proposed item
+            relates_to = p.get("relates_to")
+            if (isinstance(relates_to, list)
+                    and any(isinstance(ref, dict)
+                            and ref.get("session") in excluded_sessions
+                            for ref in relates_to)):
+                continue  # automatic proposal has contaminated/non-operator voice evidence
+            if (active_generation is not None and isinstance(relates_to, list)
+                    and any(isinstance(ref, dict) and isinstance(ref.get("session"), str)
+                            and ref["session"] not in active_generation
+                            for ref in relates_to)):
+                continue  # recent-topic proposal no longer has evidence in the active generation
             if items.get(iid, {}).get("tier") == "set":
                 continue  # set outranks proposed
             items[iid] = {"id": iid, "body": p.get("body", ""), "kind": p.get("kind", "thread"),
-                          "from_artefato": p.get("from_artefato"), "relates_to": p.get("relates_to"),
+                          "from_artefato": p.get("from_artefato"), "relates_to": relates_to,
                           "tier": "proposed"}
         elif t == "direction.set":
             raw_id = p.get("id")
@@ -461,6 +492,19 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
                     "no unconsumed dispatch.open minted that id on this log (E1 identity-held "
                     "gate; ADR-0016: run tools/predispatch.py and carry ITS id; one wake per "
                     "publish)")
+            # A beat-origin wake is autonomous exploration.  Its open Direction/Wayfind state is
+            # context, not evidence that a publishable topic exists.  O dente NA CANETA
+            # (ADR-0024): a beat publish spends the wake only against a LIVE pauta.proposta —
+            # the funnel whose floors already judged the topic (substrato, delta_voz baseline,
+            # gate da abordagem).  A user_requested dispatch is already opened by the user's
+            # explicit request and does not need this ambient gate.
+            if _is_canonical_log(log) and dispatch_origin(dispatch_id, log=log) == "beat":
+                import pauta as _pauta  # lazy: pauta imports eventlog at module load
+                if not isinstance(_pauta.proposta_for(dispatch_id, log=log), dict):
+                    raise RuntimeError(
+                        f"no-proposta: cannot publish {slug!r} under beat dispatch "
+                        f"{dispatch_id!r} — o dente (ADR-0024): sem pauta.proposta viva; rode "
+                        "o funil da Pauta (tools/pauta.py sortear -> shortlist -> propose)")
         elif not wake_fresh(log=log):
             raise RuntimeError(
                 f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "
@@ -603,6 +647,9 @@ def dispatch_origin(dispatch_id, log=LOG):
             origin = p.get("origin")
             return origin if origin in ORIGINS else "beat"
     return "beat"
+
+
+
 
 
 def source_signal(slug, ref, kind, similarity, log=LOG):
@@ -785,7 +832,10 @@ def artefato_assets_at(seq=None, ts=None, log=LOG):
     return fold_artefato_assets(read(types=ASSET_TYPES, until_seq=seq, until_ts=ts, log=log))
 
 
-SESSION_TOPIC_TYPES = ["session.topic"]
+SESSION_TOPIC_TYPES = [
+    "session.topic", "session.topics.snapshot", "session.topics.generation",
+    "sessao.excluded",
+]
 SESSION_TOPIC_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 
 
@@ -885,6 +935,46 @@ def record_session_topic(session_id, topic_id, *, title, surface, path=None, sco
     return append("session.topic", f"session:{session_id}", payload, log=log)
 
 
+def record_session_topics_snapshot(session_id, topic_ids, *, window_days=None, log=LOG):
+    """Declare the current automatic topic set for one operator session.
+
+    Topic events stay append-only. A later snapshot can retire a topic that no longer has valid
+    voice fragments after provenance/scaffolding corrections, without deleting its audit trail.
+    """
+    session_id = _validated_session_topic_id(session_id, "session_id")
+    if not isinstance(topic_ids, list):
+        raise ValueError("session topic snapshot topic_ids must be a list")
+    clean = sorted({_validated_session_topic_id(topic_id, "topic_id")
+                    for topic_id in topic_ids})
+    payload = {"session_id": session_id, "topic_ids": clean, "window_days": window_days}
+    payload["content_hash"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    for event in reversed(read(types=["session.topics.snapshot"], log=log)):
+        previous = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if previous.get("session_id") == session_id:
+            if previous.get("content_hash") == payload["content_hash"]:
+                return event
+            break
+    return append("session.topics.snapshot", f"session:{session_id}", payload, log=log)
+
+
+def record_session_topics_generation(session_ids, *, window_days=None, log=LOG):
+    """Declare the sessions in the latest authoritative recent-voice scan."""
+    if not isinstance(session_ids, list):
+        raise ValueError("session topic generation session_ids must be a list")
+    clean = sorted({_validated_session_topic_id(session_id, "session_id")
+                    for session_id in session_ids})
+    payload = {"session_ids": clean, "window_days": window_days}
+    payload["content_hash"] = hashlib.sha256(json.dumps(
+        payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    previous_events = read(types=["session.topics.generation"], log=log)
+    if previous_events:
+        previous = previous_events[-1].get("payload")
+        if isinstance(previous, dict) and previous.get("content_hash") == payload["content_hash"]:
+            return previous_events[-1]
+    return append("session.topics.generation", "session-topics", payload, log=log)
+
+
 def fold_session_topics(events):
     """Pure fold of `session.topic` -> sessions/topics/fragments navigation index.
 
@@ -892,6 +982,33 @@ def fold_session_topics(events):
     enter memory from different questions: "what happened in this session?", "where is this topic
     alive?", or "which exact utterance grounded this?".
     """
+    events = [event for event in events if isinstance(event, dict)]
+    excluded_sessions = {
+        payload["sessao_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.excluded"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("sessao_id"), str)
+    }
+    snapshots = {}
+    for event in events:
+        if event.get("type") != "session.topics.snapshot":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        sid, topic_ids = payload.get("session_id"), payload.get("topic_ids")
+        if (isinstance(sid, str) and isinstance(topic_ids, list)
+                and all(isinstance(topic_id, str) for topic_id in topic_ids)):
+            snapshots[sid] = (event.get("seq", -1), set(topic_ids))
+    generations = [
+        event for event in events
+        if event.get("type") == "session.topics.generation"
+        and isinstance(event.get("payload"), dict)
+        and isinstance(event["payload"].get("session_ids"), list)
+    ]
+    generation = ((generations[-1].get("seq", -1),
+                   set(generations[-1]["payload"]["session_ids"]))
+                  if generations else None)
     latest = {}
     for e in events:
         if e.get("type") != "session.topic":
@@ -899,6 +1016,14 @@ def fold_session_topics(events):
         p = e.get("payload") if isinstance(e.get("payload"), dict) else {}
         sid, tid = p.get("session_id"), p.get("topic_id")
         if not (isinstance(sid, str) and isinstance(tid, str)):
+            continue
+        if sid in excluded_sessions:
+            continue
+        if generation is not None and e.get("seq", -1) < generation[0] and sid not in generation[1]:
+            continue
+        snapshot = snapshots.get(sid)
+        if (snapshot is not None and e.get("seq", -1) < snapshot[0]
+                and tid not in snapshot[1]):
             continue
         latest[(sid, tid)] = (e, p)
 
@@ -976,7 +1101,7 @@ def session_topics_at(seq=None, ts=None, log=LOG):
 
 ATIVIDADE_TYPES = [
     "atividade.opened", "atividade.touched", "atividade.closed",
-    "atividade.reopened", "atividade.bears_on", "sessao.racionalizada",
+    "atividade.reopened", "atividade.bears_on", "sessao.racionalizada", "sessao.excluded",
 ]
 RUN_TYPES = ["run.opened", "run.closed", "instrumento.falhou"]
 ARCO_TYPES = ["arco.opened", "arco.closed", "arco.moved"]
@@ -989,6 +1114,7 @@ WAYFIND_TYPES = [
     "map.opened", "map.state", "ticket.opened", "ticket.closed", "ticket.declined",
     "ticket.reopened", "ticket.deps_changed", "move.proposed", "move.ratified",
     "move.declined",
+    "sessao.racionalizada", "sessao.excluded",
 ]
 _MAP_STATES = ("ativado", "pausado", "arquivado")
 _MOVE_EFFECT_TYPES = {
@@ -1004,6 +1130,82 @@ _LENS_TIERS = ("asserted", "llm_judged")
 _ACTIVITY_AUTHORS = ("operador", "grill", "racionalizador")
 _ACTIVITY_STATES = ("cumprida", "abandonada", "superada_por")
 _BEARING_VALENCES = ("supports", "refutes", "qualifies", "inconclusive", "no_bearing")
+
+
+def _operator_session_overlay(events):
+    """Hide LLM derivations from sessions later classified as non-operator provenance.
+
+    ``sessao.excluded`` is an append-only correction: raw transcripts and audit events remain in
+    truth, while report-facing folds stop attributing delegated execution to the operator. An
+    asserted activity gesture pins that grain, because the operator explicitly adopted it later.
+    """
+    events = [event for event in events if isinstance(event, dict)]
+    excluded_sessions = {
+        payload["sessao_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.excluded"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("sessao_id"), str)
+        and payload["sessao_id"]
+    }
+    if not excluded_sessions:
+        return events
+    excluded_rationalizations = {
+        payload["rationalization_id"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.racionalizada"
+        and isinstance(payload, dict)
+        and payload.get("sessao_id") in excluded_sessions
+        and isinstance(payload.get("rationalization_id"), str)
+        and payload["rationalization_id"]
+    }
+    excluded_activity_grains = {
+        payload["ulid"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") == "atividade.opened"
+        and isinstance(payload, dict)
+        and (payload.get("origem_sessao") in excluded_sessions
+             or payload.get("rationalization_id") in excluded_rationalizations)
+        and isinstance(payload.get("ulid"), str)
+    }
+    pinned = {
+        payload["ref"]
+        for event in events
+        for payload in [event.get("payload")]
+        if event.get("type") in {
+            "atividade.touched", "atividade.closed", "atividade.reopened",
+            "atividade.bears_on",
+        }
+        and isinstance(payload, dict)
+        and payload.get("tier") == "asserted"
+        and payload.get("ref") in excluded_activity_grains
+    }
+    current = []
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        event_type = event.get("type")
+        if event_type == "sessao.excluded":
+            current.append(event)
+            continue
+        if event_type == "sessao.racionalizada" and payload.get("sessao_id") in excluded_sessions:
+            continue
+        belongs_to_excluded = (
+            payload.get("origem_sessao") in excluded_sessions
+            or payload.get("rationalization_id") in excluded_rationalizations
+            or (event_type == "atividade.touched"
+                and payload.get("sessao") in excluded_sessions
+                and payload.get("tier") != "asserted")
+        )
+        if belongs_to_excluded:
+            if (event_type == "atividade.opened"
+                    and payload.get("ulid") in pinned):
+                current.append(event)
+            continue
+        current.append(event)
+    return current
 
 
 class AmbiguousRef(ValueError):
@@ -1886,7 +2088,7 @@ def change_ticket_deps(*, ref, blocked_by, rationale, dispatch_id, author,
 
 def fold_wayfinds(events):
     """Pure, fail-dark fold for map/ticket state and move audit history."""
-    events = _events_with_embedded_move_effects(events)
+    events = _events_with_embedded_move_effects(_operator_session_overlay(events))
     maps, tickets = {}, {}
     maps_by_ulid, tickets_by_ulid = {}, {}
     move_records, move_order = {}, []
@@ -2766,8 +2968,7 @@ def _foldable_hypothesized_claim(payload):
 
 def fold_claims(events):
     """Pure claim fold over one caller-owned event snapshot; malformed rows fail dark."""
-    events = _events_with_embedded_move_effects(
-        event for event in events if isinstance(event, dict))
+    events = _events_with_embedded_move_effects(_operator_session_overlay(events))
     declared = fold_hypotheses([event for event in events
                                 if event.get("type") in HYPOTHESIS_TYPES])
     for item in declared.values():
@@ -2812,13 +3013,14 @@ def fold_claims(events):
 def claims_at(seq=None, ts=None, log=LOG):
     """Fold declared and hypothesized claims, retaining promotions and contest visibility."""
     return fold_claims(read(
-        types=CLAIM_TYPES + CONTEST_TYPES + ["move.ratified"],
+        types=CLAIM_TYPES + CONTEST_TYPES + [
+            "move.ratified", "sessao.racionalizada", "sessao.excluded"],
         until_seq=seq, until_ts=ts, log=log))
 
 
 def fold_presumptions(events):
     """Pure epistemic dependency graph over one event snapshot; performs zero I/O."""
-    events = [event for event in events if isinstance(event, dict)]
+    events = _operator_session_overlay(events)
     claims = fold_claims(events)
     session_operations = {}
     for event in events:
@@ -3126,9 +3328,63 @@ def _suspect_batches(events):
     }
 
 
+def _current_activity_overlay(events):
+    """Hide superseded LLM-derived activity rows unless an asserted gesture pinned the grain."""
+    events = list(events)
+    superseded = {
+        payload["supersedes"]
+        for event in events if isinstance(event, dict)
+        for payload in [event.get("payload")]
+        if event.get("type") == "sessao.racionalizada"
+        and isinstance(payload, dict)
+        and isinstance(payload.get("supersedes"), str)
+        and payload["supersedes"]
+    }
+    if not superseded:
+        return events
+    derived_grains = {
+        payload["ulid"]
+        for event in events if isinstance(event, dict)
+        for payload in [event.get("payload")]
+        if event.get("type") == "atividade.opened"
+        and isinstance(payload, dict)
+        and payload.get("rationalization_id") in superseded
+        and isinstance(payload.get("ulid"), str)
+    }
+    pinned = {
+        payload["ref"]
+        for event in events if isinstance(event, dict)
+        for payload in [event.get("payload")]
+        if event.get("type") in {
+            "atividade.touched", "atividade.closed", "atividade.reopened",
+            "atividade.bears_on",
+        }
+        and isinstance(payload, dict)
+        and payload.get("tier") == "asserted"
+        and payload.get("ref") in derived_grains
+    }
+    current = []
+    for event in events:
+        if not isinstance(event, dict):
+            current.append(event)
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if (event.get("type") == "sessao.racionalizada"
+                and payload.get("rationalization_id") in superseded):
+            continue
+        if payload.get("rationalization_id") in superseded:
+            grain = payload.get("ulid") if event.get("type") == "atividade.opened" \
+                else payload.get("ref")
+            if grain not in pinned:
+                continue
+        current.append(event)
+    return current
+
+
 def fold_atividades(events):
     """Pure, fail-dark activity fold; conversation-facing keys are full operation/num refs."""
-    events = _events_with_embedded_move_effects(events)
+    events = _current_activity_overlay(
+        _events_with_embedded_move_effects(_operator_session_overlay(events)))
     activities = {}
     by_ulid = {}
     rationalizations = []

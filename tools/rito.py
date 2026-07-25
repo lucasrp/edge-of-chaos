@@ -172,6 +172,50 @@ def parse_acceptance(text: str) -> dict[str, Any]:
     return parsed
 
 
+def _ambient_theme_review_contract(dispatch_id, log) -> str:
+    """Bind an autonomous rite to the Pauta's live PROPOSTA (o dente no rito — ADR-0024).
+
+    Authority is mechanical (a live `pauta.proposta` penned by the funnel, whose own floors did
+    the judging: substrato, delta_voz-against-the-Voz-baseline, gate da abordagem); whether the
+    artefact actually DEVELOPS that proposal is semantic, so the final reviewer judges it. The
+    Voz-anchor gate this replaces (dispatch.theme / vf:*) died with the old road: the autonomous
+    Pauta road needs no prior Voice anchor by construction (fog nunca-abordada, curiosidade,
+    coringa) — the Voz enters as the delta_voz baseline, never as a precondition of existence."""
+    if not eventlog._is_canonical_log(log):
+        return ""
+    if eventlog.dispatch_origin(dispatch_id, log=log) != "beat":
+        return ""  # the explicit user request itself opens a user_requested dispatch
+    import pauta as _pauta
+    proposta = _pauta.proposta_for(dispatch_id, log=log)
+    if not isinstance(proposta, dict):
+        raise StageFailure(
+            "ambient beat sem pauta.proposta viva — o dente (ADR-0024): rode o funil da Pauta "
+            "(tools/pauta.py sortear -> shortlist -> propose) antes do rito do produtor")
+    cell = f"{proposta.get('abordagem')} x {proposta.get('objeto')}"
+    return f"""
+
+PAUTA GATE (blocking, semantic — the dente at the rite)
+The Pauta bound this rite to a judged PROPOSTA; the artefact must develop IT, not another theme.
+
+Celula: {cell}   Forma: {proposta.get('forma')}
+Tema: {proposta.get('tema')}
+Faceta: {proposta.get('faceta')}
+
+Set ACCEPTANCE: FAIL unless the artefact's actual actionable question is a reasonably direct
+development of that tema/faceta, and the abordagem's promised elements (per its signed gate —
+mecanismo/trade-off/confronto/caminho, docs/agencia/pauta-tabela-normativa.md par.5) are present
+in the text, anywhere, never as named sections. Mere subject overlap is insufficient. Commits,
+agent execution, Direction, Wayfind, frontier, and open bets may support state/lineage only; if they
+supply the specific action, order, priority, or problem that the PROPOSTA did not carry, fail.
+Also fail when the artefact makes the reader adopt the delegated agent's implementation altitude —
+file/symbol/command-level decisions or executor jargon as the spine/action list — unless the human
+turns themselves reasoned about the trade-off at that level. Implementation may prove what changed;
+it must be translated into the human's purpose, decision horizon, and vocabulary before it becomes
+reader-facing guidance. Infer this from dialog roles and meaning, never profession, vocabulary,
+filenames, or a technical-word list.
+""".rstrip()
+
+
 def manifest_core_hash(manifest: dict[str, Any]) -> str:
     """The binding hash: identity + the sealed receipts of the 10 COGNITIVE stages (the
     publication stage is excluded — its receipt carries this hash, so including it would be
@@ -312,6 +356,7 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
     max_tokens)` is the transport. `publish_fn(markdown, manifest) -> receipt` terminates
     the rite; the default is publisher.publish_rito on (slug, run_dir, intent, skill,
     dispatch_id, log, blog_dir)."""
+    theme_review_contract = _ambient_theme_review_contract(dispatch_id, log)
     run = _Run(run_dir)
     if run.manifest_path.is_file():
         if not resume:
@@ -417,8 +462,11 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
                 raise
 
         # 10 — final review, fail-closed acceptance header + local scan
+        final_review_prompt = prompts["final_review"](outputs)
+        if theme_review_contract:
+            final_review_prompt = f"{final_review_prompt}\n\n{theme_review_contract}"
         final_review = _llm_stage(run, manifest, "final_review",
-                                  prompts["final_review"](outputs), complete_fn, outputs)
+                                  final_review_prompt, complete_fn, outputs)
         acceptance = parse_acceptance(final_review)
         local_leaks = treatment_leaks(blind_safe)
         acceptance["local_treatment_scan_passed"] = not local_leaks

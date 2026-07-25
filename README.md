@@ -2,6 +2,20 @@
 
 Genotype for the Edge mentor install (edge-next). Identity and phenotype live per install; this tree is subject-blind code plus optional living install state.
 
+## Multi-CLI (Claude + Codex + Grok)
+
+Install provisions **every CLI harness present on the host**:
+
+| Surface | Skills land in | Sessions filmed by assemble/sweep |
+|---------|----------------|-------------------------------------|
+| Claude | `~/.claude/skills/{ed,edge}-*` | `~/.claude/projects/…` (native) |
+| Codex | `~/.codex/skills/{ed,edge}-*` | `~/.codex/sessions/` |
+| Grok | `~/.grok/skills/{ed,edge}-*` | `~/.grok/sessions/` |
+
+Detection = home directory exists (`detect_installed_surfaces`). Phenotype gets a `surfaces:` block enabling those harnesses. Assemble/quente/sweep **include every installed surface** (not Claude-only).
+
+On **ed** and **roberto** (all three CLIs present), a normal install fills all three pickers (`/ed-wake`, `@ed-wake`, …).
+
 ## First-run (no `agent.yaml` yet)
 
 `agent.yaml` is the **output** of onboarding, not the seed. Order:
@@ -55,9 +69,17 @@ Heartbeat stays **off** until onboarding completes.
 
 ### After bootstrap
 
-1. Run **wake** (assemble inside the lookback window) — produces `state/onboarding-insumo.md` (wake package **without** Direction).  
-2. Run **`/ed-mentor`** with that insumo — mentor creates objective/direction and emits `agent.yaml`.  
-3. Only then may autonomous beat/heartbeat be enabled.
+1. Run **wake / predispatch** (lookback = install `backfill_days`) — auto-stamps `state/onboarding-insumo.md` (wake package **without** Direction).  
+2. Run **`/ed-mentor`** with that insumo — mentor creates objective/direction/leveling.  
+3. Close install:
+
+```bash
+tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
+  --mission "…" --voice "…"
+# optional: --enable-heartbeat
+```
+
+4. Only then may autonomous beat/heartbeat be enabled.
 
 Full contract: [`docs/specs/onboarding-first-run.md`](docs/specs/onboarding-first-run.md).
 

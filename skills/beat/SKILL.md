@@ -93,6 +93,9 @@ nunca confere autoridade (o log é a verdade, ADR-0006).
    originar. O julgamento é semântico via completer; nunca profissão, lista de palavras ou tipo
    de arquivo.
 
+
+
+
 The proposal weighs **origem**: an artefato **pedido pelo usuário** (`origin: user_requested`,
 declared at the wake — `predispatch.py --origin user_requested`) is exactly where the mentee's
 cognition is NOW, first-order signal that outweighs anything the beat would pick alone; a beat

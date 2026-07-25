@@ -55,3 +55,13 @@ Then production (beat/heartbeat) may run.
 ## Dual-mode
 
 Existing installs with `agent.yaml` keep the legacy apply path. Bootstrap path only when phenotype is absent.
+
+## Multi-CLI (Claude + Codex + Grok)
+
+Install detects which harness homes exist on the host (`~/.claude`, `~/.codex`, `~/.grok`) and:
+
+1. **Provisions skills** into every installed harness (`ed-*` + `edge-*` prefixes).
+2. Writes phenotype `surfaces:` enabling those harnesses.
+3. **Assemble / sweep / quente** film sessions from every installed surface (not Claude-only).
+
+Same code path on ed, roberto, petertosh — whatever CLIs are present get install + film.
