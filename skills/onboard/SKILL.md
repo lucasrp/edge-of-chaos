@@ -71,6 +71,20 @@ Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
 negotiation: if it looks long, say so in one line ("30 dias = ~70 min de primeiro wake") —
 and if the operator wants to wait, they wait. Their call, never yours.
 
+**Close the interview by SUGGESTING sources.** From what you have already seen of their
+domain (the repos on the host, the session titles, the keys they delivered), propose a
+concrete starter set — never a blank "quer adicionar fontes?":
+
+- generic strong defaults: **arXiv** (their area's categories), **Hacker News**;
+- **Exa** if `EXA_API_KEY` landed in secrets (semantic search over the open web);
+- **X** if the xai key is there (community/practice signal);
+- 2-3 **domain-specific** ones inferred from their work (e.g. jurisprudência feeds for a
+  legal mentee, sports-data APIs for a betting product).
+
+Each with one line of what it would feed. The operator accepts/rejects; accepted ones
+seed the phenotype `sources:` block, and the first mentor refines what to WATCH in each
+(bar item 3 of the Emenda).
+
 ## 1. Bootstrap — the skeleton
 
 ```bash
