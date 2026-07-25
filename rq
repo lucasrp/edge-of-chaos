@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# rq — probe rápido do cortex deste host (env pré-sourced, driver pronto). Ver tools/_probe.py.
+#   cypher:  ~/edge/rq 'MATCH (c:Community {group_id:$g}) RETURN count(c) AS n'
+#   python:  ~/edge/rq < snip.py     (globais C, d, q(cypher,**p), G já prontos)
+cd ~/edge || exit 1
+set -a; for f in secrets/*.env; do . "$f" 2>/dev/null; done; set +a
+exec ./tools/edge-python tools/_probe.py "$@"

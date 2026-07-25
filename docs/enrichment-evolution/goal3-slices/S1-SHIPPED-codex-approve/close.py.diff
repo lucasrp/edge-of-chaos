@@ -1,0 +1,57 @@
+diff --git a/tools/close.py b/tools/close.py
+index b2c77c5..b0b9877 100644
+--- a/tools/close.py
++++ b/tools/close.py
+@@ -795,7 +795,9 @@ regular_review.identity = REGULAR_REVIEWER_ID
+ 
+ BOUNCE_MAX = 1            # reviewer strike → re-produce, at most this many times
+ LOOP2_MAX_REOPENS = 1     # serendipity may reopen loop-1 at most this many times
+-IMPROVE_ROUNDS = 2        # unconditional review→improve refinement passes before the gating close
++IMPROVE_BACKSTOP = 8      # R7: improve loop runs while each round GAINS (changes the draft); it
++#                          stops on a plateau (a round whose revision is unchanged = marginal gain 0)
++#                          and this generous backstop only caps a DIVERGENT loop — it is NOT a fixed N.
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -929,9 +931,11 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
+     `proof` this mints (it `verify_proof`s the token + digest), so a producer can never reach
+     the publisher directly around the gate.
+ 
+-    IMPROVE STAGE (the two improve-gates, one after the other): when `improve_fn` is given,
+-    BEFORE the gating close run `improve_rounds` (default IMPROVE_ROUNDS=2) UNCONDITIONAL passes
+-    of review→improve. Each pass runs BOTH reviewers purely to PRODUCE FEEDBACK — the
++    IMPROVE STAGE (R7 marginal-gain loop): when `improve_fn` is given, BEFORE the gating close
++    run review→improve passes WHILE EACH ROUND GAINS — it stops on a plateau (a round whose
++    revision is unchanged = marginal gain 0), bounded by `improve_rounds` (default IMPROVE_BACKSTOP)
++    as a generous backstop against divergence, NOT a fixed count. Each pass runs BOTH reviewers
++    purely to PRODUCE FEEDBACK — the
+     per-dimension `rationales` and the `strikes` (the LLM 0-5 score is too noisy to gate on, so
+     the feedback is the signal) — and hands that feedback to `improve_fn(artefato, feedback)`,
+     which REVISES the artefato (it improves the existing draft, it does not re-produce from
+@@ -963,8 +967,12 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
+     # final, twice-improved artefato. A reviewer that raises degrades to a feedback strike here —
+     # the refine never crashes (the gating close enforces correctness afterwards).
+     if improve_fn is not None:
+-        rounds = IMPROVE_ROUNDS if improve_rounds is None else improve_rounds
+-        for _ in range(rounds):
++        # R7: iterate while each round still GAINS — keep refining as long as the revision
++        # actually changes the draft. Stop on a PLATEAU (a round whose revision == the input =
++        # marginal gain 0), bounded by the GENEROUS backstop against a divergent loop. This is
++        # NOT a fixed N: a still-improving draft runs past the old 2, a converged one stops at 1.
++        backstop = IMPROVE_BACKSTOP if improve_rounds is None else improve_rounds
++        for _ in range(backstop):
+             feedback = []
+             # the genus violations (incl. the rich-rite floor strikes) are FED to improve_fn too
+             # (Codex P2, #30): the floor forces depth only if the named gap reaches the reviser —
+@@ -979,7 +987,10 @@ def run_close(artefato, produce_fn, reviewers=(feynman_review, regular_review),
+                     v = {"pass": False, "scores": {}, "rationales": {},
+                          "strikes": [f"reviewer raised: {type(e).__name__}: {e}"], "overall": 0.0}
+                 feedback.append(v)
+-            artefato = improve_fn(artefato, feedback)
++            revised = improve_fn(artefato, feedback)
++            if revised == artefato:    # plateau — marginal gain → 0, stop (don't burn a no-gain round)
++                break
++            artefato = revised
+ 
+     bounces = 0
+     while True:

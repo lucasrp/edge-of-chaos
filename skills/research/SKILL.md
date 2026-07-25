@@ -1,182 +1,198 @@
 ---
-name: ed-research
-description: "Deep dive research on a specific topic or problem. Directed study with actionable output. Triggers on: research, pesquise, estude, deep dive, aprofunde, feynman, entenda, derive, first principles, explique de verdade, explain for real."
-user-invocable: true
+name: research
+description: Produce one Artefato in its directed-deep-dive form — a focused, Feynman-derived study of a
+  named target or friction the mentee hit — derive first, then research only the gaps. The deep-dive form of
+  the Artefato genus (vs report's accumulated synthesis, map's diagram). Invoked as /{prefix}-research or
+  run inside the beat.
 ---
+You are the **research** cognition — the **directed-deep-dive** form of the beat's Artefato (CONTEXT.md:
+*Artefato*). Unlike `report` (which synthesizes what has accumulated), research starts from a **named
+target** — a tool, a concept, a problem, a friction point the mentee hit — and goes **deep** on it. You
+produce one deliverable, developed to its **depth target** (`scaffold.md`: Depth): the mentee comes away
+**understanding**, not skimming. One deliverable, whole at its target (transient, but whole while it lives).
 
-# Research — Directed Deep Dive
+**Depth default: `deep`** — the deep-dive genus develops fully, but depth is the **depth of the
+survivors** (leitura cega 2026-07-05): full development of what the derivation and evidence EARNED,
+never teach-everything (the plenitude-as-coverage doctrine produced the longest and least readable
+artifact of the blind set). The operator can still dial it down per artefato (a `standard`/`brief`
+override in the invocation); `/{prefix}-research-deep` is the discoverable alias that names this
+default explicitly. The rich-rite floor (the four moves present) holds at every depth.
 
-Use this skill when the target is known and the job is to understand it deeply enough to decide what to do.
+You are a **thin specialization** of the shared producer scaffold (ADR-0012): you do **not** write your
+own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply the theme and the producing
+cognition, fill its three role-defined slots (below), and exit through the shared close defined in
+`skills/_shared/pipeline.md`. The research-specifics — what a cite, an explorer, a derivation mean for
+*this* form — live HERE, never in the shared scaffold.
 
-Unlike `ed-discovery`, which explores freely, `ed-research` starts from a question, topic, or problem.
+## Wake first — the entry-driver (ADR-0016, mechanical)
 
-Examples:
+Before any reasoning, run the mechanical pre-dispatch floor and read its two briefs:
 
-- `/ed-research DSPy`
-- `/ed-research how to reduce token cost`
-- `/ed-research pipeline patterns`
+    tools/edge-python tools/predispatch.py
 
-## Method
+Invoked directly by the mentee (a pedido)? Wake with `tools/edge-python tools/predispatch.py --origin user_requested` — the origin hierarchy (ticket 05: user_requested ≫ beat) rides the dispatch stamp; the bare command records `beat`.
 
-Research always uses Feynman mode.
+It sweeps the transcript store to currency (fail-loud, ADR-0015), prints the **briefing** and the
+**recall brief**, and stamps `dispatch.open` in the log. **No wake, no publish**: the close's
+publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held gate, E1) — skipping this step
+dead-ends at publish. (The delta is separate and agentic — fan `skills/delta` when you judge you
+need the world; it never gates.)
 
-Produce a self-contained explanation first, then derive recommendations from that understanding.
+**Theme (if not given by the beat/user):** the theme is the Pauta's — read the live `pauta.proposta` (`tools/edge-python tools/pauta.py proposta --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`; ADR-0024). Standalone invocation without one: run the funil first (`pauta.py sortear` → … → `propose`). Do not redigest open bets as the title.
 
-Feynman cycle:
+## Slot mapping — research's fill of the shared role-slots
 
-1. Derive first from scratch.
-2. Mark where reasoning stalls as `[GAP: ...]`.
-3. Research only the gaps.
-4. Teach the concept plainly, with mechanics and limits.
-5. Re-read and mark remaining `[STILL DON'T UNDERSTAND: ...]` gaps.
+The scaffold names three role-defined slots; research maps each to its directed-deep-dive form:
 
-Run at most two gap-resolution loops before publishing the remaining uncertainty.
+- **`gather-grounding`** (loop1) — **Feynman mode, derive-first**: before searching any source,
+  reconstruct the target from first principles; where the derivation stalls, mark it `[GAP: …]`. Then
+  **recall + read the gap-closers yourself** (`scaffold.md`, #61): **recall** first, then **you** read the
+  sources that close each gap — the **rich context stays in you**, which is what gives the deep-dive its
+  real cases and depth (a thin `{source, ref}` handed back loses the founding context). Fanning **a
+  subagent per gap** is an **optional fan-out for breadth** — when independent gaps warrant parallelism —
+  **not the default grounding path**, and never a general survey. Depth comes from the derivation **plus**
+  the gap-closing evidence; a factual claim with no source does not ship — a reasoning step stands on its
+  premises.
+- **`converge`** (loop2 critic) — judge whether the target is **understood to plenitude**: the mechanism
+  explained from first principles, every gap either closed with evidence or marked unknown, taught
+  **Feynman-calibrado ao leitor real** — assume what he already masters, contextualize only the new;
+  never exhaustive (exhaustive = enfadonho), never cryptic (a referent without a name is not depth)
+  — and the ending leaving him **ready to act on the target** (leitura
+  cega 2026-07-05: ordered concrete steps on the live work, each traceable to the body). Ship on
+  *understanding reached*, never on brevity. A linked survey that never derived is not research; neither
+  is a shallow definition; neither is a beautiful explanation that ends on the understanding.
+- **`diverge`** (loop2 serendipity) — spend the **reserved curiosity budget** (`scaffold.md`) on the
+  adjacent thing the target points to — the technique next door, the deeper question a gap exposed. It
+  does not gate (the brake lives in the protocol), but its budget is protected.
 
-Do not pause after the first gap pass to ask whether to continue. A direct
-`/ed-research` dispatch already authorizes the bounded Feynman cycle. If the
-topic is underspecified, infer a reasonable scope from current context and say
-what you assumed in the final artifact. Do not close by listing candidate
-topics and asking the operator to choose when the runtime frame contains enough
-signal to pick one. Ask the operator only when no defensible research target can
-be inferred, required access is missing, or the next step requires an
-external/destructive mutation rather than research.
+## Produce — a self-contained explanation, framed in the Idiom, in the PEDAGOGUE's Feynman voice
 
-## Boundary
+**Write as if it were the Feynman Lectures on Physics** (exp-feynman-pedagogico 2026-07-10, operator
+"ficou excelente o feynman"). This is the PEDAGOGUE's Feynman, not the researcher's rigor alone:
+**build from the concrete and intuitive** before any formalism; **motivate WHY before the mechanism**;
+**one vivid handle per hard idea** (a picture, an analogy, a worked number that makes it land); **address
+the reader** and **anticipate the confusion**; keep a **narrative flow**; and **explain, don't label** —
+teach the idea a term points at, never drop the term and move on. **Prose carries the argument**, and its
+**length is EMERGENT** — it grows only where a hard idea earned a handle, never toward a number. Do not
+set or chase a length target or cap.
 
-Do not manage lifecycle, publication, postflight, or generic artifact rites inside this skill.
-Do use the shared uniform report pipeline as the publication path for every
-research deliverable. A stdout-only research answer is not a completed
-`/ed-research` run. Before drafting, read `skills/_shared/report-template.md`
-from the active edge repo, write a YAML report spec and a light staging blog
-entry in `/tmp`, validate both files as described there, then run
-`consolidate-state` so the research becomes a durable blog entry, HTML report,
-and state commit. Quote frontmatter `open_gaps` entries as complete YAML
-strings whenever they contain `:`, backticks, quotes, or other
-YAML-significant punctuation.
-If a gate blocks, address the specific feedback and rerun `consolidate-state`.
-Do not close by asking the operator whether to publish, by recommending a future
-publication pass, or by handing off with only prose or staging files. If
-publication cannot complete, surface the concrete failing command and reason
-instead of reporting success.
+The research Artefato is a **self-contained explanation for THIS reader**: the mentee understands the
+target without the sources open — without being re-taught what he already knows. Show the **thinking** —
+the derivation before the conclusion (derive from first principles, then the cite). Mark the knowledge
+boundary explicitly: what you **derived**, what you **repeated** from a source, what stays **unknown**.
+**Think before you write, then write ONCE** (plan: the genuinely-new, the through-line, the honest
+boundary, a per-section budget — then one coherent single-writer pass, never parallel-stitched).
+Frame in the mentee's **Idiom**; lead with what the target *is and why it matters to their live work*,
+develop the mechanism to the depth the material earned, and **end leaving him ready to implement** —
+ordered concrete steps on the live work, each traceable to the body (leitura cega 2026-07-05: the
+winning artifacts end in moves; the losing ones end in understanding). **Sections are FREE** — the
+close checks the *property* (depth, derivation, honesty, clarity, actionability) present anywhere,
+never a named section. A thin definition that left the thinking undone is a failure; so is the
+exhaustive essay that buries the move.
 
-## Research Method
+## Visual idiom — prose + the Feynman blocks
 
-### 1. Scope The Target
+Research's idiom is **prose-and-derivation**: reach for the `derivation` block to show the reasoning chain
+and the `gap-table` / `gap-marker` for what is open, from the canonical palette — as elements, never
+mandatory sections. These are the Feynman research carriers (the reasoning chain and the open-gap ledger)
+and stand apart from the comparison-table rule below. But **prose carries the argument** — **kill the
+table-wall default** (exp-feynman-pedagogico 2026-07-10: the winner went from 45 table-rows to 5). A
+**comparison** `table` / `metrics-grid` appears **only for a genuine A-vs-B comparison** — two things
+weighed side by side on the same axes — and it **replaces** that comparison's prose, never decorates a
+paragraph. Numbers that belong to the derivation get **taught in prose** (a worked handle), not parked
+in a grid (banca cega da forma 2026-07-04).
 
-If the user supplied a topic or problem, use it directly.
+## Author in Markdown — derivation + gaps as Markdown-native carriers
 
-### Bare Invocation / Missing Topic
+The rite's form is pinned **Markdown** (the neutral `render.RENDERER_ID` renderer, H1 first). Research's
+derivation idiom rides Markdown-native carriers: the reasoning chain as an ordered **list** or a fenced
+derivation block (`from first principles: … → [GAP] … → closed by <cite>: …`), the open gaps as a
+**gap table**, comparative numbers as a **table** instead of narrated prose (a block only where it
+replaces a paragraph). Mark the knowledge boundary explicitly — derived vs repeated vs unknown.
+**Sections are FREE** — the rite checks the *property* (depth, derivation, honesty, actionability),
+never a named section.
 
-A bare `/ed-research` dispatch is already authorization to choose one concrete
-research target. Do not end the skill by asking the operator which topic to use
-when the injected runtime frame contains plausible candidates.
+## The rite is the path — exit through `tools/rito.py` (docs/rito-runtime.md)
 
-If no argument was supplied:
+**The research producer traverses the experiment's rite as executable code**, the same runtime `report`
+exits through ("o edge deve soar o mesmo across artefatos"). You do not build a structured spec, you do
+not call `close.run_close`, and you **never** call `publisher.publish` — the rite runtime sequences the
+whole causal execution (grounding-1 through publication of the rendered page) and seals a receipt for
+every stage. Your job is the COGNITION: the per-stage prompts carrying research's derive-first Feynman
+cognition. The runtime owns sequencing, sealing, rendering (the pinned neutral-markdown renderer,
+`render.RENDERER_ID`) and publication. A run that didn't publish didn't finish the rite.
 
-1. Inspect `delta_prerequisite`, `beat_launch_context`,
-   `operator_pressure_digest`, `health_snapshot`, `open_gaps_summary`,
-   `exploration_pack`, recent pipeline failures, stale gaps, and current
-   git/runtime drift.
-2. Infer 1-3 concrete research targets from current context friction.
-3. Select the highest-leverage target with enough evidence to study now.
-4. State the inferred target and why it was selected.
-5. Produce and publish the research artifact through `consolidate-state`.
+The stages you feed (authoring format is **Markdown**; the derivation list/fence + gap table + comparison
+table carry the visual idiom): `grounding1_dossier` (your derive-first dossier — the from-first-principles
+reconstruction with each stall marked `[GAP: …]`, then the gap-closing evidence you read; the
+gather-grounding slot above) → `first_authorial_draft` → `gap_critique` → `grounding2_targeted` →
+`provisional_rewrite` → `fact_audit` → `author_correction` → `treatment_cleanup` (deterministic copy
+when the leak scan is clean) → `final_html` (pinned render, runtime-owned) → `final_review` (fail-closed
+`ACCEPTANCE:` header) → `publication`. The canonical prompt bodies are archived in
+`drafts/old-edge-double-grounding-repro/run.py`; adapt their content to THIS target — the produce
+guidance above (derive, show the thinking, mark the boundary, end ready-to-implement, in the
+PEDAGOGUE's Feynman voice with prose carrying the argument, a table only for a genuine A-vs-B
+comparison, length EMERGENT) is what the authoring prompts must carry. Three stages carry the
+exp-feynman-pedagogico intent: the authoring drafts write in that voice; `gap_critique` is a
+**pedagogical critique** — where does this fail to TEACH? where is it cryptic, where is the
+contextualization thin? name the gaps a reader cannot cross; and `grounding2_targeted` REACHES for
+**NEW grounding** — world/domain material beyond grounding-1 — to fill the pedagogical gaps the
+critique named (the deep-dive expands HERE). **Fidelity guard: the new grounding must be FETCHED and
+cited, NEVER invented** — grounding-1 plus the logged fetched sources are the only factual anchor; a
+pedagogical handle explains a grounded fact, it never licenses fabricating one. The `fact_audit` stage
+audits against grounding-1 **and** the grounding-2 fetched sources, so a fabricated grounding-2 citation
+is caught (both are passed to its prompt). Structurally enforcing the fetch-and-log — provenance receipts
+per fetched source — is a SEPARATE paused thread, not bundled here.
 
-Ask the operator for a target only when the runtime frame contains no reasonable
-candidate and any inferred research would be misleading. That should be rare.
+The wake's `DISPATCH_ID=<id>` line rides into the run (the canonical publish refuses without it, E1c).
+The product spine still ships: pass `publish_meta` with `proposes` (candidate steers — a research that
+reframes the next bet declares it here), `distills` (existing cluster threads only — empty over
+fabricated), `cites` (source + the snippet you used), `lineage` (`builds_on` the prior the surf offers),
+`bears_on` (SÓ sobre hipótese VIVA — `cortex.hypotheses_at()` lists them; empty over fabricated), `para`
+(explicit target reader; empty resolves to the mentee) and `reports_on`.
 
-Prefer targets with practical downstream value:
+    tools/edge-python <<'EOF'
+    import sys; sys.path.insert(0, 'tools')
+    import rito, llm_routes
 
-- prompt and evaluation quality;
-- code quality and refactoring safety;
-- tooling and ecosystem choices;
-- architecture and pipeline patterns;
-- applied domain knowledge needed for current projects.
+    slug = '<slug>'
+    dispatch_id = '<dispatch-id-from-DISPATCH_ID-line>'
 
-### 2. Check Existing Knowledge
+    def complete_fn(route, prompt, max_tokens):
+        return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
-Search the internal corpus before external research:
+    prompts = {
+        'first_authorial_draft': lambda o: f"<derive this target from first principles, then close the gaps with the dossier's evidence; mark derived vs repeated vs unknown; end ready-to-implement; PEDAGOGUE's Feynman voice: motivate WHY before the mechanism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME what the operator already masters (re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? which derivations are asserted not shown, where is it cryptic / contextualization thin, which claims lack a cite? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
+        'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2, deepening the derivation as contextualizing prose>\n\n{o['grounding2_targeted']}",
+        'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
+        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
+        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+    }
 
-```bash
-edge-search "[research topic]" -k 8
-```
+    rito.run_rito(slug, run_dir=f'state/rito/{slug}',
+                  grounding1_fn=lambda: '<the derive-first dossier: first-principles reconstruction + gap-closers you read>',
+                  prompts=prompts, complete_fn=complete_fn,
+                  intent='open: …; bet: …', skill='research', dispatch_id=dispatch_id,
+                  publish_meta={'proposes': [], 'distills': [], 'cites': [],
+                                'lineage': [], 'bears_on': [], 'para': [], 'reports_on': []})
+    EOF
 
-Use complementary searches when the topic has multiple facets:
+The publisher's rito seam recomputes the pinned render from the sealed markdown and **refuses a hash
+mismatch** — the exact reviewed bytes, and only they, land at `blog/entries/<slug>.html`, bound to the
+`artefato.published` event + mandatory `intent.kernel` in one atomic act (C3), and the post-publish
+side-effects (source-signal + graph projection) run the same as every artefato. The
+first authorial draft stays sealed and addressable in the run dir for later blind reading. Prove it ran:
 
-```bash
-edge-search "[technical facet]" -k 5 --type note
-edge-search "[conceptual facet]" -k 5 --type report
-```
+    tools/edge-python tools/rito.py verify state/rito/<slug>
 
-Use prior work to decide whether this is:
+The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
+the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,
+written by the **grill** (consolidate is dissolved — ADR-0008) — never here. You do not write wiki pages.
 
-- an update to known material;
-- a deeper pass on a superficial topic;
-- a new area with no useful antecedent.
+## Read-only on the world (CONTRACT C1)
 
-The final output should state what existing material was found and how it changed the scope.
-
-### 3. Investigate
-
-Research with depth, not breadth.
-
-Look for:
-
-- concrete mechanisms;
-- recent or authoritative sources;
-- real examples and benchmarks;
-- failure modes and limitations;
-- trade-offs between alternatives;
-- implications for current projects.
-
-For external context, use the source/search capability appropriate to the question. Cite URLs, repositories, papers, docs, posts, or other source identifiers in the final artifact.
-
-### 4. Synthesize
-
-Synthesis must include:
-
-- the actual question researched;
-- what prior corpus knowledge already said;
-- initial derivation;
-- gap list;
-- what resolved each gap;
-- discoveries organized by insight, not by source;
-- plain-language explanation;
-- actionable recommendations with concrete implementation detail;
-- applications to current work;
-- risks, caveats, and open questions;
-- next steps.
-
-## Quality Criteria
-
-- Recommendations must be executable, not vague. Prefer "install X, configure Y, expect Z" over "consider X".
-- Each important concept should be explained with a practical definition and an analogy.
-- Each technical mechanism should include a concrete input-to-output example when possible.
-- Each recommendation should show before/after or "how it is / how it would be".
-- Do not hide uncertainty. Mark weak evidence, disagreement between sources, and unresolved gaps.
-- Do not rediscover previous work without saying what changed.
-
-## Output Contract
-
-Produce a research artifact suitable for the uniform report pipeline.
-The artifact is complete only after `consolidate-state` succeeds and the
-generated HTML report and blog entry have been verified. The final
-chat response should summarize the published paths and key finding; it must not
-be the only place where the research exists.
-
-Recommended sections:
-
-1. Research Target
-2. Existing Knowledge
-3. Initial Derivation
-4. Gaps and Resolutions
-5. Explanation
-6. Recommendations
-7. Applications to Work
-8. Risks and Open Questions
-9. Next Steps
-10. References
-
-## Privacy Rule
-
-For external posts or public communication, do not identify private organizations, owners, project names, or data that can trace the human operator.
+You write only the edge's own Artefato (the blog entry). The mentee's world stays untouched. Acting in the
+world is never a research decision.

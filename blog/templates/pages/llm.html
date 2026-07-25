@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}edge — rotas LLM{% endblock %}
+{% block content %}
+<main class="blog llm-page"><h1>edge — rotas LLM</h1>
+<p class="meta">provider/modelo/credencial por rota do <code>agent.yaml</code>, com probe real e
+troca de provider sem editar YAML na mão (issue #55). O provider <code>codex</code> cobra pela
+assinatura (CLI local), sem chave de API metered.</p>
+{{ error_html }}
+<section><h2>rotas de completion</h2>{{ routes_html }}</section>
+<section><h2>embedding (à parte)</h2>
+<p class="meta warn">a assinatura Codex não cobre esta rota — sem endpoint de embedding no CLI;
+ela continua precisando de chave de API (ou modelo local). A saúde da chave DELA é a que vale
+aqui, separada das rotas de completion acima.</p>
+{{ embedding_html }}</section>
+<section><h2>erros de infra recentes (llm.infra_error)</h2>
+<p class="meta">falha de transporte/bilhetagem do completer (401/403/429/insufficient_quota) sobe
+do close como infra e cai aqui — nunca vira reprovação silenciosa de revisor.</p>
+{{ infra_html }}</section>
+</main>
+{% endblock %}

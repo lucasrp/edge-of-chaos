@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}edge — {{ cluster_title }}{% endblock %}
+{% block content %}
+<main class="blog wiki-page wiki-cluster">
+<p class="meta"><a href="/wiki">← wiki</a> · {{ cluster_title }} · isolado (sandbox), inerte por construção</p>
+{#- sandbox="" (empty) = the most restrictive: no scripts, no same-origin, no forms. The
+    edge-generated HTML renders inside this frame only, never in the authed parent. -#}
+<iframe class="wiki-frame" src="/wiki/{{ cluster_id }}/raw" sandbox="" title="{{ cluster_title }}" referrerpolicy="no-referrer"></iframe>
+</main>
+{% endblock %}

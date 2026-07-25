@@ -1,0 +1,11 @@
+# edge runtime — pinned deps for the mandatory graph tier (ADR-0011, #20).
+# The graph is mandatory on every host: extraction (graphiti_core + neo4j + openai)
+# runs locally, so edge-apply builds <edge_home>/.venv from these pins and
+# tools/edge-python fails loud when the venv is absent (no silent system-python3).
+# Versions are the known-good set verified on the edge-experiments runtime.
+graphiti-core==0.29.1
+neo4j==6.2.0
+openai==2.41.0
+flask==3.0.3
+PyYAML==6.0.3
+vl-convert-python

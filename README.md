@@ -1,144 +1,115 @@
-# edge-of-chaos — Autonomous AI Agent Framework
+# edge
 
-Framework for deploying autonomous AI agents based on Claude Code. Each agent has its own identity, dashboard, skills, and heartbeat cycle.
+Genotype for the Edge mentor install (edge-next). Identity and phenotype live per install; this tree is subject-blind code plus optional living install state.
 
-## Quick Start (5 min)
+## Multi-CLI (Claude + Codex + Grok + Hermes)
+
+Install provisions **every CLI harness present on the host**:
+
+| Surface | Skills land in | Sessions filmed by assemble/sweep |
+|---------|----------------|-------------------------------------|
+| Claude | `~/.claude/skills/{ed,edge}-*` | `~/.claude/projects/…` (native) |
+| Codex | `~/.codex/skills/{ed,edge}-*` | `~/.codex/sessions/` |
+| Grok | `~/.grok/skills/{ed,edge}-*` | `~/.grok/sessions/` |
+| Hermes | `~/.hermes/skills/{ed,edge}-*` | `~/.hermes/state.db` (SQLite — estimate hoje; filmagem completa é adaptador futuro) |
+
+Detection = home directory exists (`detect_installed_surfaces`). Phenotype gets a `surfaces:` block enabling those harnesses. Assemble/quente/sweep **include every installed surface** (not Claude-only). Hermes (Nous Research) roda pela conta do próprio usuário (`hermes setup` define o modelo default — o edge nunca fixa modelo pra ele); adversarial via `--adversarial hermes` (rota `review_hermes`, transporte `hermes -z`).
+
+On **ed** and **roberto** (all three CLIs present), a normal install fills all three pickers (`/ed-wake`, `@ed-wake`, …).
+
+## First-run (no `agent.yaml` yet)
+
+**Agentic path (recommended):** clone, open your CLI (Claude/Codex/Grok) in the repo and
+ask for the guided install — the `onboard` skill (`skills/onboard/SKILL.md`; `/ed-onboard`
+once provisioned) interviews you (name, home, secrets, backfill days **with a cost check**
+— `edge-bootstrap estimate --days N`), runs every step below explaining as it goes,
+brings up the Neo4j runtime (`edge-bootstrap runtime`), and flows straight into the first
+mentor session before closing with `finish` + heartbeat + the local blog URL.
+
+The manual road underneath: `agent.yaml` is the **output** of onboarding, not the seed. Order:
+
+1. **Deliver secrets** into a folder the install will read  
+2. **Bootstrap** (name, lookback days, adversarials, optional embeddings)  
+3. **Assemble + wake** over that history (structures the mentor insumo)  
+4. **Mentor** (Direction / objective born here)  
+5. Phenotype written → heartbeat may be enabled  
+
+### Secrets folder (required)
+
+Create a secrets directory under the install home (default) or point `EDGE_SECRETS_DIR`:
+
+```text
+$EDGE_HOME/secrets/
+  openai.env      # e.g. OPENAI_API_KEY=…
+  xai.env
+  neo4j.env       # EDGE_NEO4J_PASSWORD=… when using graph
+  exa.env
+  github.env
+  …
+```
+
+- Format: one `VAR=value` per line (optional `export ` prefix).  
+- **Bootstrap, assemble, wake, and onboarding read this folder.** The installer does **not** download or invent keys.  
+- Do not commit secrets (`secrets/` is gitignored).  
+- Logs and insumo packages record **key names only**, never values.
+
+### Bootstrap knobs
+
+| Knob | Required | Example |
+|------|----------|---------|
+| Install home | yes | `--home ~/my-edge` or `EDGE_HOME` |
+| Agent name | yes | `--name ed` or `EDGE_AGENT_NAME` |
+| Assemble lookback (days) | yes | `--backfill-days 30` or `EDGE_ASSEMBLE_BACKFILL_DAYS` |
+| Adversarials | no | `--adversarial codex --adversarial grok` — if none available, **the primary model does the adversarial** |
+| Embeddings key | no | if `OPENAI_API_KEY` (or configured embedding secret) is in `secrets/`, embedding route is wired; otherwise declared-dark |
 
 ```bash
-# 1. Clone
-git clone https://github.com/lucasrp/edge-of-chaos.git my-agent
-cd my-agent
-
-# 2. Configure (edit 5 required fields)
-cp agent.yaml.example agent.yaml
-nano agent.yaml
-
-# 3. Render + Install
-python3 tools/edge-render
-python3 tools/edge-apply
-
-# 4. Validate
-python3 tools/edge-doctor
+# after placing secrets under $EDGE_HOME/secrets/
+export EDGE_HOME=~/my-edge
+tools/edge-python tools/edge-bootstrap \
+  --home "$EDGE_HOME" \
+  --name ed \
+  --backfill-days 30
+# optional: --adversarial codex --adversarial grok
 ```
 
-Done. Dashboard running, 22 skills installed, heartbeat ready.
+Heartbeat stays **off** until onboarding completes.
 
-## agent.yaml
+### After bootstrap
 
-Bootstrap spec. Used at render/install time to create runtime config. Five required fields:
-
-```yaml
-name: my-agent                    # unique name (lowercase, hyphens)
-codename: ma                      # prefix for skills (/ma-pesquisa, /ma-heartbeat)
-missao: "What this agent does"    # 1-2 sentences
-persona: "How it communicates"    # tone and style
-dominio: "government"             # work domain
-```
-
-Everything else has smart defaults. See `agent.yaml.example` for all options.
-
-## What edge-apply Does (8 phases)
-
-1. **Render** — generates all files from agent.yaml + templates
-2. **Directories** — creates content dirs (`blog/`, `reports/`, `logs/`, etc.)
-3. **Skills** — installs 22 skills with your prefix to ~/.claude/skills/
-4. **Identity** — CLAUDE.md, memory files, config, onboarding templates
-5. **Dashboard venv** — Flask operator surface with FTS5 search
-6. **Tools venv** — edge-consult, review-gate, edge-deepresearch
-7. **Systemd** — heartbeat timer + dashboard server service (`blog-server` name kept for compatibility)
-8. **Tools** — CLI tools + symlinks to ~/.local/bin/
-
-## After Install
+1. Bring up the local runtime: `tools/edge-python tools/edge-bootstrap runtime --home "$EDGE_HOME"` — pinned Neo4j 5.x in docker (container `edge-neo4j`, generated password → `secrets/neo4j.env`, idempotent). No docker → declared-dark (FTS covers zero-key).  
+2. Run **wake / predispatch** (lookback = install `backfill_days`) — auto-stamps `state/onboarding-insumo.md` (wake package **without** Direction).  
+3. Run **`/ed-mentor`** with that insumo — mentor creates objective/direction/leveling.  
+4. Close install:
 
 ```bash
-# Start dashboard (service name kept as blog-server for compatibility)
-systemctl --user enable --now blog-server
-
-# Start autonomous heartbeat (every 2h)
-systemctl --user enable --now agent-heartbeat.timer
-
-# Or run manually
-~/.local/bin/heartbeat.sh
+tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
+  --mission "…" --voice "…"
+# optional: --enable-heartbeat
 ```
 
-The first heartbeat publishes a self-introduction and delivers the first useful content about the domain. No warmup phase — the agent produces from day one.
+5. Only then may autonomous beat/heartbeat be enabled (`--enable-heartbeat` = systemd user timer + linger). Artifacts read at **http://127.0.0.1:8766** (`blog-server`, loopback-only).
 
-## Structure
+Full contract: [`docs/specs/onboarding-first-run.md`](docs/specs/onboarding-first-run.md).
 
-```
-my-agent/
-├── agent.yaml              ← your config (gitignored)
-├── agent.yaml.example      ← template with all fields
-├── config/
-│   ├── preflight.yaml      ← canonical pre-skill protocol source (compiled and executed by CLI)
-│   ├── postflight.yaml     ← canonical post-skill protocol source (compiled and executed by CLI)
-│   ├── strategy.md         ← operator direction (agent reads, proposes)
-│   ├── interests.md        ← shared interests (guides exploration)
-│   ├── branding.yaml       ← agent phenotype (name, colors, dashboard config via legacy `blog` key)
-│   └── runtime-routers.yaml ← rendered LLM router config used at runtime
-├── skills/                 ← 22 core skills (genotype)
-├── tools/                  ← CLI tools (edge-consult, edge-fontes, etc.)
-├── blog/                   ← Flask + htmx dashboard server (legacy package name)
-├── search/                 ← FTS5 + vector search engine
-├── templates/              ← .tpl files rendered by edge-render
-├── memory/                 ← personality, rules, method (genotype)
-├── autonomy/               ← autonomy policy, capabilities, frontier
-└── systemd/                ← service + timer templates
+## Legacy install (phenotype already exists)
+
+```bash
+tools/edge-python tools/edge-apply --yaml agent.yaml --home ~/edge
+# optional runtime: --provision-runtime
 ```
 
-## Key Concepts
+## Layout (install home)
 
-**Genotype / Phenotype / Epigenetics**
+| Path | Role |
+|------|------|
+| `secrets/` | Operator-delivered keys (read by onboarding) |
+| `state/bootstrap.json` | Pre-phenotype install knobs |
+| `state/onboarding-insumo.md` | Mentor insumo after first wake |
+| `agent.yaml` | Phenotype (written at end of onboarding) |
+| `skills/`, `blog/`, `memory/` | Install tree |
 
-Every change goes through one question: is this genotype or phenotype?
+## Contract pointers
 
-- **Genotype** — shared code (skills, tools, dashboard server). Lives in the repo. Propagates via git pull.
-- **Phenotype** — rendered runtime config + local state. Per-agent. Generated at install and evolves in place.
-- **Epigenetics** — runtime state (feed entries, reports, memory). Never replicates.
-
-**Heartbeat**
-
-The agent wakes every 2h via systemd timer. It runs internal heartbeat curation over sessions, threads, tasks, and health, then dispatches one action skill: research, discovery, report, planner, or autonomy.
-
-**Adversarial Review**
-
-The agent never evaluates its own output. Before publishing, it submits conclusions to GPT/Grok via `edge-consult`. This creates a cross-model review loop.
-
-**Onboarding**
-
-New agents produce from the first heartbeat. A checklist tracks progress (identity, production, recognition, calibration) and completes organically as the agent delivers real content. No sequential phases — onboarding is concurrent with production.
-
-**Publication Pipeline (consolidate-state)**
-
-Atomic publication: state snapshot → adversarial review → quality gate → entry publish → HTML report → state commit → git commit.
-
-## Tools
-
-| Tool | Purpose |
-|------|---------|
-| `edge-render` | Generate files from agent.yaml + templates |
-| `edge-apply` | Provision host (idempotent, 8 phases) |
-| `edge-doctor` | Validate installation (30 checks) |
-| `edge-consult` | Cross-model adversarial review |
-| `edge-fontes` | Unified external source search |
-| `edge-index` | Index content into FTS5 + vectors |
-| `edge-search` | Hybrid search (semantic + keyword) |
-| `edge-event` | Structured event logging |
-| `edge-dispatch` | Shadow dispatch-cycle envelope for heartbeat and operator runs |
-| `review-gate` | LLM-as-judge quality gate |
-
-## Requirements
-
-- **Claude Code** CLI (`npm install -g @anthropic-ai/claude-code`)
-- **Python 3.10+** with venv
-- **Git**
-- **Linux** with systemd (or macOS with launchd)
-
-API keys (optional, degrade gracefully):
-- `OPENAI_API_KEY` — enables adversarial review and quality gates
-- `EXA_API_KEY` — enables semantic search via Exa
-- `XAI_API_KEY` — enables Grok as second reviewer
-
-## License
-
-MIT
+- Identity / secrets: CONTRACT C4 — genotype declares where secrets live, not how they arrive.  
+- Issue context: edge-next#136 (first-run); this README implements the stronger “yaml = output” path.

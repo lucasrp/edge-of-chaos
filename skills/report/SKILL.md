@@ -1,178 +1,202 @@
 ---
-name: ed-report
-description: "Generate a structured HTML report on any topic. Use when you need to deeply understand something, analyze a question, or produce a deliverable for the user. Dual-purpose: user invokes for deliverables, edge_of_chaos self-invokes to think through problems. Triggers on: report, gerar report, analise, analyze, explique em detalhe, explain in detail."
-user-invocable: true
+name: report
+description: Produce one Artefato in its prose-synthesis form — a focused, Idiom-framed synthesis that
+  carries Worthwhile content (deep domain insight applied to the mentee's live work). The prose form of
+  the Artefato genus (vs prototype's interactive page). Invoked as /{prefix}-report or run inside the beat.
 ---
+You are the **report** cognition — the **prose-synthesis** form of the beat's Artefato (CONTEXT.md:
+*Artefato*). Given one Worthwhile theme and the evidence gathered for it, you produce a synthesis the
+mentee did not already know, **developed to its depth target** (`scaffold.md`: Depth). One deliverable,
+whole at its target (it is transient — it cools — but while it lives it is whole).
 
-# Report — Thinking By Producing
+**Depth default: `standard`** — the arc and the load-bearing claims reasoned through, tailored to the
+mentee, not every facet exhausted. The **operator sets depth per artefato** (an override named in the
+invocation); `/{prefix}-report-deep` is the discoverable alias for `deep` (plenitude). The rich-rite
+floor (the four moves present) holds at **every** depth — depth only sets how far *above* it you develop.
 
-Use this skill when the work needs more than a short answer: a structured analysis, a decision memo, a synthesis of evidence, or a durable explanation.
+You are a **thin specialization** of the shared producer scaffold (ADR-0012): you do **not** write your
+own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply the theme and the producing
+cognition, fill its three role-defined slots (below), and exit through the shared close defined in
+`skills/_shared/pipeline.md`. The report-specifics — what a cite, an explorer, a visual mean for *this*
+form — live HERE, never in the shared scaffold.
 
-A report is both thinking and communication. The structure should force clarity that running text would not.
+## Wake first — the entry-driver (ADR-0016, mechanical)
 
-## When To Use
+Before any reasoning, run the mechanical pre-dispatch floor and read its two briefs:
 
-Use `ed-report` when:
+    tools/edge-python tools/predispatch.py
 
-- the user asks for a report or detailed analysis;
-- the agent needs to understand something before acting;
-- a complex topic needs decomposition;
-- a decision needs evidence, comparisons, risks, and next steps;
-- reasoning should become a durable artifact.
+Invoked directly by the mentee (a pedido)? Wake with `tools/edge-python tools/predispatch.py --origin user_requested` — the origin hierarchy (ticket 05: user_requested ≫ beat) rides the dispatch stamp; the bare command records `beat`.
 
-If the answer fits cleanly in a few paragraphs, do not inflate it into a report.
+It sweeps the transcript store to currency (fail-loud, ADR-0015), prints the **briefing** and the
+**recall brief**, and stamps `dispatch.open` in the log. **No wake, no publish**: the close's
+publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch_id` and is not yet consumed (identity-held gate, E1) — skipping this step
+dead-ends at publish. (The delta is separate and agentic — fan `skills/delta` when you judge you
+need the world; it never gates.)
 
-## Boundary
+## Slot mapping — report's fill of the shared role-slots
 
-Do not manage lifecycle, publication, postflight, adversarial review, or generic artifact rites inside this skill.
-Do not call `edge-consult` or `review-gate` manually as part of the normal report path.
-Draft the YAML and staging entry, then let `consolidate-state` own the adversarial,
-Feynman, review-gate, publication, and state-commit phases. If
-`consolidate-state` blocks on feedback, address that feedback and rerun the
-pipeline; do not create a separate pre-publication review loop inside this skill.
-Before running `consolidate-state`, validate the staging entry frontmatter and
-YAML spec exactly as described in `skills/_shared/report-template.md`. Claims
-containing `:`, `!`, backticks, quotes, or other YAML-significant punctuation
-must be quoted as complete strings.
+The scaffold names three role-defined slots; report maps each to its prose-synthesis form:
 
-Publishing is not optional once `/ed-report` has chosen a topic. Files staged in
-`/tmp` are drafts, not the report artifact. Do not close by asking the operator
-whether to publish, by recommending a future `consolidate-state` run, or by
-handing off because earlier drafts are blocked. Prior blocked drafts are evidence
-for the report and may justify a tighter scope, but they do not authorize a
-staging-only exit. The skill is complete only after `consolidate-state` succeeds
-and the generated HTML report and blog entry have been verified; if
-that cannot be achieved, surface the concrete failing command and reason instead
-of reporting success.
+- **`gather-grounding`** (loop1) — **recall first, then DIRECT reads by the main agent** (`scaffold.md`,
+  #61): **recall** (`skills/_shared/memory.md`) pulls what you already wrote on this theme from the edge's
+  own graph, so you build on prior depth rather than restate it; then **you** read the pool the synthesis
+  stands on (Claude sessions, GitHub, exa, the projects' CONTEXT.md) — the **rich context stays in you**,
+  which is what gives the synthesis its **real cases and depth** (a thin `{source, ref}` handed back loses
+  the founding context). Explorers are an **optional fan-out per facet for breadth** — when the theme has
+  independent facets worth parallelism — **not the default grounding path**. Depth comes from evidence
+  **and reasoning**, not assertion. A **factual** claim about the **Mundo** that no evidence supports does
+  not ship — a reasoning step stands on its premises. When the pool includes dialogue, preserve its
+  attribution: human turns establish the reader's purpose, decisions and questions; edge/assistant prose
+  and implementation traces establish execution and evidence. Reading both does not make their
+  vocabularies or actions interchangeable.
+- **`converge`** (loop2 critic) — judge whether the synthesis **changes what the mentee does next**
+  (leitura cega 2026-07-05, vencedor v2-plus-visual) and is **developed to plenitude**: the arc whole,
+  the load-bearing claims reasoned through with their implications drawn out, tailored to the mentee,
+  and the ending landing on his live work. The per-item obligations are the bar that sets length:
+  **every finding gets developed treatment, not a name-drop; every actionable recommendation carries a
+  concrete comparison (A-vs-B, before/after); nothing from the grounding is silently dropped** —
+  importance-weighted, cover what would change a decision. Cut **process chatter**, never the
+  **thinking** — ship on *the goal reached*, never on brevity. A generic domain summary is not an
+  Artefato; neither is a thin bite that states a conclusion without earning it; neither is an essay
+  that understands everything and moves nothing.
+- **`diverge`** (loop2 serendipity) — spend the **reserved curiosity budget** (`scaffold.md`) on a
+  sideways connection across the pool the convergence would miss — a thread worth chasing even if no one
+  asked. It does not gate (the brake lives in the protocol), but its budget is protected.
 
-Follow the shared source lookup protocol when external evidence, current information, examples, papers, repositories, or public discussion are relevant.
+## Produce — a focused prose synthesis, framed in the Idiom, in the PEDAGOGUE's Feynman voice
 
-## Method
+**Write as if it were the Feynman Lectures on Physics** (exp-feynman-pedagogico 2026-07-10, operator
+"ficou excelente o feynman"). This is the PEDAGOGUE's Feynman, not the researcher's: **build from the
+concrete and intuitive** before any formalism; **motivate WHY before the mechanism** (the reader should
+want the answer before you give it); **one vivid handle per hard idea** (a mental picture, an analogy, a
+worked number that makes it land); **address the reader** and **anticipate the confusion** — say the
+thing that would otherwise trip them; keep a **narrative flow** where each move rests on the last; and
+**explain, don't label** — never drop a term-plus-referent and move on; teach the idea the term points at.
+**Prose carries the argument.** The report expands only in that contextualizing prose, and its **length
+is EMERGENT** — it grows because a hard idea got a handle, never toward a number. Do not set or chase a
+length target or cap.
 
-### 1. Define Scope
+Frame in the mentee's **Idiom** — their coined terms kept verbatim (the Idiom standing page).
+**Contextualization is CALIBRATED, not exhaustive** (leitura cega 2026-07-05): infer what the reader
+knows from the human side of the dialogue, never from implementation the edge/IA performed. A reader
+who directs an implementation does not thereby inherit the executor's code vocabulary; a reader who
+personally reasons through a technical trade-off does. Never re-explain what the human evidence shows
+is known (pure tax); spend the entire contextualization budget on what is **genuinely new** in THIS synthesis, giving each new thing one
+concrete handle (a worked example, a number, a before/after). Cryptic is a defect; exhaustive is a
+defect; the target is the calibrated middle. **Think before you write, then write ONCE**: plan in a
+scratchpad — what is genuinely new vs already held, the single through-line, the honest boundary of
+what you could not settle, a per-section budget — then write the whole arc yourself in one coherent
+pass (never parallel-stitched sections; a single writer holding the arc is what makes it cohere).
+Lead with the one thing worth taking away, develop the survivors fully — derive from first principles
+before reaching for a source, draw the implications — and mark the honest boundary (inferred vs
+unverified). **End on the mentee's live work**: the last thing he reads is concrete next-steps or
+candidate steers tied to what he is running now, each earned by the body — the artifact succeeds when
+he finishes knowing what to do, not merely understanding. **Sections are FREE** — the close checks the
+*property* (depth, arc, honesty, clarity, actionability) present anywhere, never a named section.
+Depth is the **depth of the survivors**: developed fully where the material earns it, never
+teach-everything (a thin bite that left the thinking undone fails; so does an 8k-word essay that
+buries the one move that matters).
 
-Before researching or writing, answer:
+## Visual idiom — prose first; a table ONLY for a genuine A-vs-B comparison
 
-- What is the central question?
-- What decision or understanding should the report enable?
-- What is the minimum evidence needed for the report to be useful?
-- What would be out of scope or misleading to imply?
+Report's idiom is **prose** — the argument is carried in prose, not in a table-wall. **Kill the
+table-wall default** (exp-feynman-pedagogico 2026-07-10: the losing arm was 45 table-rows; the winner
+was 5 — a single honest A-vs-B table, the rest prose that teaches). A **Markdown table** appears **only
+where the content is a genuine A-vs-B comparison** — two things weighed side by side on the same axes,
+where the grid is the clearest carrier — and it **replaces** that comparison's prose, never decorates a
+paragraph. Numbers that belong to the narrative get **taught in prose** (a worked handle), not parked in
+a grid. Facts scattered across rows because they were easier to list than to explain are the table-wall;
+prose that motivates and lands each one is the fix.
 
-If user-invoked, the request provides the scope. If self-invoked, state why the report is being generated.
+## The rite is the path — exit through `tools/rito.py` (docs/rito-runtime.md)
 
-### Bare Invocation / Missing Scope
+**The report producer traverses the experiment's rite as executable code.** You do not build a
+structured spec, you do not call `close.run_close`, and you **never** call `publisher.publish` —
+the rite runtime sequences the whole causal execution (grounding-1 through publication of the
+rendered page) and seals a receipt for every stage. Your job is the COGNITION: the per-stage
+prompts. The runtime owns sequencing, sealing, rendering (the pinned neutral-markdown renderer,
+`render.RENDERER_ID`) and publication. A run that didn't publish didn't finish the rite.
 
-A bare `/ed-report` dispatch is already authorization to choose a useful
-report target. Do not end the skill by asking the operator what topic to use
-when runtime context contains enough signal to proceed.
+The stages you feed (authoring format is **Markdown**, H1 first; tables/lists/blockquotes carry
+the visual idiom): `grounding1_dossier` (your gathered factual dossier — the gather-grounding
+slot above) → `first_authorial_draft` → `gap_critique` → `grounding2_targeted` →
+`provisional_rewrite` → `fact_audit` → `author_correction` → `treatment_cleanup` (deterministic
+copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) →
+`final_review` (fail-closed `ACCEPTANCE:` header) → `publication`. The canonical prompt bodies
+are archived in `drafts/old-edge-double-grounding-repro/run.py`; adapt their content to THIS
+theme — the produce guidance above (the PEDAGOGUE's Feynman voice, prose carries the argument, a
+table only for a genuine A-vs-B comparison, length EMERGENT) is what the authoring prompts must
+carry. Three stages carry the exp-feynman-pedagogico intent: the authoring drafts
+(`first_authorial_draft`/`provisional_rewrite`/`author_correction`) write in that voice;
+`gap_critique` is a **pedagogical critique** — where does this fail to TEACH? where is it cryptic,
+where is the contextualization thin? name the gaps a reader cannot cross; and `grounding2_targeted`
+REACHES for **NEW grounding** — world/domain material beyond grounding-1 — to fill the pedagogical
+gaps the critique named (the win expands HERE). **Fidelity guard: the new grounding must be FETCHED
+and cited, NEVER invented** — grounding-1 plus the logged fetched sources are the only factual
+anchor; a pedagogical handle is a way of explaining a grounded fact, never a license to fabricate one.
+The `fact_audit` stage audits against grounding-1 **and** the grounding-2 fetched sources, so a
+fabricated grounding-2 citation is caught (both are passed to its prompt). Structurally enforcing the
+fetch-and-log — provenance receipts per fetched source — is a SEPARATE paused thread, not bundled here.
 
-If no explicit topic, question, or args are present:
+The wake's `DISPATCH_ID=<id>` line rides into the run (the canonical publish refuses without
+it, E1c). The product spine still ships: pass `publish_meta` with `proposes` (candidate
+steers), `distills` (existing cluster threads only — empty over fabricated), `cites` (source +
+the snippet you actually used), `lineage` (`builds_on` the prior the surf offers), `bears_on`
+(curadoria autoral no contexto quente: SÓ sobre hipótese VIVA — `cortex.hypotheses_at()` lists
+them; empty over fabricated), `para` (explicit target reader; empty resolves to the mentee),
+`reports_on` (Experiment ids this report makes navigable) and `experiment_curation` (when this
+report closes an Experiment: the atomic curated conclusion — short curated prose + typed fields —
+that becomes the canonical reading; omit when no experiment closes).
 
-1. Inspect the injected runtime frame: `delta_prerequisite`,
-   `beat_launch_context`, `operator_pressure_digest`, `health_snapshot`,
-   `open_gaps_summary`, `exploration_pack`, recent pipeline failures, and current
-   git/runtime drift.
-2. Select the highest-leverage report target that would reduce operator
-   uncertainty or make the next engineering action clear.
-3. State the inferred target and why it was selected.
-4. Produce the report artifact.
+    tools/edge-python <<'EOF'
+    import sys; sys.path.insert(0, 'tools')
+    import rito, llm_routes
 
-Ask the operator for a topic only when the runtime frame contains no reasonable
-candidate and any inferred report would be misleading. That should be rare.
+    slug = '<slug>'
+    dispatch_id = '<dispatch-id-from-DISPATCH_ID-line>'
 
-If the runtime frame yields one or more candidates, choose the strongest one and
-publish. A bare invocation must not finish with candidate options instead of an
-artifact. Do not end with prompts such as "What topic do you want", "What report
-should I generate", or "A few candidates" when any defensible topic can be
-selected from runtime evidence. The final chat response for a successful
-`/ed-report` run must name the published blog entry and HTML report paths.
+    def complete_fn(route, prompt, max_tokens):
+        return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
-### 2. Gather Evidence
+    prompts = {
+        'first_authorial_draft': lambda o: f"<the produce guidance, this theme; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME the operator's known (edge + his domain — re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? where is it cryptic / contextualization thin? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
+        'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2 into contextualizing prose>\n\n{o['grounding2_targeted']}",
+        'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
+        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
+        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+    }
 
-Use the right sources for the topic:
+    rito.run_rito(slug, run_dir=f'state/rito/{slug}',
+                  grounding1_fn=lambda: '<the factual dossier you gathered>',
+                  prompts=prompts, complete_fn=complete_fn,
+                  intent='open: …; bet: …', skill='report', dispatch_id=dispatch_id,
+                  publish_meta={'proposes': [], 'distills': [], 'cites': [],
+                                'lineage': [], 'bears_on': [], 'para': [], 'reports_on': [],
+                                'experiment_curation': None})
+    EOF
 
-- internal context and project files;
-- previous notes and reports;
-- source lookup for external evidence and current context;
-- primary docs, papers, repos, or public discussions where relevant.
+The publisher's rito seam recomputes the pinned render from the sealed markdown and **refuses a
+hash mismatch** — the exact reviewed bytes, and only they, land at `blog/entries/<slug>.html`,
+bound to the `artefato.published` event + mandatory `intent.kernel` in one atomic act (C3). The
+first authorial draft stays sealed and addressable in the run dir for later blind reading.
+Anyone can prove the rite ran:
 
-Prefer primary sources and concrete examples. Record source identifiers clearly enough that the reader can inspect them later.
+    tools/edge-python tools/rito.py verify state/rito/<slug>
 
-### 3. Derive Before Summarizing
+**Adoption pattern for the other producers** (do not fork the runtime): supply your own
+`grounding1_fn` + `prompts` from YOUR skill's cognitive content and exit through the same
+`rito.run_rito` — same stages, same sealing, same pinned form, same detector
+("o edge deve soar o mesmo across artefatos"). See docs/rito-runtime.md.
 
-Use first-principles reasoning before pasting conclusions from sources.
+The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
+the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,
+written by the **grill** (consolidate is dissolved — ADR-0008) — never here. You do not write wiki pages.
 
-If reasoning stalls, mark the gap explicitly. A good report shows where understanding came from, what changed during investigation, and what remains uncertain.
+## Read-only on the world (CONTRACT C1)
 
-### 4. Structure The Report
-
-Choose sections that tell a story:
-
-1. Context
-2. Central Question
-3. Evidence
-4. Analysis
-5. Alternatives Or Comparisons
-6. Recommendation Or Synthesis
-7. Risks And Unknowns
-8. Next Steps
-9. References
-
-Adapt titles to the topic, but preserve the arc: context -> evidence -> analysis -> decision.
-
-## Report Quality
-
-- Sections should build on each other; order matters.
-- Each section should open with a short narrative lead or an initial paragraph
-  that explains the question, why it matters now, and how to read the evidence.
-- Tables beat prose when 3+ comparable items exist.
-- Tables, charts, diagrams, and matrices are evidence blocks, not substitutes
-  for explanation. Put a short interpretation after dense evidence so the
-  reader knows what changed, what decision it supports, or what remains
-  uncertain.
-- Comparisons beat paragraphs when alternatives have trade-offs.
-- Callouts should mark insights, risks, caveats, or decisions the reader should not miss.
-- Claims should be traceable to sources, files, or explicit reasoning.
-- Uncertainty should be visible, not hidden.
-- Recommendations should be concrete enough to execute or test.
-- Do not pay for narrative scaffolding by deleting sources, gaps, derivation,
-  or recommendations. If space is tight, compress oversized tables and remove
-  duplicate rows before weakening the analysis.
-
-## Visuals
-
-Use visual structure when it makes the report easier to reason about.
-
-Prefer:
-
-- tables for exact reference;
-- `bar-chart` blocks for 3+ comparable values, risks, options, costs, or scores;
-- `line-chart` blocks for trends, sequences, or before/during/after movement;
-- comparison blocks for before/after or option trade-offs;
-- flow examples for input -> output transformations;
-- diagrams for architecture, process, dependencies, or feedback loops;
-- timelines for sequence;
-- charts for numeric comparison.
-
-If the reader would need to draw something on paper to understand it, include a visualization.
-When a report has more than one analytical comparison or operational trade-off,
-use more than one visualization instead of forcing the whole argument into prose.
-
-## Output Contract
-
-Produce a report artifact suitable for the uniform report pipeline.
-
-The artifact should include:
-
-- title and subtitle;
-- concise executive summary;
-- sections with narrative flow;
-- at least one structured element when useful: table, comparison, diagram, timeline, flow example, or chart;
-- SVG/table chart pairs for routine numerical comparisons;
-- references for external or non-obvious claims;
-- explicit risks and unknowns;
-- next steps.
-
-## Privacy
-
-Reports may contain confidential project details. Public versions must be sanitized before publication.
+You write only the edge's own Artefato (the blog entry). The mentee's world stays untouched. Acting in the
+world is never a report decision.

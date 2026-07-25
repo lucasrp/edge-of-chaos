@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""edge-bootstrap — first-run install without agent.yaml + finish after mentor.
+
+  edge-bootstrap bootstrap --home … --name … --backfill-days N
+  edge-bootstrap finish --home … --mission … --voice …
+  (flags alone without subcommand still run bootstrap — back-compat)
+"""
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import onboarding
+
+
+def cmd_bootstrap(args) -> int:
+    if not args.home:
+        print("edge-bootstrap: --home or EDGE_HOME required", file=sys.stderr)
+        return 2
+    choice = {k: v for k, v in (
+        ("provider", args.embedding_provider), ("var", args.embedding_var),
+        ("model", args.embedding_model), ("base_url", args.embedding_base_url),
+    ) if v}
+    try:
+        result = onboarding.run_bootstrap(
+            home=args.home,
+            name=args.name,
+            backfill_days=args.backfill_days,
+            adversarials=args.adversarials or None,
+            primary=args.primary,
+            provision_skills=not args.no_provision_skills,
+            embedding_choice=choice or None,
+        )
+    except ValueError as e:
+        print(f"edge-bootstrap: {e}", file=sys.stderr)
+        return 2
+
+    home = Path(os.path.expanduser(args.home))
+    print(f"bootstrap: home={home}")
+    print(f"bootstrap: name={result['name']}")
+    print(f"bootstrap: backfill_days={result['backfill_days']}")
+    cast = result.get("adversarials") or {}
+    print(f"bootstrap: adversarials mode={cast.get('mode')} members={cast.get('members')}")
+    emb = result.get("embedding")
+    print(f"bootstrap: embedding={'on' if emb else 'dark'}")
+    inv = result.get("secrets_inventory") or {}
+    print(f"bootstrap: secrets files={inv.get('files')} vars={inv.get('vars')}")
+    print(f"bootstrap: heartbeat={result.get('heartbeat', 'off')}")
+    print(f"bootstrap: state → {home / 'state' / 'bootstrap.json'}")
+    if result.get("provision_warning"):
+        print(f"bootstrap: provision warning: {result['provision_warning']}", file=sys.stderr)
+    print("bootstrap: next → predispatch/wake (insumo) → mentor → edge-bootstrap finish")
+    print(json.dumps({"ok": True, "name": result["name"], "backfill_days": result["backfill_days"]},
+                     indent=2))
+    return 0
+
+
+def cmd_estimate(args) -> int:
+    """O cheque do lookback: quanto história `--days` pega e a estimativa de minutos.
+    Números mecânicos — o juízo de 'absurdo' é do agente que guia o onboarding."""
+    est = onboarding.backfill_estimate(args.days)
+    for name, row in est["surfaces"].items():
+        print(f"estimate: {name}: {row['files']} sessões, {row['mb']} MB")
+    print(f"estimate: total {est['files']} sessões, {est['mb']} MB em {est['days']} dias")
+    print(f"estimate: primeiro assemble/wake ~{est['est_minutes']} min")
+    print(json.dumps(est, indent=2))
+    return 0
+
+
+def cmd_runtime(args) -> int:
+    """Sobe o runtime local (Neo4j pinado via docker) no caminho first-run — antes só
+    edge-apply --provision-runtime fazia isso. Idempotente; sem docker, falha explicada."""
+    if not args.home:
+        print("edge-bootstrap runtime: --home or EDGE_HOME required", file=sys.stderr)
+        return 2
+    import _provision
+    home = Path(os.path.expanduser(args.home))
+    env_dir = onboarding.secrets_dir(home)
+    try:
+        secret = _provision.provision_neo4j(home, env_dir)
+    except RuntimeError as e:
+        print(f"runtime: DARK — {e}", file=sys.stderr)
+        return 3
+    print(f"runtime: neo4j up (container {_provision.NEO4J_CONTAINER}, "
+          f"image {_provision.NEO4J_IMAGE})")
+    print(f"runtime: secret → {secret}")
+    print(json.dumps({"ok": True, "secret": str(secret)}, indent=2))
+    return 0
+
+
+def cmd_finish(args) -> int:
+    if not args.home:
+        print("edge-bootstrap finish: --home or EDGE_HOME required", file=sys.stderr)
+        return 2
+    home = Path(os.path.expanduser(args.home))
+    log = args.log
+    if log is None:
+        log = str(home / "state" / "events" / "log.jsonl")
+    try:
+        path = onboarding.finish_onboarding(
+            home,
+            log=log,
+            mission=args.mission or "",
+            voice=args.voice or "",
+            mentee=args.mentee,
+            enable_heartbeat=bool(args.enable_heartbeat),
+            heartbeat_interval=args.heartbeat_interval,
+        )
+    except (ValueError, RuntimeError) as e:
+        print(f"edge-bootstrap finish: {e}", file=sys.stderr)
+        return 2
+    print(f"finish: phenotype → {path}")
+    print(f"finish: heartbeat={'enabled' if args.enable_heartbeat else 'off'}")
+    print(json.dumps({"ok": True, "phenotype": str(path)}, indent=2))
+    return 0
+
+
+def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # back-compat: no subcommand → bootstrap
+    if not argv or argv[0].startswith("-"):
+        argv = ["bootstrap"] + argv
+
+    ap = argparse.ArgumentParser(
+        description="Bootstrap / finish an Edge install without pre-existing agent.yaml."
+    )
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    b = sub.add_parser("bootstrap", help="first-run layout + knobs")
+    b.add_argument("--home", default=os.environ.get("EDGE_HOME"))
+    b.add_argument("--name", default=None)
+    b.add_argument("--backfill-days", type=int, default=None)
+    b.add_argument("--adversarial", action="append", default=[], dest="adversarials")
+    b.add_argument("--primary", default="claude")
+    b.add_argument("--no-provision-skills", action="store_true")
+    # o adapter de embeddings (entrevista): openai direto, openrouter, azure/base_url custom
+    b.add_argument("--embedding-provider", default=None)
+    b.add_argument("--embedding-var", default=None)
+    b.add_argument("--embedding-model", default=None)
+    b.add_argument("--embedding-base-url", default=None)
+
+    e = sub.add_parser("estimate", help="lookback check: sessions/MB/minutes for --days")
+    e.add_argument("--days", type=int, required=True)
+
+    r = sub.add_parser("runtime", help="bring up local Neo4j (docker) for first-run")
+    r.add_argument("--home", default=os.environ.get("EDGE_HOME"))
+
+    f = sub.add_parser("finish", help="after mentor: grill_gate + emit agent.yaml")
+    f.add_argument("--home", default=os.environ.get("EDGE_HOME"))
+    f.add_argument("--log", default=None)
+    f.add_argument("--mission", default="")
+    f.add_argument("--voice", default="")
+    f.add_argument("--mentee", default=None)
+    f.add_argument("--enable-heartbeat", action="store_true")
+    f.add_argument("--heartbeat-interval", default=None,
+                   help="cadência do pulso autônomo (ex. 8h, 3h) — da entrevista")
+
+    args = ap.parse_args(argv)
+    if args.cmd == "finish":
+        return cmd_finish(args)
+    if args.cmd == "estimate":
+        return cmd_estimate(args)
+    if args.cmd == "runtime":
+        return cmd_runtime(args)
+    return cmd_bootstrap(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

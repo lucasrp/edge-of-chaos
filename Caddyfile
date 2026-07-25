@@ -1,0 +1,3 @@
+edge.edgeofchaos.net {
+    reverse_proxy localhost:8766
+}

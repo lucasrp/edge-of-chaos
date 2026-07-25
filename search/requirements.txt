@@ -1,3 +1,0 @@
-openai>=1.0
-sqlite-vec>=0.1.1
-pyyaml>=6.0
