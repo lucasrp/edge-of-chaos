@@ -22,7 +22,7 @@ PROVIDER_BASE_URLS = {
 
 # Providers cobrados por ASSINATURA (CLI local, sem secret_ref) — fora do registry de base_url.
 # O edge é MULTI-CLI: roda no codex, no claude e no grok, cada um pela sua assinatura, sem chave de API.
-SUBSCRIPTION_PROVIDERS = ("codex", "claude", "grok")
+SUBSCRIPTION_PROVIDERS = ("codex", "claude", "grok", "hermes")
 
 # Status HTTP que são sempre transporte/bilhetagem/auth — nunca um juízo sobre o conteúdo.
 _TRANSPORT_STATUSES = (401, 403, 429)
@@ -148,6 +148,29 @@ def _grok_exec(prompt: str, model, max_tokens: int) -> str:
         Path(in_path).unlink(missing_ok=True)
 
 
+def _hermes_exec(prompt: str, model, max_tokens: int) -> str:
+    """Uma completion via `hermes -z` (one-shot: prompt entra, só o texto final sai) —
+    assinatura/conta própria do usuário, sem chave nossa. 4ª CLI padrão (2026-07-25).
+
+    Modelo em branco usa o default do `hermes setup` DO USUÁRIO (genérico por construção);
+    `-m` só quando a rota declara. Prompt via argv (o CLI não expõe prompt-file; ARG_MAX
+    de ~2MB cobre os prompts de review). max_tokens fica a cargo do modelo. Falha
+    (binário ausente, exit != 0) é TRANSPORTE."""
+    cmd = ["hermes", "-z", prompt]
+    if model:
+        cmd += ["-m", str(model)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        if r.returncode != 0:
+            raise LLMTransportError(
+                f"hermes exit {r.returncode}: {(r.stderr or r.stdout)[-300:]}")
+        return r.stdout.strip()
+    except FileNotFoundError:
+        raise LLMTransportError("hermes CLI ausente no host (provider hermes requer o binário)")
+    except subprocess.TimeoutExpired:
+        raise LLMTransportError("hermes timeout (900s)")
+
+
 class SubscriptionClient:
     """Cliente de provider por ASSINATURA (CLI local, sem chave): completions via
     `exec_fn(prompt, model, max_tokens) -> str`, o seam injetável (testes offline).
@@ -179,12 +202,20 @@ class GrokClient(SubscriptionClient):
     _default_exec = staticmethod(_grok_exec)
 
 
+class HermesClient(SubscriptionClient):
+    """Provider `hermes`: completions via `hermes -z` (Nous), conta do próprio usuário.
+    Modelo default vem do hermes setup do usuário — nunca hardcoded aqui."""
+    name = "hermes"
+    _default_exec = staticmethod(_hermes_exec)
+
+
 def resolve_base_url(router: dict):
     """base_url explícito vence; senão deriva do provider."""
     return router.get("base_url") or PROVIDER_BASE_URLS.get(router.get("provider"))
 
 
-_SUBSCRIPTION_CLIENTS = {"codex": CodexClient, "claude": ClaudeClient, "grok": GrokClient}
+_SUBSCRIPTION_CLIENTS = {"codex": CodexClient, "claude": ClaudeClient, "grok": GrokClient,
+                         "hermes": HermesClient}
 
 
 def make_client(router: dict, api_key: str):

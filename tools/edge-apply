@@ -19,6 +19,7 @@ import _llm
 import _claude_provision
 import _codex_provision
 import _grok_provision
+import _hermes_provision
 import _provision
 import _validate
 
@@ -129,6 +130,9 @@ def main() -> None:
     ap.add_argument("--grok-home",
                     help="target Grok home dir (default: GROK_HOME or real ~/.grok). "
                          "Tests/smoke-runs MUST point this at a tmp dir.")
+    ap.add_argument("--hermes-home",
+                    help="target Hermes home dir (default: HERMES_HOME or real ~/.hermes). "
+                         "Tests/smoke-runs MUST point this at a tmp dir.")
     ap.add_argument("--provision-runtime", action="store_true",
                     help="provision the mandatory graph runtime: venv (#20), per-host Neo4j via "
                          "Docker (#18), and the systemd heartbeat timer (#19). Fails loud on a "
@@ -152,6 +156,10 @@ def main() -> None:
         grok_home = Path(os.path.expanduser(args.grok_home))
     else:
         grok_home = surfaces_cfg.surface_home("grok", cfg=cfg) or Path.home() / ".grok"
+    if args.hermes_home:
+        hermes_home = Path(os.path.expanduser(args.hermes_home))
+    else:
+        hermes_home = surfaces_cfg.surface_home("hermes", cfg=cfg) or Path.home() / ".hermes"
 
     if args.validate:
         report, healthy = _validate.format_report(_validate.validate_install(
@@ -199,6 +207,12 @@ def main() -> None:
             print(f"  - {row}")
     else:
         print("apply: Grok not installed / disabled — skip provision")
+    if surfaces_cfg.provision_surface("hermes", cfg=cfg) or installed.get("hermes"):
+        print(f"apply: provisionando Hermes skills em {hermes_home}")
+        for row in _hermes_provision.provision_hermes(cfg, REPO, home, hermes_home):
+            print(f"  - {row}")
+    else:
+        print("apply: Hermes not installed / disabled — skip provision")
 
     if args.provision_runtime:
         print("apply: provisionando o runtime (graph obrigatório — ADR-0011)")

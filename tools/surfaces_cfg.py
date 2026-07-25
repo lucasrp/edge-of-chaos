@@ -32,6 +32,7 @@ _ABSENT_BLOCK_DEFAULTS = {
     "claude": {"enabled": True},
     "codex": {"enabled": True, "home": "~/.codex"},
     "grok": {"enabled": True, "home": "~/.grok"},
+    "hermes": {"enabled": True, "home": "~/.hermes"},
 }
 
 # CLI harness homes (relative to $HOME). Presence of the home dir = surface is installed.
@@ -39,6 +40,7 @@ _SURFACE_HOMES = {
     "claude": ".claude",
     "codex": ".codex",
     "grok": ".grok",
+    "hermes": ".hermes",   # 4ª CLI padrão (operador 2026-07-25)
 }
 
 
@@ -57,6 +59,8 @@ def detect_installed_surfaces(env=None, home=None) -> dict[str, bool]:
             p = Path(os.path.expanduser(env["CODEX_HOME"]))
         elif name == "grok" and env.get("GROK_HOME"):
             p = Path(os.path.expanduser(env["GROK_HOME"]))
+        elif name == "hermes" and env.get("HERMES_HOME"):
+            p = Path(os.path.expanduser(env["HERMES_HOME"]))
         else:
             p = home / rel
         out[name] = p.is_dir()
@@ -76,6 +80,8 @@ def surfaces_block_for_installed(env=None, home=None) -> dict:
             block[name] = {"enabled": True, "home": "~/.codex"}
         elif name == "grok":
             block[name] = {"enabled": True, "home": "~/.grok"}
+        elif name == "hermes":
+            block[name] = {"enabled": True, "home": "~/.hermes"}
     return block
 
 

@@ -2,7 +2,7 @@
 
 Genotype for the Edge mentor install (edge-next). Identity and phenotype live per install; this tree is subject-blind code plus optional living install state.
 
-## Multi-CLI (Claude + Codex + Grok)
+## Multi-CLI (Claude + Codex + Grok + Hermes)
 
 Install provisions **every CLI harness present on the host**:
 
@@ -11,8 +11,9 @@ Install provisions **every CLI harness present on the host**:
 | Claude | `~/.claude/skills/{ed,edge}-*` | `~/.claude/projects/…` (native) |
 | Codex | `~/.codex/skills/{ed,edge}-*` | `~/.codex/sessions/` |
 | Grok | `~/.grok/skills/{ed,edge}-*` | `~/.grok/sessions/` |
+| Hermes | `~/.hermes/skills/{ed,edge}-*` | `~/.hermes/state.db` (SQLite — estimate hoje; filmagem completa é adaptador futuro) |
 
-Detection = home directory exists (`detect_installed_surfaces`). Phenotype gets a `surfaces:` block enabling those harnesses. Assemble/quente/sweep **include every installed surface** (not Claude-only).
+Detection = home directory exists (`detect_installed_surfaces`). Phenotype gets a `surfaces:` block enabling those harnesses. Assemble/quente/sweep **include every installed surface** (not Claude-only). Hermes (Nous Research) roda pela conta do próprio usuário (`hermes setup` define o modelo default — o edge nunca fixa modelo pra ele); adversarial via `--adversarial hermes` (rota `review_hermes`, transporte `hermes -z`).
 
 On **ed** and **roberto** (all three CLIs present), a normal install fills all three pickers (`/ed-wake`, `@ed-wake`, …).
 

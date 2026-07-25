@@ -79,6 +79,38 @@ _SESSION_STORES = {
     "codex": ".codex/sessions",
     "grok": ".grok/sessions",
 }
+# Hermes (4ª CLI padrão) guarda sessões em SQLite, não jsonl — ramo próprio no estimate.
+_HERMES_DB = ".hermes/state.db"
+
+
+def _hermes_estimate(home: Path, cutoff: float) -> Optional[dict]:
+    """Sessões recentes do hermes via HERMES_HOME/state.db (sessions.started_at).
+
+    None quando o harness não está presente; {files: 0, mb: 0} quando presente sem
+    histórico legível (degrade declarado, nunca crash)."""
+    hh = home / ".hermes"
+    if not hh.is_dir():
+        return None
+    db = hh / "state.db"
+    if not db.is_file():
+        return {"files": 0, "mb": 0}
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            recent = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE started_at >= ?", (cutoff,)
+            ).fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        finally:
+            conn.close()
+    except Exception:
+        return {"files": 0, "mb": 0}
+    # ponytail: mb = fração recente do tamanho do db (aproximação); medir de verdade
+    # exige somar messages — upgrade quando a filmagem do hermes for construída.
+    size = db.stat().st_size
+    mb = round((size * (recent / total) if total else 0) / 1e6, 2)
+    return {"files": recent, "mb": mb}
 
 
 def backfill_estimate(days: int, home: Path | str | None = None,
@@ -112,6 +144,11 @@ def backfill_estimate(days: int, home: Path | str | None = None,
         surfaces[name] = {"files": files, "mb": round(size / 1e6, 2)}
         total_files += files
         total_bytes += size
+    hermes = _hermes_estimate(home, cutoff)
+    if hermes is not None:
+        surfaces["hermes"] = hermes
+        total_files += hermes["files"]
+        total_bytes += int(hermes["mb"] * 1e6)
     mb = round(total_bytes / 1e6, 2)
     return {"surfaces": surfaces, "files": total_files, "mb": mb,
             "days": int(days), "est_minutes": round(mb / _EST_MB_PER_MIN, 1)}
@@ -278,6 +315,17 @@ def _adversarials_for_cfg(cast: dict, primary: str) -> dict:
                     "Refute-first, AND ground the verdict in a LIVE X search when possible."
                 ),
             }
+        elif m == "hermes":
+            out["hermes"] = {
+                "route": "review_hermes",
+                "auth": "subscription",
+                # modelo em branco DE PROPÓSITO: o default vem do `hermes setup` de cada
+                # usuário (4ª CLI padrão, genérica — nunca um modelo nosso hardcoded)
+                "model": None,
+                "directive": (
+                    "Refute-first. Strike what does not survive; the 0-5 score is advisory."
+                ),
+            }
         else:
             out[m] = {
                 "route": "review",
@@ -302,6 +350,8 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
         routers["chat"] = {"provider": "codex", "model": "gpt-5.5"}
     elif primary == "grok":
         routers["chat"] = {"provider": "grok", "model": "grok-4.5"}
+    elif primary == "hermes":
+        routers["chat"] = {"provider": "hermes", "model": None}   # modelo do hermes setup
 
     if cast.get("mode") == "self" or "self" in (cast.get("members") or []):
         routers["review"] = dict(routers["chat"])
@@ -311,6 +361,8 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
                 routers["review"] = {"provider": "codex", "model": "gpt-5.5"}
             elif m == "grok":
                 routers["review_grok"] = {"provider": "grok", "model": "grok-4.5"}
+            elif m == "hermes":
+                routers["review_hermes"] = {"provider": "hermes", "model": None}
     if embedding:
         routers["embedding"] = {
             "provider": embedding.get("provider", "openai"),
@@ -859,6 +911,7 @@ def run_bootstrap(
             import _claude_provision
             import _grok_provision
             import _codex_provision
+            import _hermes_provision
 
             repo = Path(__file__).resolve().parent.parent
             installed = surfaces_cfg.detect_installed_surfaces()
@@ -876,6 +929,10 @@ def run_bootstrap(
                 grok_home = Path.home() / ".grok"
                 for row in _grok_provision.provision_grok(cfg, repo, home, grok_home):
                     provisioned.append(f"grok: {row}")
+            if installed.get("hermes", False) or surfaces_cfg.provision_surface("hermes", cfg=cfg):
+                hermes_home = Path.home() / ".hermes"
+                for row in _hermes_provision.provision_hermes(cfg, repo, home, hermes_home):
+                    provisioned.append(f"hermes: {row}")
             payload["provisioned_surfaces"] = provisioned
             payload["installed_surfaces"] = installed
         except Exception as e:  # noqa: BLE001 — bootstrap still succeeds; report
