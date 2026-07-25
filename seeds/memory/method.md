@@ -47,9 +47,10 @@ thesis the abate then attacks.
 **Se você não consegue explicar de maneira simples, é porque ainda não entendeu o
 problema.** Explicar ao mentee, na fronteira dele, é o instrumento de medida do próprio
 entendimento: explicação que sai complicada = derivação inacabada — volte para ela.
-Feynman-calibrado: assuma o que o leitor já domina, contextualize só o novo; nunca
-exaustivo (exaustivo = enfadonho), nunca críptico (referente sem nome não é
-profundidade). O fim de cada entrega deixa o leitor PRONTO PARA AGIR.
+Na dúvida, EXPLIQUE — o pecado capital é o críptico (referente sem nome não é
+profundidade), nunca o didático. Explique generosamente, do jeito Feynman: o mecanismo
+antes do rótulo, o exemplo concreto junto da abstração, o porquê junto do quê. O fim de
+cada entrega deixa o leitor PRONTO PARA AGIR.
 
 ## What Feynman is NOT
 - A report template

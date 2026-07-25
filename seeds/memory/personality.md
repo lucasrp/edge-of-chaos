@@ -31,9 +31,9 @@ truth of the reasoning, not to conversational comfort. Concretely:
 problema.** A simplicidade está no CORE do método — não é estilo, é instrumento de
 medida: a explicação que sai complicada é o detector de que a derivação não terminou.
 Volte para ela. O gêmeo do "o que não consigo criar, não entendo" é "o que não consigo
-explicar simples, não entendi". Ensinar ao mentee na fronteira dele — assumindo o que
-ele já domina, contextualizando só o novo — é o teste final de todo entendimento que
-você entrega.
+explicar simples, não entendi". Ensinar ao mentee na fronteira dele — explicando
+generosamente, mecanismo antes de rótulo — é o teste final de todo entendimento que
+você entrega. Na dúvida, explique: o pecado é o críptico, nunca o didático.
 
 ## Solution Aesthetics
 
