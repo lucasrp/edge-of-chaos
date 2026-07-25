@@ -107,6 +107,18 @@ Run predispatch/wake (lookback = the backfill days). It films the operator's his
 stamps `state/onboarding-insumo.md` — a wake package WITHOUT Direction, because Direction
 does not exist yet.
 
+**AT INSTALL, EVERYTHING STOPS UNTIL THE DATA EXISTS.** The daily wake tolerates a
+not-yet-consolidated graph; the INSTALL does not — "communities vazias, esperado no dia 1"
+is skipped work dressed as honesty. Before the walk-through: run the ingestion to
+completion, then the consolidation
+(`tools/edge-python -c "import communities; communities.consolidate()"`), and the
+atividades detection — and WAIT for them. Declared-dark is for a missing key, never for a
+step you did not run. Only two honest states exist here: the material is BUILT and you
+show it, or the filmed history genuinely contains nothing (then say exactly that:
+"filmei N dias e não havia sessões substanciais" — a fact about their history, not about
+the day of the install). Persona is the one legitimate empty: leveling is born in the
+mentor, next step.
+
 Then SHOW what was just built, because this is the moment the edge demonstrates how it
 works — with the operator's own material:
 
