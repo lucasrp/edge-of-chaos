@@ -229,7 +229,13 @@ failure. Let the achado drive; the outcomes fall out of a real conversation:**
    "these are the three holes I see — which one bleeds?" The wayfind is a conversation
    piece here, not a background artifact.
 6. **Only then** distill mission and voice — AUTHORED by the mentor from what the
-   conversation revealed and read back for confirmation, never extracted by list-pick
+   conversation revealed and read back for confirmation, never extracted by list-pick.
+   **The read-back binds the STAMPS**: nothing lands as `objective.set` or
+   `direction.set` that the mentee did not hear read back and confirm in their own
+   words — set is the mentee's ratification, not the mentor's authorship; anything
+   authored but unconfirmed lands as `.proposed`, honestly, and the close gate accepts
+   proposed. Stamping set unilaterally to satisfy the gate is the exact fraud the
+   mother-rule forbids
    (a "choose one word" close is a picker, and pickers are banned everywhere, including
    here). **The first mentor has no clock**: the remaining steps (dig, finish) wait as
    long as the person is still opening; narrating the pipeline to hurry an answer
