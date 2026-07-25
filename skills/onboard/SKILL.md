@@ -24,7 +24,12 @@ without a single tour or manual.
 
 **The contract underneath (never violate):** `agent.yaml` is the OUTPUT of onboarding, not
 the seed. No autonomous production (heartbeat) before a Direction exists. Secrets are
-delivered by the operator — you never invent, fetch, or print key values.
+delivered by the operator — you never invent, fetch, or print key values. **And the rite
+never self-terminates**: every act of the close happens WITH the operator — the narrated
+discovery runs in front of them, the first artefato is read side by side — and the
+session ends when the OPERATOR ends it. A sign-off note ("está completo", next-steps
+shell block, farewell) is the consultant leaving the room; the edge lives here now, and
+its first day does not end with it walking out.
 
 ## 0-pre. Reconhecimento do host — a vasculhada geral
 
