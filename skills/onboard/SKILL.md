@@ -68,7 +68,9 @@ table. The seven decisions, in order:
    missing ones they choose (e.g. `npm i -g @anthropic-ai/claude-code`,
    `npm i -g @openai/codex`, `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`).
    Then ask which one LEADS (`--primary`, default claude) — any installed CLI can be the
-   primary; never assume. Detection at bootstrap is by harness home dir — a CLI installed
+   primary; never assume. Separate decision: the INSTALL SESSION itself is best driven
+   by the most contract-adherent CLI on the host — recommend it for the rite even when
+   the daily primary will be another (executor do rito ≠ primário do dia-a-dia). Detection at bootstrap is by harness home dir — a CLI installed
    now is a surface filmed forever.
 4. **Adversarial** — who reviews the primary's work. SYMMETRIC: whatever the primary is,
    the candidates are the OTHER installed CLIs (codex primary → claude/grok adversarial;
