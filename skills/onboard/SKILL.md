@@ -25,13 +25,17 @@ delivered by the operator — you never invent, fetch, or print key values.
 
 ## 0. Interview — work first, confirm second
 
-**The failure mode of this step has a name: questionário preguiçoso.** Firing the seven
-items as bare questions is it. The discipline: before EACH item, do the work the host
-already allows — inspect, derive, then present a VERIFIED proposal for confirmation
-("achei um diretório de chaves em <caminho encontrado no host>: openai, xai — uso essas?"), not a blank
-question ("onde estão os segredos?"). A true open question is reserved for what no
-inspection can answer (the name, the backfill appetite). Every proposal carries the one
-line of what it feeds. The seven decisions, in order:
+**This is a CONVERSATION — one decision per turn, each explained.** Two failure modes,
+both fatal and both already seen in the field: (a) firing the items as bare questions
+(questionário preguiçoso); (b) rendering all seven at once as a PRE-FILLED form —
+derive-and-confirm in batch is the same questionnaire in new clothes. The discipline,
+per turn: do the work the host allows (inspect, derive), present ONE verified proposal
+("achei um diretório de chaves em <caminho>: openai, xai — uso essas?") with the one
+line of what it feeds and why it matters, then WAIT for the answer before the next
+decision. A true open question is reserved for what no inspection can answer (the name,
+the backfill appetite). The mentee should end the interview understanding the seven
+decisions because each one was a small conversation — never because they reviewed a
+table. The seven decisions, in order:
 
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
