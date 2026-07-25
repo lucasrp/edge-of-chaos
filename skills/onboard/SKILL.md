@@ -30,7 +30,12 @@ lets you see: the repos and working trees (where are the git dirs, what do they 
 how recent), the services alive (systemd user+system units, docker containers, crontabs,
 listening ports), the tooling installed (languages, CLIs, package managers), the data
 that accumulates (session stores of every harness, notable data dirs), and the obvious
-key/env candidates (never echoing values). Two minutes of `find`/`systemctl`/`docker ps`/
+key/env candidates (never echoing values). **And the authenticated remote surfaces**: if
+`gh auth status` shows a logged account, the operator's GitHub is IN REACH — list their
+repos by recent push, skim the last weeks of commits/PRs (`gh api user`, `gh repo list
+--limit 30 --json name,pushedAt`, recent activity). When the local session film is thin,
+the GitHub activity is usually where the mentee's real work lives — leaving it unread
+while saying "vi no teu GitHub" is speech without lastro. Two minutes of `find`/`systemctl`/`docker ps`/
 `crontab -l` buy the whole rite its substance: this sweep is where the interview's
 verified proposals come from, where the mentee profile starts, and what the mentor's
 provenance cites later ("vi no teu host o serviço X rodando desde junho"). Say in one
@@ -171,9 +176,12 @@ over the insumo, right here — and hold it to FIRST-MENTOR depth, never a
 mission-and-voice form-fill.
 
 **PRECONDITION — no mentor word before an achado.** Before opening, the mentor WORKS the
-material: reads the filmed sessions, the repos, the communities, hunting for something
-REAL — a contradiction between what they say and what they do, a right move they made
-without naming it, a decision they sign without being able to verify. The opening line
+material: reads the filmed sessions, the repos, the communities — **and the
+authenticated GitHub when it exists** (recent commits, active repos, PRs: often the
+richest record of the mentee's real work, especially when the session film is thin) —
+hunting for something REAL: a contradiction between what they say and what they do, a
+right move they made without naming it, a decision they sign without being able to
+verify. The opening line
 is that achado, with its evidence. If the substrate is thin and no achado exists, the
 honest opening is hunger — "teu histórico aqui é fino: N sessões; o que eu consigo ver
 é X, me conta o resto" — never a performed cut. Dureza without having
