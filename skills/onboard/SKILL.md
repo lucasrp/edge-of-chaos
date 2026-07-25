@@ -35,10 +35,9 @@ recommendation when one exists:
 tools/edge-python tools/edge-bootstrap estimate --days N
 ```
 
-Show the numbers (sessions, MB, ~minutes). If the estimate is absurd for a first sitting
-(rule of thumb: >20 min), say so and negotiate down — the judgment is yours, semantic,
-never a hard threshold. More history can be assembled later; a slow first run is paid once
-and bitterly.
+Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
+negotiation: if it looks long, say so in one line ("30 dias = ~70 min de primeiro wake") —
+and if the operator wants to wait, they wait. Their call, never yours.
 
 ## 1. Bootstrap — the skeleton
 
