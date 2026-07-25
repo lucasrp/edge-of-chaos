@@ -70,44 +70,23 @@ class PositiveDelegationMarkerNeverSoftens(unittest.TestCase):
 
 
 
-class OnboardingExceptionForPoorSubstrate(unittest.TestCase):
-    """Operador 2026-07-25: delegada não entra NORMALMENTE (o filtro está certo) —
-    MAS no onboarding, com insumo inicial muito ruim, abre-se exceção EXPLÍCITA
-    (EDGE_ONBOARD_FILM_DELEGATED=1): obra delegada PRÉ-nascimento vira filme.
-    Pós-nascimento nunca — é trabalho do próprio edge."""
+class ExceptionIsDead(unittest.TestCase):
+    """#153: sem Voz = hard pass, sem exceção. A flag antiga NÃO tem efeito."""
 
-    def _delegated(self, tmp, age_days):
-        p = Path(tmp) / "rollout-2026-06-11T22-14-00-abc.jsonl"
-        meta = ('{"type":"session_meta","payload":{"originator":"Claude Code",'
-                '"thread_source":null}}')
-        p.write_text(meta + "\n")
-        old = time.time() - age_days * 86400
-        os.utime(p, (old, old))
-        return sessions.Session(id=p.stem, path=p, surface="codex")
-
-    def test_flag_admits_pre_birth_delegated_obra(self):
+    def test_env_flag_has_no_effect_anymore(self):
         from unittest import mock
         with tempfile.TemporaryDirectory() as tmp:
-            s = self._delegated(tmp, 40)
+            f = Path(tmp) / "rollout-2026-06-11T22-14-00-abc.jsonl"
+            meta = ('{"type":"session_meta","payload":{"originator":"Claude Code",'
+                    '"thread_source":null}}')
+            f.write_text(meta + "\n")
+            old = time.time() - 40 * 86400
+            os.utime(f, (old, old))
+            s = sessions.Session(id=f.stem, path=f, surface="codex")
             with mock.patch.dict(os.environ, {"EDGE_ONBOARD_FILM_DELEGATED": "1"}):
-                self.assertIsNone(sessions.user_session_exclusion_reason(
-                    s, install_birth=time.time() - 86400))
-
-    def test_flag_never_admits_post_birth(self):
-        from unittest import mock
-        with tempfile.TemporaryDirectory() as tmp:
-            s = self._delegated(tmp, 1)
-            with mock.patch.dict(os.environ, {"EDGE_ONBOARD_FILM_DELEGATED": "1"}):
-                self.assertEqual(sessions.user_session_exclusion_reason(
-                    s, install_birth=time.time() - 30 * 86400),
+                self.assertEqual(
+                    sessions.user_session_exclusion_reason(s, install_birth=time.time() - 86400),
                     "codex-originator:claude-code")
-
-    def test_without_flag_stays_excluded(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            s = self._delegated(tmp, 40)
-            self.assertEqual(sessions.user_session_exclusion_reason(
-                s, install_birth=time.time() - 86400),
-                "codex-originator:claude-code")
 
 
 if __name__ == "__main__":

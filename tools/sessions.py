@@ -369,14 +369,6 @@ def user_session_exclusion_reason(session: Session, install_birth=None) -> str |
     if reason is None or not install_birth:
         return reason
     softenable = reason in ("codex-unknown-provenance", "grok-unknown-provenance")
-    # Exceção do ONBOARDING (operador 2026-07-25): delegada não entra normalmente —
-    # o filtro está certo — MAS com insumo inicial muito ruim a exceção EXPLÍCITA
-    # (EDGE_ONBOARD_FILM_DELEGATED=1) admite a obra delegada PRÉ-nascimento como
-    # filme. Pós-nascimento nunca: é trabalho do próprio edge.
-    if os.environ.get("EDGE_ONBOARD_FILM_DELEGATED"):
-        softenable = softenable or reason.startswith((
-            "codex-originator:", "codex-source:", "codex-subagent",
-            "codex-thread-source:", "grok-subagent", "grok-session-kind:"))
     if softenable:
         try:
             if Path(session.path).stat().st_mtime < float(install_birth):
