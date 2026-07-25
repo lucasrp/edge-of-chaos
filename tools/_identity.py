@@ -93,13 +93,18 @@ def edge_home(cfg=None, agent_yaml=AGENT_YAML):
 
 
 def _env_dir(agent_yaml=AGENT_YAML):
-    """Where this install's secrets live (mirror of edge-apply.resolve_env_dir): agent.yaml `env_dir`
-    → <edge_home>/secrets."""
+    """Where this install's secrets live: EDGE_SECRETS_DIR (override explícito, espelha
+    onboarding.secrets_dir) → agent.yaml `env_dir` → <edge_home>/secrets → EDGE_HOME/secrets
+    (pré-fenótipo: no first-run agent.yaml ainda não existe e o fallback legado ~/edge
+    apontava pro lugar errado — o gap do EDGE_NEO4J_PASSWORD no onboarding, 2× edgesandbox)."""
+    override = os.environ.get("EDGE_SECRETS_DIR")
+    if override:
+        return Path(os.path.expanduser(override))
     cfg = _cfg(agent_yaml)
     raw = cfg.get("env_dir")
     if raw:
         return Path(os.path.expanduser(str(raw)))
-    home = cfg.get("edge_home") or "~/edge"
+    home = cfg.get("edge_home") or os.environ.get("EDGE_HOME") or "~/edge"
     return Path(os.path.expanduser(str(home))) / "secrets"
 
 

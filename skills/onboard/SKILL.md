@@ -13,6 +13,12 @@ mechanical step already exists as a tool; your job is to DRIVE them in order, EX
 each one is doing in the operator's language (Feynman calibrado: contextualize the new,
 assume the known, never a jargon dump), and STOP at the two points that belong to the human.
 
+**The onboarding explains ITSELF because that is how the operator learns what the edge
+IS.** Each step names the edge concept it embodies as it runs — the wake that films
+history, the insumo, the phenotype born at the close, the heartbeat as the autonomous
+pulse, the Direction. By the end of the install the operator has met the whole product
+without a single tour or manual.
+
 **The contract underneath (never violate):** `agent.yaml` is the OUTPUT of onboarding, not
 the seed. No autonomous production (heartbeat) before a Direction exists. Secrets are
 delivered by the operator — you never invent, fetch, or print key values.
@@ -97,16 +103,17 @@ stamps `state/onboarding-insumo.md` — a wake package WITHOUT Direction, becaus
 does not exist yet. Explain: "this is me reading your last N days so the mentor session
 starts knowing you, not from a cold form."
 
-## 4. Emenda — the first mentor, same session. THE conversation.
+## 4. Emenda — the first mentor, same session
 
 Do NOT end the session and ask them to come back. Invoke the mentor rite (`/{prefix}-mentor`)
-over the insumo, right here — and hold it to FIRST-MENTOR depth. **A conversa inicial é
-quem fideliza**: a shallow mission-and-voice form-fill here produces a mentor nobody
-returns to. The bar (operador 2026-07-25, after watching a 3-exchange "mentor" close an
-install):
+over the insumo, right here — and hold it to FIRST-MENTOR depth, never a
+mission-and-voice form-fill. The bar:
 
-1. **SENTIR first** — open with what you READ in the insumo ("eu olhei teu trabalho e vi
-   X"), never with a blank question. The operator must feel seen before being asked.
+1. **SENTIR first, with provenance** — open with what you READ in the insumo, never with
+   a blank question, and every observation about the operator's work NAMES where it was
+   seen, naturally in-speech: "vi aqui no teu GitHub que...", "nas tuas sessões de 12/jun
+   você...", "o teu repo X faz...". Contextualize their work back to them — a claim about
+   the operator with no visible source reads as guessing, and being seen is the point.
 2. **Grill the person, not the form** — telos, driver, values, constraints, active
    frontier. When they name a goal ("virar um SaaS"), do not record it and move on: grill
    WHY, for WHOM, what breaks first, what they are afraid of, what they already tried.
@@ -120,8 +127,7 @@ install):
    "these are the three holes I see — which one bleeds?" The wayfind is a conversation
    piece here, not a background artifact.
 5. **Only then** distill mission and voice for the close. Never close after 1–2
-   exchanges; the mentor conducts until the operator has seen themselves mapped — that
-   moment is the product.
+   exchanges; the mentor conducts until the operator has seen themselves mapped.
 
 This is the second human stop; everything before and after is yours.
 
