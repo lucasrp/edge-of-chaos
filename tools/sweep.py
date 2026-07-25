@@ -252,7 +252,8 @@ def _load_install_env():
 
 
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
-def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok_dir=None):
+def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok_dir=None,
+               install_birth=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
@@ -265,7 +266,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
     cursors = cursors or {}
     found = []
     for s in sessions.list_sessions(project_dir):
-        if not sessions.is_user_session(s):
+        if not sessions.is_user_session(s, install_birth=install_birth):
             continue
         sid = _cursor_id(s)
         seen = cursors.get(sid, 0)
@@ -275,7 +276,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
         found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
-            if not sessions.is_user_session(s):
+            if not sessions.is_user_session(s, install_birth=install_birth):
                 continue
             sid = _cursor_id(s)
             seen = cursors.get(sid, 0)
@@ -285,7 +286,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     if include_grok:
         for s in sessions.list_grok_sessions(grok_dir):
-            if not sessions.is_user_session(s):
+            if not sessions.is_user_session(s, install_birth=install_birth):
                 continue
             sid = _cursor_id(s)
             seen = cursors.get(sid, 0)
@@ -1154,7 +1155,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             if _grok_enabled(project_dir, grok_dir):
                 cursors = _grok_baseline(cursors, grok_dir, install_birth=birth)
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
-                              grok_dir=grok_dir)
+                              grok_dir=grok_dir, install_birth=birth)
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
@@ -1326,7 +1327,7 @@ def main(argv):
             cursors = _codex_baseline(dict(cursors), None)
         if _grok_enabled(None, None):
             cursors = _grok_baseline(dict(cursors), None)
-        plan = plan_sweep(None, cursors, recent=recent)
+        plan = plan_sweep(None, cursors, recent=recent, install_birth=_install_birth())
         ingest = [p for p in plan if not p["skip"]]
         print(f"plan: {len(plan)} sessions with new lines; {len(ingest)} qualify to ingest"
               + (f" (recent={recent})" if recent else ""))
