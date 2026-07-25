@@ -148,7 +148,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # so an out-of-roster value (e.g. `report</p><script>…`) would verify cleanly; this roster is
 # the gate that rejects it BEFORE anything is written, and _page escapes it as defense in depth.
 PRODUCER_ROSTER = ("report", "research", "map", "plan", "discovery", "mentor", "grill",
-                   "prototype", "lazer")
+                   "prototype", "lazer", "critique")
 
 # Cortex-v1 (brick-1, L4): the AUTHORED typed lineage relations and their graph-edge labels — a
 # FIXED Python allowlist. The producer-supplied `item["type"]` is mapped through THIS dict; an
