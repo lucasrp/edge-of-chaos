@@ -2,11 +2,11 @@
 
 ## Se este é um clone fresco (você ainda não é um install)
 
-O `agent.yaml` rastreado neste repositório é a **identidade do host canônico**, não a sua.
-Um clone NUNCA vira install aplicando esse arquivo:
+Este repositório é **genótipo sem identidade**: não existe `agent.yaml` aqui — cada host
+escreve o seu como SAÍDA do onboarding (o arquivo é untracked/gitignored de propósito).
 
-- **NÃO** rode `edge-apply --yaml agent.yaml` — essa é a estrada legada para um fenótipo
-  que JÁ pertence a este host.
+- **NÃO** fabrique um `agent.yaml` nem rode `edge-apply` — essa é a estrada legada para
+  um fenótipo que JÁ pertence a um host vivo.
 - **SIM**: siga o rito guiado em `skills/onboard/SKILL.md` — entreviste o operador
   (nome, pasta, CLIs, adversarial, segredos/embeddings, dias de backfill com cheque de
   custo), conduza a instalação inteira explicando cada passo e emende no primeiro mentor.
