@@ -46,13 +46,21 @@ A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
    serendipidade, com os checks semânticos (substrato · filtro direction/wayfind-aberto ·
    delta_voz — a Voz é baseline, não blocklist).
 5. **GROUNDING** — para cada ponto em `aterrar` (2–3), dispatch um explorer mirado no pólo
-   (subagente, background). Seca declarada É lastro; nunca produção sem mundo dentro.
+   (subagentes em paralelo no MESMO turno, bloqueante). Seca declarada É lastro; nunca produção
+   sem mundo dentro.
 6. **PROPOSTA | silêncio** — `tools/pauta.py propose --cell '<json>' --candidates '<json>'
    --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`: pisos + gate da abordagem em AND (nunca rebaixa
    critério) → `pauta.proposta` ou `pauta.silencio` no log. Se silêncio, **finish without
    publishing** — an unused wake is honest (lei do risco: silêncio logado, nunca espera).
 7. **O dente** — re-derive o plano (gate zero acima). Sem `pauta.proposta` viva, Ato-2 não
    abre — uniforme para autônomo e comandado.
+
+**Lei do turno (headless):** o beat roda em `claude -p` — o processo MORRE no fim do turno.
+NUNCA termine o turno esperando notificação de tarefa em background (a espera vira morte
+silenciosa: sem artefato, sem `pauta.silencio`). Todo comando lento do funil (shortlist,
+propose, dente) roda em FOREGROUND, por mais minutos que leve; subagentes (explorers,
+artefato-agents) são chamadas paralelas NO MESMO turno — o paralelismo vem das chamadas
+simultâneas, nunca de background + espera.
 
 **Caminho comandado (Voz fast-path, §1 da tabela):** quando o dispatch nasce de uma ordem do
 operador (wake `--origin user_requested`, um `/ed-report sobre X`, um pedido direto na sessão),
@@ -108,8 +116,8 @@ recently is the gradient the proposta follows; the beat's own picks are explorat
 
 ## Ato 2 — the branches: um agente por artefato, rounds próprios
 
-For each artefato in the proposal, dispatch **one artefato-agent** (parallel, background — the
-subagent idiom; never block the trunk):
+For each artefato in the proposal, dispatch **one artefato-agent** (parallel subagent calls in
+the SAME turn — blocking; the lei do turno above rules here too):
 
 - Each branch-agent runs exactly `skills/<decision.producer>` on the shared scaffold
   (`skills/_shared/scaffold.md`) and produces **one Artefato** in its form.
