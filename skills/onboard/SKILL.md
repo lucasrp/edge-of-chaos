@@ -76,33 +76,6 @@ Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
 negotiation: if it looks long, say so in one line ("30 dias = ~70 min de primeiro wake") —
 and if the operator wants to wait, they wait. Their call, never yours.
 
-**Close by SUGGESTING sources — hunted by a real dig, not from your head.** Never ask
-"quais fontes você quer?" — the mentee does not know the catalog and the question reads
-lazy. Once the profile is rich enough (after the first wake, at the latest), run the dig
-rite (`/{prefix}-dig` — the grounded-research organ the producers use) with the mentee's
-profile as the question: *live sources in their domain* (feeds, APIs, normative diaries,
-tag-feeds, communities) *plus orientation material* (the 2-3 field maps worth their
-reading time). Narrate it as the demo it is: "isto é o dig — é assim que eu pesquiso
-antes de escrever qualquer coisa; cada perna varre um ângulo, e fonte sem chave eu
-declaro escura, nunca finjo". The dig's findings become the proposed set:
-
-- generic strong defaults the dig confirms or kills: **arXiv** (their area), **Hacker News**;
-- **Exa** if `EXA_API_KEY` landed in secrets; **X** if the xai key is there;
-- the **domain-specific** ones the dig surfaced — the part that changes per mentee, and
-  the proof the list came from the profile, not a template.
-
-Each with one line of what it would feed — and CLOSE the demo on the lesson it just made
-visible: the generic feeds everyone reads yield what everyone already knows; the
-personalized ones the dig dug from THEIR profile are where the delta will find what no
-generic feed carries. Point at one concrete pair from the run ("HN vai te dar o que todo
-mundo lê; ESTA aqui só existe porque você é você") — that contrast is the argument for
-fontes personalizadas, shown instead of told. **Source ≠ artefato:** a source is a CONTINUOUS
-feed the wake/delta/grounding consume (a normative diary, an API, a changelog, a tag-feed);
-a one-shot investigation ("mine competitor reviews") is an artefato pauta, not a source —
-offer those separately as the install's first candidate themes. The operator
-accepts/rejects; accepted sources seed the phenotype `sources:` block, and the first
-mentor refines what to WATCH in each (bar item 3 of the Emenda).
-
 ## 1. Bootstrap — the skeleton
 
 ```bash
@@ -202,6 +175,38 @@ failure. Let the achado drive; the outcomes fall out of a real conversation:**
    exchanges; the mentor conducts until the operator has seen themselves mapped.
 
 This is the second human stop; everything before and after is yours.
+
+## 4b. Sources — AFTER the mentor, hunted by a dig
+
+Sources are chosen only NOW, with Direction and driver in hand — **they depend on what
+the person wants from life, and the objective is the person's growth, never executing
+the project**. A source list drawn from the repo alone serves the project; the right
+list serves where the mentor session said this person is going.
+
+Run the dig rite (`/{prefix}-dig` — the grounded-research organ the producers use) with
+the DIRECTION and the driver as the question: *live sources that feed this person's
+growth* (feeds, normative diaries, tag-feeds, communities, APIs) *plus orientation
+material* (the 2-3 field maps worth their reading time). Narrate it as the demo it is:
+"isto é o dig — é assim que eu pesquiso antes de escrever qualquer coisa; cada perna
+varre um ângulo, e fonte sem chave eu declaro escura, nunca finjo". Never ask "quais
+fontes você quer?" — you hunt, they trim. The dig's findings become the proposed set:
+
+- generic strong defaults the dig confirms or kills: **arXiv** (their area), **Hacker News**;
+- **Exa** if `EXA_API_KEY` landed in secrets; **X** if the xai key is there;
+- the **growth-specific** ones the dig surfaced — the part that changes per person, and
+  the proof the list came from the Direction, not from a template or from the repo.
+
+Each with one line of what it would feed — and CLOSE the demo on the lesson it just made
+visible: the generic feeds everyone reads yield what everyone already knows; the
+personalized ones the dig dug from THEIR direction are where the delta will find what no
+generic feed carries. Point at one concrete pair from the run ("HN vai te dar o que todo
+mundo lê; ESTA aqui só existe porque você é você") — that contrast is the argument for
+fontes personalizadas, shown instead of told. **Source ≠ artefato:** a source is a
+CONTINUOUS feed the wake/delta/grounding consume (a normative diary, an API, a changelog,
+a tag-feed); a one-shot investigation ("mine competitor reviews") is an artefato pauta,
+not a source — offer those separately as the install's first candidate themes. The
+operator accepts/rejects; accepted sources seed the phenotype `sources:` block before
+`finish` emits it.
 
 ## 5. Close — phenotype, heartbeat, local access
 
