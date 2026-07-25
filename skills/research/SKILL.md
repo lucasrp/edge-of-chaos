@@ -38,7 +38,7 @@ publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch
 dead-ends at publish. (The delta is separate and agentic — fan `skills/delta` when you judge you
 need the world; it never gates.)
 
-**Theme (if not given by the beat/user):** choose under Δ mente in this install's domain — `tools/edge-python tools/theme_suggest.py --edge-home "$PWD" -n 6 --form research`. Do not redigest open bets as the title.
+**Theme (if not given by the beat/user):** the theme is the Pauta's — read the live `pauta.proposta` (`tools/edge-python tools/pauta.py proposta --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`; ADR-0024). Standalone invocation without one: run the funil first (`pauta.py sortear` → … → `propose`). Do not redigest open bets as the title.
 
 ## Slot mapping — research's fill of the shared role-slots
 
