@@ -17,7 +17,21 @@ import os
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-AGENT_YAML = REPO / "agent.yaml"
+
+
+def identity_path(name):
+    """Arquivo de identidade/doutrina (agent.yaml, memory/): num install com genótipo e home
+    separados (EDGE_HOME, ex. edgesandbox) vive no HOME — o repo é genótipo puro, sem
+    identidade. Sem EDGE_HOME (ou sem o arquivo no home), REPO é o legado home==repo."""
+    env = os.environ.get("EDGE_HOME")
+    if env:
+        p = Path(os.path.expanduser(env)) / name
+        if p.exists():
+            return p
+    return REPO / name
+
+
+AGENT_YAML = identity_path("agent.yaml")
 
 
 def _cfg(agent_yaml=AGENT_YAML):

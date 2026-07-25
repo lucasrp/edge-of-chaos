@@ -65,6 +65,29 @@ class EnvDirResolution(unittest.TestCase):
                 self.assertEqual(_identity._env_dir(yaml_p), Path(tmp) / "casa" / "secrets")
 
 
+class IdentityPathHomeFirst(unittest.TestCase):
+    """Identidade/doutrina (agent.yaml, memory/) num install com genótipo e home separados
+    (EDGE_HOME) vive no HOME — o repo é genótipo puro, sem identidade (edgesandbox)."""
+
+    def test_edge_home_wins_when_file_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "agent.yaml").write_text("name: x\n")
+            with mock.patch.dict(os.environ, {"EDGE_HOME": tmp}, clear=False):
+                self.assertEqual(_identity.identity_path("agent.yaml"),
+                                 Path(tmp) / "agent.yaml")
+
+    def test_missing_in_home_falls_to_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"EDGE_HOME": tmp}, clear=False):
+                self.assertEqual(_identity.identity_path("agent.yaml"),
+                                 REPO / "agent.yaml")
+
+    def test_no_edge_home_uses_repo(self):
+        env = {k: v for k, v in os.environ.items() if k != "EDGE_HOME"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.assertEqual(_identity.identity_path("memory"), REPO / "memory")
+
+
 class ApplyResolveEnvDir(unittest.TestCase):
     def _resolve(self, home, cfg):
         import importlib.util

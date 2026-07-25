@@ -21,9 +21,9 @@ from cortex import (direction_at, corpus_at, artefatos_without_kernel,  # noqa: 
 import _identity  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
-AGENT_YAML = REPO / "agent.yaml"
-MEMORY = REPO / "memory"
 import _identity as _id_state
+AGENT_YAML = _id_state.identity_path("agent.yaml")
+MEMORY = _id_state.identity_path("memory")
 STATE = _id_state.state_root() / "state"
 
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
