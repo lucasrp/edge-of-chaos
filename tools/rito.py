@@ -461,8 +461,13 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
                 _fail(run, manifest, "final_html", exc)
                 raise
 
-        # 10 — final review, fail-closed acceptance header + local scan
-        final_review_prompt = prompts["final_review"](outputs)
+        # 10 — final review, fail-closed acceptance header + local scan.
+        # A lente lectures-on-physics é parte fixa da revisão (feynman_gate.LENS_BLOCK):
+        # clareza pedagógica é critério de strike, com os contrapesos vinculantes
+        # (fato é do fact-audit; enchimento ≠ crescimento) escritos na própria lente.
+        import feynman_gate as _feynman_gate
+        final_review_prompt = (prompts["final_review"](outputs)
+                               + "\n\n" + _feynman_gate.LENS_BLOCK)
         if theme_review_contract:
             final_review_prompt = f"{final_review_prompt}\n\n{theme_review_contract}"
         final_review = _llm_stage(run, manifest, "final_review",

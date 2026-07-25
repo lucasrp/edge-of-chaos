@@ -92,3 +92,26 @@ if __name__ == "__main__":
     print("cryptic:", x)
     assert c["score_0_10"] > x["score_0_10"], "clear text must score higher than cryptic"
     print("SELF-CHECK PASS: clear", c["score_0_10"], ">", x["score_0_10"], "cryptic")
+
+
+# A LENTE do final_review (fiada pelo rito em TODO fecho — a régua das Lectures como
+# critério de strike pedagógico). Contrapesos VINCULANTES no próprio texto:
+# correção factual é do fact-audit; crescimento não é defeito — enchimento é.
+LENS_BLOCK = """\
+=== LENTE LECTURES-ON-PHYSICS (parte integrante desta revisão) ===
+Julgue TAMBÉM a clareza pedagógica do texto contra a régua das *Feynman Lectures on
+Physics*: intuição/primeiros princípios antes do uso; NENHUM referente sem nome e sem
+glosa (termo, slug, id, data-código — tudo explicado para um leitor que NÃO viveu a
+sessão); o novo contextualizado; o concreto ancorando cada abstração; um outsider
+inteligente consegue reconstruir o argumento; honestidade explícita sobre o que não se
+sabe. Um defeito CONCRETO de clareza (referente sem nome, rótulo sem mecanismo, texto
+que assume que o leitor viveu a sessão) é STRIKE como qualquer outro strike desta
+revisão.
+
+Contrapesos vinculantes desta lente:
+1. Ela julga se um leitor de fora consegue SEGUIR — correção factual pertence ao
+   fact-audit (estágio próprio); não re-julgue fatos aqui.
+2. Comprimento NÃO é defeito: enriquecimento pedagógico cresce por natureza. O strike é
+   para ENCHIMENTO — prosa que não adiciona entendimento por palavra (repetição, rótulo
+   re-embalado, cerimônia) — nunca para o texto ter ficado maior.
+"""
