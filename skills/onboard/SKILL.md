@@ -213,8 +213,14 @@ failure. Let the achado drive; the outcomes fall out of a real conversation:**
    operator's terrain: the fog census). Show the map, then grill the operator ON it:
    "these are the three holes I see — which one bleeds?" The wayfind is a conversation
    piece here, not a background artifact.
-6. **Only then** distill mission and voice for the close. Never close after 1–2
-   exchanges; the mentor conducts until the operator has seen themselves mapped.
+6. **Only then** distill mission and voice — AUTHORED by the mentor from what the
+   conversation revealed and read back for confirmation, never extracted by list-pick
+   (a "choose one word" close is a picker, and pickers are banned everywhere, including
+   here). **The first mentor has no clock**: the remaining steps (dig, finish) wait as
+   long as the person is still opening; narrating the pipeline to hurry an answer
+   ("with this I close X and move to Y") is the consultant's rush, not the mentor's
+   pace. Never close after 1–2 exchanges; conduct until the operator has seen
+   themselves mapped.
 
 This is the second human stop; everything before and after is yours.
 
