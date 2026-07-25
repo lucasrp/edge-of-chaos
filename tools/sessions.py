@@ -353,12 +353,30 @@ def _first_human_text(path, surface="claude") -> str:
     return ""
 
 
-def user_session_exclusion_reason(session: Session) -> str | None:
+def user_session_exclusion_reason(session: Session, install_birth=None) -> str | None:
     """Return why this transcript is not a direct operator session, else None.
 
     The edge's memory should index operator-facing conversations. Agent-to-agent worker sessions
     remain useful execution trace, but they are not the default recall corpus.
-    """
+
+    ``install_birth`` (epoch): sessão que PRE-DATA o nascimento do install não pode ser
+    trabalho delegado do edge — o edge nem existia (caso edgesandbox 2026-07-25: as únicas
+    sessões codex do mentee, sem session_meta do CLI antigo, caíam em unknown-provenance e
+    o backfill filmava zero). Só suaviza os vereditos *unknown-provenance* (ausência de
+    marcador); marcador POSITIVO de delegação (source:exec, subagent, thread-source) segue
+    excluindo em qualquer época."""
+    reason = _user_session_exclusion_reason(session)
+    if (reason in ("codex-unknown-provenance", "grok-unknown-provenance")
+            and install_birth):
+        try:
+            if Path(session.path).stat().st_mtime < float(install_birth):
+                return None
+        except OSError:
+            pass
+    return reason
+
+
+def _user_session_exclusion_reason(session: Session) -> str | None:
     grok_unmarked = False
     if session.surface == "codex":
         meta = codex_session_meta(session.path)
@@ -409,8 +427,8 @@ def user_session_exclusion_reason(session: Session) -> str | None:
     return None
 
 
-def is_user_session(session: Session) -> bool:
-    return user_session_exclusion_reason(session) is None
+def is_user_session(session: Session, install_birth=None) -> bool:
+    return user_session_exclusion_reason(session, install_birth=install_birth) is None
 
 
 def _text_of(content) -> str:
