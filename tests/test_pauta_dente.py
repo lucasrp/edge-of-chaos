@@ -13,7 +13,7 @@ import _beat  # noqa: E402
 import eventlog  # noqa: E402
 import pauta  # noqa: E402
 
-CELL = {"objeto": "si", "abordagem": "fog", "locked": []}
+CELL = {"objeto": "mentorado", "abordagem": "fog", "locked": []}
 CMD = ["/opt/claude", "-p", "-", "--dangerously-skip-permissions"]
 
 
@@ -85,7 +85,7 @@ class PostGateBitesWithoutProposta(_LogCase):
 
     def test_matching_forma_and_cell_prefixed_slug_pass(self):
         _propose(self.log, forma="report")
-        eventlog.publish_artefato_atomic("fog-si--certo", "why", skill="report",
+        eventlog.publish_artefato_atomic("fog-mentorado--certo", "why", skill="report",
                                          _rite_authorized=True, log=self.log)
         self.assertEqual(_beat.assert_beat_produced(self.log, 0, dispatch_id="d1"), [])
 
@@ -96,7 +96,7 @@ class PostGateBitesWithoutProposta(_LogCase):
         eventlog.publish_artefato_atomic("sem-prefixo", "why", skill="report",
                                          _rite_authorized=True, log=self.log)
         gaps = _beat.assert_beat_produced(self.log, 0, dispatch_id="d1")
-        self.assertTrue(any("fog-si--" in g for g in gaps), gaps)
+        self.assertTrue(any("fog-mentorado--" in g for g in gaps), gaps)
 
     def test_logged_silencio_is_an_honest_beat_not_a_gap(self):
         # lei do risco: modo de falha honesto = silêncio logado; o heartbeat não pune
@@ -131,10 +131,10 @@ class PostGateBitesWithoutProposta(_LogCase):
         # forja origem="voz" SEM dispatch.open comandado — propose nunca viu; o
         # pós-gate deriva do log e marca gap.
         eventlog.append("pauta.proposta", "pauta", {
-            "abordagem": "fog", "objeto": "si", "forma": "report", "tema": "T",
-            "origem": "voz", "dispatch_id": "d1", "slug_prefix": "fog-si--"},
+            "abordagem": "fog", "objeto": "mentorado", "forma": "report", "tema": "T",
+            "origem": "voz", "dispatch_id": "d1", "slug_prefix": "fog-mentorado--"},
             log=self.log)
-        eventlog.publish_artefato_atomic("fog-si--forjado", "why", skill="report",
+        eventlog.publish_artefato_atomic("fog-mentorado--forjado", "why", skill="report",
                                          _rite_authorized=True, log=self.log)
         gaps = _beat.assert_beat_produced(self.log, 0, dispatch_id="d1")
         self.assertTrue(any("forjada" in g for g in gaps), gaps)
@@ -145,7 +145,7 @@ class PostGateBitesWithoutProposta(_LogCase):
         pauta.propose(CELL, [], dispatch_id="d1",
                       constraints={"origem": "voz", "tema": "T", "forma": "report"},
                       log=self.log)
-        eventlog.publish_artefato_atomic("fog-si--comandado", "why", skill="report",
+        eventlog.publish_artefato_atomic("fog-mentorado--comandado", "why", skill="report",
                                          _rite_authorized=True, log=self.log)
         self.assertEqual(_beat.assert_beat_produced(self.log, 0, dispatch_id="d1"), [])
 
@@ -154,8 +154,8 @@ class PostGateBitesWithoutProposta(_LogCase):
         # aceitava voz forjada e abria Ato-2. Round 4 (Variant A): a verificação mora
         # no fold reader; dispatch_plan herda o raise SEM guarda própria.
         eventlog.append("pauta.proposta", "pauta", {
-            "abordagem": "fog", "objeto": "si", "forma": "report", "tema": "T",
-            "origem": "voz", "dispatch_id": "d1", "slug_prefix": "fog-si--"},
+            "abordagem": "fog", "objeto": "mentorado", "forma": "report", "tema": "T",
+            "origem": "voz", "dispatch_id": "d1", "slug_prefix": "fog-mentorado--"},
             log=self.log)
         with self.assertRaises(ValueError):
             _beat.dispatch_plan("lead", "d1", runtime_command=CMD, log=self.log)
@@ -164,8 +164,8 @@ class PostGateBitesWithoutProposta(_LogCase):
         # o pós-gate REPORTA (o heartbeat precisa do relatório, nunca de um crash):
         # ValueError do fold vira gap nomeado + a lógica do dente segue com proposta=None
         eventlog.append("pauta.proposta", "pauta", {
-            "abordagem": "fog", "objeto": "si", "forma": "dig", "tema": "T",
-            "origem": "autonomo", "dispatch_id": "d1", "slug_prefix": "fog-si--"},
+            "abordagem": "fog", "objeto": "mentorado", "forma": "dig", "tema": "T",
+            "origem": "autonomo", "dispatch_id": "d1", "slug_prefix": "fog-mentorado--"},
             log=self.log)
         gaps = _beat.assert_beat_produced(self.log, 0, dispatch_id="d1")
         self.assertTrue(any("forjad" in g for g in gaps), gaps)
@@ -174,8 +174,8 @@ class PostGateBitesWithoutProposta(_LogCase):
         # adv r2 #3 graft: forma fora do roster só chega ao log por append forjado —
         # o plano nunca nomeia producer que o install não roda; falha alto.
         eventlog.append("pauta.proposta", "pauta", {
-            "abordagem": "fog", "objeto": "si", "forma": "dig", "tema": "T",
-            "origem": "autonomo", "dispatch_id": "d1", "slug_prefix": "fog-si--"},
+            "abordagem": "fog", "objeto": "mentorado", "forma": "dig", "tema": "T",
+            "origem": "autonomo", "dispatch_id": "d1", "slug_prefix": "fog-mentorado--"},
             log=self.log)
         with self.assertRaises(ValueError):
             _beat.dispatch_plan("lead", "d1", runtime_command=CMD, log=self.log)

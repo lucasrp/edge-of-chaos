@@ -22,7 +22,7 @@ def _boom(prompt):
     raise AssertionError("este caminho não roda juízo LLM — completer não pode ser chamado")
 
 
-CELL = {"objeto": "si", "abordagem": "fog", "locked": []}
+CELL = {"objeto": "mentorado", "abordagem": "fog", "locked": []}
 CAND = {"tema": "o ciclo do teu dispatch", "forma": "report", "faceta": "custo",
         "lastro": "lido: state/events/log.jsonl (dispatch aberto sem fechar 3x)",
         "fontes": ["state/events/log.jsonl"]}
@@ -56,7 +56,7 @@ class ProposalPensTheLog(_LogCase):
         p = ev["payload"]
         for field in SPEC_FIELDS:
             self.assertIn(field, p, f"PROPOSTA sem o campo assinado {field!r}")
-        self.assertEqual(p["slug_prefix"], "fog-si--")  # nome carrega o setup (§3)
+        self.assertEqual(p["slug_prefix"], "fog-mentorado--")  # nome carrega o setup (§3)
         self.assertEqual(p["origem"], "autonomo")
         self.assertEqual(p["tema"], CAND["tema"])
         self.assertEqual(p["forma"], "report")
@@ -93,7 +93,7 @@ class ProposalPensTheLog(_LogCase):
         ev = pauta.propose(CELL, [seco], dispatch_id="d1", completer=_boom, log=self.log)
         self.assertEqual(ev["type"], "pauta.silencio")
         p = ev["payload"]
-        self.assertEqual((p["objeto"], p["abordagem"]), ("si", "fog"))  # §6 precisa da célula
+        self.assertEqual((p["objeto"], p["abordagem"]), ("mentorado", "fog"))  # §6 precisa da célula
         self.assertEqual(p["dispatch_id"], "d1")
         self.assertEqual(p["reason_kind"], "processo")  # dig #5: processo ≠ editorial
         self.assertTrue(p["reason"])
@@ -451,8 +451,8 @@ class PropostaForVerifiesTheLiveProposal(_LogCase):
     dispatch_plan, dente, CLI, publish futuro) herda a fivela. O veto é o unbrick."""
 
     def _forge(self, dispatch_id="d1", **over):
-        payload = {"abordagem": "fog", "objeto": "si", "forma": "report", "tema": "T",
-                   "origem": "voz", "dispatch_id": dispatch_id, "slug_prefix": "fog-si--"}
+        payload = {"abordagem": "fog", "objeto": "mentorado", "forma": "report", "tema": "T",
+                   "origem": "voz", "dispatch_id": dispatch_id, "slug_prefix": "fog-mentorado--"}
         payload.update(over)
         return eventlog.append("pauta.proposta", "pauta", payload, log=self.log)
 

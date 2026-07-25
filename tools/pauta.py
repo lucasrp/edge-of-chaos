@@ -22,7 +22,7 @@ posteriori.
 
 CLI (a porta do beat)::
 
-    tools/edge-python tools/pauta.py sortear [--lock objeto=si ...]
+    tools/edge-python tools/pauta.py sortear [--lock objeto=mentorado ...]
     tools/edge-python tools/pauta.py catalogo --cell JSON
     tools/edge-python tools/pauta.py shortlist --cell JSON --sugestoes JSON [--direction F]
     tools/edge-python tools/pauta.py propose --cell JSON --candidates JSON --dispatch-id ID
@@ -39,7 +39,7 @@ from pathlib import Path
 import eventlog
 
 # A matriz assinada (§2). `ser` = coringa: desamarra o eixo onde aparece.
-OBJETOS = ("mundo", "atividade", "si", "ser")
+OBJETOS = ("mundo", "atividade", "mentorado", "ser")
 ABORDAGENS = ("fog", "operacional", "estrategico", "meta_dica",
               "tempo_gasto", "curiosidade", "ser")
 
@@ -78,8 +78,12 @@ def sortear(constraints=None, rng=None):
 
 def slug_prefix(cell):
     """`{abordagem}-{objeto}--` — o nome carrega o setup (§3). Install/data entram no
-    publish (leitura de _identity lá, nunca literal aqui — genótipo sem identidade)."""
-    return f"{cell['abordagem']}-{cell['objeto']}--"
+    publish (leitura de _identity lá, nunca literal aqui — genótipo sem identidade).
+    Underscores in abordagem/objeto (e.g. tempo_gasto) become hyphens so the prefix
+    is a legal publisher slug stem (SLUG_RE = ^[a-z0-9][a-z0-9-]*$)."""
+    ab = str(cell["abordagem"]).replace("_", "-")
+    ob = str(cell["objeto"]).replace("_", "-")
+    return f"{ab}-{ob}--"
 
 
 def _cell_ok(cell):
@@ -101,7 +105,9 @@ _CATALOGO = {
     "mundo": "sources do agent.yaml e o mundo externo (source keys; X-first para "
              "perguntas de comunidade/prática)",
     "atividade": "conversas do mentee + a obra (sessões, artefatos, runtime dele)",
-    "si": "leveling / fog / persona — o estado de fronteira do mentee",
+    # operador 2026-07-25: "não é para falar de si" — o objeto é o MENTORADO
+    # (estado de fronteira dele), nunca o edge sobre si mesmo.
+    "mentorado": "leveling / fog / persona — o estado de fronteira do mentee",
     # §2: objeto=ser → catálogo SEM limite; a exigência fonte-fora-do-circuito é do
     # GATE (§5-ser a), nunca daqui (adv r1 cosmético #2).
     "ser": "livre — o coringa desamarra o catálogo (sem limite de fonte)",

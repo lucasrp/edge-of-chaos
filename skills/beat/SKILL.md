@@ -32,12 +32,12 @@ A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
 `docs/agencia/pauta-tabela-normativa.md`). O funil, na ordem assinada:
 
 1. **SORTEIO antes do wake** — `tools/edge-python tools/pauta.py sortear` (Voz trava campos:
-   `--lock objeto=si`). A célula `{objeto × abordagem}` sai ANTES de qualquer leitura — a
+   `--lock objeto=mentorado`). A célula `{objeto × abordagem}` sai ANTES de qualquer leitura — a
    leitura já sai mirada. Sem blocklist: célula inviável morre em silêncio logado.
 2. **Grounding INICIAL mirado** — run the mechanical entry-driver
    (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
    recall) ATRAVÉS do catálogo da célula (`tools/pauta.py catalogo --cell '<json>'`: mundo→
-   sources · atividade→conversas/obra · si→leveling/fog · ser→livre). READ the latest
+   sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre). READ the latest
    `user_requested` artefatos (the quente's anchors carry them) — first-order sinal de pauta.
 3. **~12 SUGESTÕES** baratas, função do wake que você acabou de ler — NUNCA um pool fixo do
    repo. Cada uma `{tema, forma, semente}` (a forma nasce na sugestão).

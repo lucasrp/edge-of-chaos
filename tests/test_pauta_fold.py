@@ -20,7 +20,7 @@ def _passa_tudo(prompt):
 
 
 CAND = {"tema": "t", "forma": "report", "lastro": "lido: x"}
-FOG_SI = {"objeto": "si", "abordagem": "fog"}
+FOG_MENTORADO = {"objeto": "mentorado", "abordagem": "fog"}
 CUR_MUNDO = {"objeto": "mundo", "abordagem": "curiosidade"}
 
 
@@ -35,11 +35,11 @@ class FoldIsTheOnlyState(unittest.TestCase):
                              completer=_passa_tudo, log=self.log)
 
     def test_distribution_counts_per_cell(self):
-        self._pen(FOG_SI, [CAND], "d1")
-        self._pen(FOG_SI, [CAND], "d2")
+        self._pen(FOG_MENTORADO, [CAND], "d1")
+        self._pen(FOG_MENTORADO, [CAND], "d2")
         self._pen(CUR_MUNDO, [], "d3")
         state = pauta.pauta_at(log=self.log)
-        self.assertEqual(state["cells"]["fog-si"]["proposta"], 2)
+        self.assertEqual(state["cells"]["fog-mentorado"]["proposta"], 2)
         self.assertEqual(state["cells"]["curiosidade-mundo"]["silencio"], 1)
 
     def test_three_consecutive_silences_mark_poda_candidate(self):
@@ -58,13 +58,13 @@ class FoldIsTheOnlyState(unittest.TestCase):
         self.assertEqual(state["poda_candidates"], [])
 
     def test_cursor_replays_the_past(self):
-        first = self._pen(FOG_SI, [CAND], "d1")
-        self._pen(FOG_SI, [CAND], "d2")
+        first = self._pen(FOG_MENTORADO, [CAND], "d1")
+        self._pen(FOG_MENTORADO, [CAND], "d2")
         past = pauta.pauta_at(seq=first["seq"], log=self.log)
-        self.assertEqual(past["cells"]["fog-si"]["proposta"], 1)
+        self.assertEqual(past["cells"]["fog-mentorado"]["proposta"], 1)
 
     def test_vetoes_are_counted(self):
-        self._pen(FOG_SI, [CAND], "d1")
+        self._pen(FOG_MENTORADO, [CAND], "d1")
         pauta.veto("d1", "não agora", log=self.log)
         self.assertEqual(pauta.pauta_at(log=self.log)["vetoes"], 1)
 
@@ -78,7 +78,7 @@ class FoldIsTheOnlyState(unittest.TestCase):
     def test_recall_unavailable_rate_is_the_alarm(self):
         # dig r2 #7: um piso que nunca roda vira ALARME no fold, não JSON não-lido —
         # as propostas acima rodaram SEM voz_recall_fn → recall declarado indisponível.
-        self._pen(FOG_SI, [CAND], "d1")
+        self._pen(FOG_MENTORADO, [CAND], "d1")
         state = pauta.pauta_at(log=self.log)
         self.assertEqual(state["recall_unavailable"], 1)
 
@@ -86,7 +86,7 @@ class FoldIsTheOnlyState(unittest.TestCase):
         # r3: autoridade deriva do log — o fixture pena o dispatch.open comandado
         eventlog.dispatch_open({"dispatch_id": "d9", "origin": "user_requested"},
                                log=self.log)
-        pauta.propose(FOG_SI, [], dispatch_id="d9",
+        pauta.propose(FOG_MENTORADO, [], dispatch_id="d9",
                       constraints={"origem": "voz", "tema": "X", "forma": "report"},
                       log=self.log)
         state = pauta.pauta_at(log=self.log)

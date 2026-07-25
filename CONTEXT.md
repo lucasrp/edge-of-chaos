@@ -613,17 +613,20 @@ iniciais — calibrar por evidência (§7).
 
 **Catálogo**:
 O que o **objeto** sorteado abre pra leitura mirada do wake: `mundo`→sources ·
-`atividade`→conversas/obra · `si`→leveling/fog · `ser`→livre. Objeto re-mira o catálogo,
+`atividade`→conversas/obra · `mentorado`→leveling/fog · `ser`→livre. Objeto re-mira o catálogo,
 **nunca acrescenta critério** (o gate pendura só na abordagem). O catálogo já nasce filtrado
 pelo piso do substrato: evidência sobre o mentee vem das conversas DELE, nunca de log de agente
 delegado codando (o resíduo delegado tem outro destino: censo do fog).
 *Avoid*: fonte-fixa-por-abordagem (eixos independentes), catálogo-como-gate
 
-**si (objeto)**:
+**mentorado (objeto)** (ex-`si`, renomeado pelo operador 2026-07-25 — "não é para falar de si;
+ou fala do mentorado, da atividade ou do mundo"):
 O objeto cuja evidência vem do **estado do mentee** (leveling/fog — perfil, fronteira ativa,
-lacunas declaradas). Gate-si de qualidade depende do persona-no-brief (gap nomeado 2026-07-13)
-— **pilotar `si` depois, não primeiro** (dívida §7).
-*Avoid*: si=introspecção-do-edge (isso é `curiosidade do edge`, abordagem — sujeito invertido)
+lacunas declaradas). Gate-mentorado de qualidade depende do persona-no-brief (gap nomeado
+2026-07-13) — **pilotar `mentorado` depois, não primeiro** (dívida §7).
+*Avoid*: ler o objeto como introspecção-do-edge (a deriva que matou `si`: petertosh 2026-07-25
+produziu artefatos sobre o próprio dispatch; introspecção legítima é `curiosidade do edge`,
+abordagem — sujeito invertido)
 
 **Coringa / serendipidade (`ser`)**:
 Valor-coringa nos DOIS eixos: **desamarra o eixo onde aparece** (objeto=`ser` → catálogo sem

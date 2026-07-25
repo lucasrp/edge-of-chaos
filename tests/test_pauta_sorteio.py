@@ -16,7 +16,7 @@ import pauta  # noqa: E402
 
 class MatrixIsTheSignedTable(unittest.TestCase):
     def test_axes_carry_the_signed_values_including_coringa(self):
-        self.assertEqual(pauta.OBJETOS, ("mundo", "atividade", "si", "ser"))
+        self.assertEqual(pauta.OBJETOS, ("mundo", "atividade", "mentorado", "ser"))
         self.assertEqual(
             pauta.ABORDAGENS,
             ("fog", "operacional", "estrategico", "meta_dica",
@@ -51,8 +51,8 @@ class DrawIsUniformAndIndependent(unittest.TestCase):
 class VozLocksFields(unittest.TestCase):
     def test_locked_field_is_never_drawn(self):
         for seed in range(30):
-            cell = pauta.sortear({"objeto": "si"}, rng=random.Random(seed))
-            self.assertEqual(cell["objeto"], "si")
+            cell = pauta.sortear({"objeto": "mentorado"}, rng=random.Random(seed))
+            self.assertEqual(cell["objeto"], "mentorado")
             self.assertIn(cell["abordagem"], pauta.ABORDAGENS)
             self.assertEqual(cell["locked"], ["objeto"])
 

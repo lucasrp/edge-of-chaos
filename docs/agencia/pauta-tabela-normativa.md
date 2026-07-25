@@ -21,7 +21,7 @@
 
 | Eixo | Valores | Papel |
 |---|---|---|
-| **Objeto** | mundo · atividade · si · **serendipidade (coringa)** | de ONDE vem a evidência (determina o catálogo) |
+| **Objeto** | mundo · atividade · mentorado · **serendipidade (coringa)** | de ONDE vem a evidência (determina o catálogo) |
 | **Abordagem** | fog · operacional · estratégico · meta-dica de trabalho · tempo gasto · curiosidade do edge · **serendipidade (coringa)** | COMO se julga (dono do gate) |
 | **Forma** | roster de producers (report, research, descoberta, map, plan, prototype, meta-dica, …) | que desenvolvimento e momento de leitura |
 
@@ -34,7 +34,7 @@
 
 ```
 1. SORTEIO    {objeto, abordagem} — uniforme; Voz trava campos
-2. WAKE       catálogo da célula (mundo→sources · atividade→conversas/obra · si→leveling/fog · ser→livre)
+2. WAKE       catálogo da célula (mundo→sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre)
 3. SUGESTÕES  ~12, baratas, função do wake — NUNCA pool fixo no repo
 4. SHORTLIST A ~6, mérito dentro do pólo + 1 slot estrutural de serendipidade
               + checks: delta_voz · filtro direction/wayfind-aberto · substrato
@@ -44,7 +44,7 @@
 
 **PROPOSTA** (evento `pauta.proposta`, meia página, pointers): `{abordagem, objeto, forma, tema, faceta, lastro, gate_trace, delta_voz, origem, depth}`. Não carrega outline/ângulo desenvolvido — isso é agência do producer (Ato-2). O lastro da Pauta semeia o gather do producer (grounding pra ESCOLHER ≠ grounding pra DESENVOLVER; encadeiam, não duplicam).
 
-**Nome carrega o setup (operador 2026-07-25):** o artefato publicado informa NO NOME a célula usada — slug prefixado `{abordagem}-{objeto}--<tema>-<install><data>` (ex.: `fog-si--o-ciclo-do-teu-dispatch-ed-0725`) e o título rendido exibe o par (ex.: `fog × si — …`). A forma já é carimbada pelo skill no publish. Vale para todo caminho, inclusive Voz fast-path (campos travados também são célula). Mecânico no publish da PROPOSTA — não é opção do producer.
+**Nome carrega o setup (operador 2026-07-25):** o artefato publicado informa NO NOME a célula usada — slug prefixado `{abordagem}-{objeto}--<tema>-<install><data>` (ex.: `fog-mentorado--a-fronteira-que-voce-nao-nomeou-ed-0725`) e o título rendido exibe o par (ex.: `fog × mentorado — …`). A forma já é carimbada pelo skill no publish. Vale para todo caminho, inclusive Voz fast-path (campos travados também são célula). Mecânico no publish da PROPOSTA — não é opção do producer.
 
 ## 4. Pisos universais (higiene, cortam sem rankear — valem até em {ser,ser})
 
@@ -123,8 +123,18 @@ Ordem de execução após o loop convergir; cada nível é barato antes do caro:
 - Números do funil (12 / 6 / 2–3) — iniciais, calibrar por custo observado.
 - Peso da serendipidade — uniforme lançado; se ~36% de batidas-com-coringa for liberdade demais na prática, o dial é o peso.
 - Órgão delta_voz — recall-da-Voz-por-tema + juízo semântico: custo por proposta a medir (roda só na shortlist A).
-- Gate-si de qualidade depende do persona-no-brief (gap nomeado 2026-07-13) — pilotar `si` depois, não primeiro.
+- Gate-mentorado de qualidade depende do persona-no-brief (gap nomeado 2026-07-13) — pilotar `mentorado` depois, não primeiro.
 - A autorar na implementação: verbete Pauta (+ Modo/Abordagem, PROPOSTA, gate de PROPOSTA/plan-gate, delta_voz/Redigest, shortlist A, catálogo, si, coringa) no CONTEXT.md; ADR único da cisão (escolha sai do producer / Ato-1 etapa do dispatch / rotation migra); revisão dos verbetes Producer-skill, Beat, Worthwhile content (o centro tem nome no glossário); spec `propose()`; ticket via dispatch protocol A–F.
 
 ## 8. LEI DAS ÂNCORAS (operador 2026-07-25, vinculante — supersede §4.3-eliminatório e §5 fog(a)/estratégico(a))
 **O wake é insumo, não coleira.** A agência leu o wake; se escolheu se afastar dele, o afastamento é julgamento, não defeito. **Nenhuma âncora é eliminatória**: substrato e citação-de-Direction viram ADVISORY (ressalva no trace; candidato segue). Pisos que FICAM (não são âncoras): lastro (evidência do mundo), delta_voz (o objetivo), wayfind-anti-redigest — **este último RATIFICADO pelo operador (2026-07-25, sobre o caso roberto v1): "se já tá especificado e não traz nada de novo, tá certo" negar.** As duas decisões compõem: âncora ausente nunca mata (o fork novo pode não existir na Direction); presença já-especificada sem delta mata certo. O que pontua é o NOVO — nos dois sentidos. Gates julgam SUBSTÂNCIA, nunca fórmula/redação. Evidência: arm-B 3×3 (2026-07-25) — agência livre põe o teto, gate põe o chão; âncora eliminatória era imposto sobre a agência no pólo estratégico.
+
+## 9. OBJETO `si` → `mentorado` (operador 2026-07-25, vinculante)
+**"Não é para falar de si. Ou fala do mentorado, da atividade ou do mundo."** O eixo objeto é
+{mundo · atividade · mentorado · ser}. O catálogo do ex-`si` já era o estado de fronteira do
+MENTEE (leveling/fog/persona) — o nome é que convidava a deriva: petertosh (2026-07-25, pós-
+religada) sorteou `si` e produziu artefatos sobre o próprio dispatch/pipeline do edge
+(fog-ser--invariancia-dispatch-id, operacional-si--pulso-cadencia). Renomear fecha a leitura
+errada sem mudar o contrato: a evidência do objeto vem do mentorado, nunca do edge sobre si
+mesmo. Introspecção legítima continua existindo como ABORDAGEM (`curiosidade do edge` —
+sujeito invertido: o edge olha o mundo/mentee com curiosidade própria, não se olha).
