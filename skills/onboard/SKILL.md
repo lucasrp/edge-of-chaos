@@ -163,6 +163,22 @@ renders the timer at the interviewed cadence and ignites the autonomous pulse
 operator before flipping it — an operator who wants to drive by hand first says no, and
 that is a fine close (the interval still lands in the phenotype for later).
 
+**When you explain the heartbeat, DEMONSTRATE it** — run the first steps of a beat right
+there, over what the mentoring session just learned:
+
+```bash
+tools/edge-python tools/pauta.py sortear
+tools/edge-python tools/pauta.py catalogo --cell '<a célula sorteada>'
+```
+
+then read the fresh material through that catálogo and DRAFT the candidate themes a
+`discovery` would bring (~3-5, each with the cell and one line of why, grounded in what
+was just learned — the operator's frontier, the holes the wayfind named). Show them:
+"quando o heartbeat pulsar às <intervalo>, é isto que acontece sozinho — sorteio uma
+célula, leio teu estado por ela, e temas como estes competem no gate; o que sobreviver
+vira artefato no blog." Do NOT publish — the demo stops at themes; the first real
+artifact belongs to the first real pulse.
+
 Then show the local surface:
 
 ```bash
