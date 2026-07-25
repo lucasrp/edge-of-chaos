@@ -353,6 +353,11 @@ def _first_human_text(path, surface="claude") -> str:
     return ""
 
 
+# Veredito por (path, mtime, size) — um wake classifica a MESMA sessão até 3x
+# (baseline, registro de exclusão, plano); o conteúdo só muda se mtime/size mudarem.
+_EXCLUSION_CACHE: dict = {}
+
+
 def user_session_exclusion_reason(session: Session, install_birth=None) -> str | None:
     """Return why this transcript is not a direct operator session, else None.
 
@@ -365,7 +370,17 @@ def user_session_exclusion_reason(session: Session, install_birth=None) -> str |
     o backfill filmava zero). Só suaviza os vereditos *unknown-provenance* (ausência de
     marcador); marcador POSITIVO de delegação (source:exec, subagent, thread-source) segue
     excluindo em qualquer época."""
-    reason = _user_session_exclusion_reason(session)
+    try:
+        st = Path(session.path).stat()
+        key = (str(session.path), st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = None
+    if key is not None and key in _EXCLUSION_CACHE:
+        reason = _EXCLUSION_CACHE[key]
+    else:
+        reason = _user_session_exclusion_reason(session)
+        if key is not None:
+            _EXCLUSION_CACHE[key] = reason
     if reason is None or not install_birth:
         return reason
     softenable = reason in ("codex-unknown-provenance", "grok-unknown-provenance")
@@ -430,8 +445,15 @@ def _user_session_exclusion_reason(session: Session) -> str | None:
         # Old Grok root one-shots do not record whether --prompt-file or a person launched them.
         # With no authoritative marker, fail closed unless the transcript itself proves an
         # interactive exchange. This is topology/provenance, never a vocabulary classifier.
-        human_turns = sum(
-            turn.role == "human" for turn in read_turns(session.path, surface="grok"))
+        # early-exit: 2 turnos humanos bastam pra provar voz — nunca varrer o arquivo
+        # inteiro de uma sessão de agente só pra confirmar a ausência (caixa com 1GB de
+        # rollouts sem voz pagava a leitura completa de cada um).
+        human_turns = 0
+        for turn in read_turns(session.path, surface="grok"):
+            if turn.role == "human":
+                human_turns += 1
+                if human_turns >= 2:
+                    break
         if human_turns < 2:
             return "grok-unknown-provenance"
     return None
