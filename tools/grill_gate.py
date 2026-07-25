@@ -18,10 +18,12 @@ import eventlog
 # The three stage-(ii) REQUIRED briefing sections and the feeder that fills each (the audit table).
 PIECES = ("objective", "direction", "direcionamento", "leveling")
 
-# Event types that establish the three steers on the log.
+# Event types that establish the three steers on the log — DELIBERATE acts only.
+# direction.proposed fica de fora do relogio do leveling: proposta e fila de ratificacao
+# (o sweep de topic-threads propoe sozinho, id topic-7d:*) — se contasse como steer, o
+# proprio beat trancaria o install pos-grill (auto-lock turing/sandbox 2026-07-25).
 _STEER_TYPES = frozenset({
     "objective.set",
-    "direction.proposed",
     "direction.set",
     "direction.report",
 })

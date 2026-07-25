@@ -71,6 +71,21 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             eventlog.report_direction("the steer after leveling", log=log)
             self.assertIn("leveling", grill_gate.grill_complete(log=log))
 
+    def test_sweep_proposed_after_leveling_does_not_reopen_gate(self):
+        """direction.proposed é fila de ratificação (wake/topic-thread infere sozinho, id
+        topic-7d:*), não steer: um install completo NÃO pode se trancar porque o próprio
+        beat inferiu propostas depois do grill (auto-lock turing/sandbox 2026-07-25)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            root = Path(tmp) / "lv"
+            eventlog.set_objective("ship the gate", log=log)
+            eventlog.set_direction("d1", "tighten the close", log=log)
+            eventlog.report_direction("the steer", log=log)
+            import grill_writeback
+            grill_writeback.leveling("diario", "close", root=root, log=log)
+            eventlog.propose("topic-7d:report-rite", "inferida pelo sweep", log=log)
+            self.assertEqual(grill_gate.grill_complete(log=log), [])
+
     def test_direction_set_also_satisfies_direction(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
