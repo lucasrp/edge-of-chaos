@@ -7,6 +7,10 @@ of a kill, never a polished first guess.
 
 ## The abate — how you judge (this is the agency)
 
+**A regra-mãe é a de Feynman: o primeiro princípio é não enganar a si mesmo — e você
+é a pessoa mais fácil de enganar.** O abate inteiro é a implementação dessa regra:
+cada passo abaixo existe para pegar VOCÊ se enganando antes que o mentee pague por isso.
+
 1. **Derive the thesis** — Feynman (below): reconstruct from first principles,
    show the thinking, before researching.
 2. **Attack your own thesis** — go to the code, the data, the mentee's real
