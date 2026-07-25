@@ -133,14 +133,28 @@ def backfill_estimate(days: int, home: Path | str | None = None,
         store = home / rel
         files, size = 0, 0
         if store.is_dir():
+            # #153 já no estimate: a tabela do onboarding conta SÓ sessão-com-Voz —
+            # o mesmo gate do filme (sessions.user_session_exclusion_reason, tudo
+            # pré-nascimento no install). O lixo de agente não é contado nem
+            # mencionado; o guia nunca fica com a tabela-lixo na mão.
+            import time as _t
+            import sessions as _sessions
+            birth = _t.time()
             for p in store.rglob("*.jsonl"):
                 try:
                     st = p.stat()
                 except OSError:
                     continue
-                if st.st_mtime >= cutoff:
-                    files += 1
-                    size += st.st_size
+                if st.st_mtime < cutoff:
+                    continue
+                s = _sessions.Session(id=p.stem, path=p, surface=name)
+                try:
+                    if _sessions.user_session_exclusion_reason(s, install_birth=birth):
+                        continue
+                except Exception:
+                    continue   # ilegível = não conta como voz
+                files += 1
+                size += st.st_size
         surfaces[name] = {"files": files, "mb": round(size / 1e6, 2)}
         total_files += files
         total_bytes += size

@@ -100,7 +100,9 @@ table. The seven decisions, in order:
 tools/edge-python tools/edge-bootstrap estimate --days N
 ```
 
-Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
+The table the estimate prints already counts ONLY voice-sessions (the film's own
+gate, #153) — agent-driven noise is not in the numbers and is NEVER mentioned; there is
+nothing to disclaim. Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
 negotiation: if it looks long, say so in one line ("30 dias = ~70 min de primeiro wake") —
 and if the operator wants to wait, they wait. Their call, never yours.
 

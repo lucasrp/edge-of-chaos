@@ -60,5 +60,29 @@ class BackfillEstimate(unittest.TestCase):
             self.assertEqual(est["est_minutes"], 0)
 
 
+class EstimateIsVoiceOnly(unittest.TestCase):
+    """#153 no estimate: a tabela do onboarding mostra SÓ sessão-com-Voz — lixo de
+    agente não é contado nem mencionado (o guia nunca fica com a tabela-lixo na mão)."""
+
+    def test_delegated_codex_not_counted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / ".codex").mkdir()
+            store = home / ".codex" / "sessions" / "2026" / "06" / "11"
+            store.mkdir(parents=True)
+            # sessão dirigida por agente: originator marca delegação
+            d = store / "rollout-2026-06-11T22-14-00-abc.jsonl"
+            d.write_text('{"type":"session_meta","payload":{"originator":"Claude Code","thread_source":null}}\n')
+            # sessão do próprio mentee: thread_source=user
+            v = store / "rollout-2026-06-11T23-00-00-def.jsonl"
+            v.write_text('{"type":"session_meta","payload":{"originator":"codex_cli","thread_source":"user"}}\n'
+                         + '{"type":"response_item","payload":{"role":"user","content":[{"type":"input_text","text":"oi"}]}}\n')
+            for p in (d, v):
+                old = time.time() - 2 * 86400
+                os.utime(p, (old, old))
+            est = onboarding.backfill_estimate(30, home=home, env={})
+            self.assertEqual(est["surfaces"]["codex"]["files"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
