@@ -50,5 +50,23 @@ class PreEdgeHistoryIsMenteeLife(unittest.TestCase):
                 "codex-unknown-provenance")
 
 
+class PositiveDelegationMarkerNeverSoftens(unittest.TestCase):
+    def test_claude_driven_codex_stays_excluded_even_pre_birth(self):
+        """originator='Claude Code' = prova de delegação; os turnos 'user' são o
+        agente delegante — pré-nascimento NÃO devolve isso como voz do mentee."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "rollout-2026-06-11T22-14-00-abc.jsonl"
+            meta = ('{"type":"session_meta","payload":{"originator":"Claude Code",'
+                    '"thread_source":null,"source":"vscode"}}')
+            p.write_text(meta + "\n" + '{"type":"response_item","payload":{"role":"user"}}\n')
+            old = time.time() - 40 * 86400
+            os.utime(p, (old, old))
+            s = sessions.Session(id=p.stem, path=p, surface="codex")
+            birth = time.time() - 86400
+            self.assertEqual(
+                sessions.user_session_exclusion_reason(s, install_birth=birth),
+                "codex-originator:claude-code")
+
+
 if __name__ == "__main__":
     unittest.main()

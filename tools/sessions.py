@@ -384,6 +384,14 @@ def _user_session_exclusion_reason(session: Session) -> str | None:
         # Missing session_meta or non-user thread_source is not "probably the operator".
         if not meta:
             return "codex-unknown-provenance"
+        # Marcador POSITIVO de delegação: outro harness dirigindo o codex (ex.
+        # originator="Claude Code" via plugin). Não é ausência de prova — é prova
+        # de agente-a-agente; a suavização pré-nascimento NUNCA se aplica aqui
+        # (caso edgesandbox 2026-07-25: os turnos "user" eram o claude falando).
+        originator = str(meta.get("originator") or "").strip()
+        if originator and originator.lower().replace(" ", "_") not in (
+                "codex", "codex_cli", "codex_exec"):
+            return f"codex-originator:{originator.lower().replace(' ', '-')}"
         thread_source = meta.get("thread_source")
         if thread_source != "user":
             if isinstance(thread_source, str) and thread_source.strip():
