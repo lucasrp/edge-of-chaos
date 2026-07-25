@@ -18,21 +18,34 @@ sys.path.insert(0, str(REPO / "tools"))
 import sessions  # noqa: E402
 
 
-def _codex_session_no_meta(tmp, age_days):
+def _codex_session_no_meta(tmp, age_days, turns=2):
     p = Path(tmp) / "rollout-2026-06-12T03-14-15-abc.jsonl"
-    p.write_text('{"type":"message","role":"user","content":"oi"}\n')
+    lines = []
+    for i in range(turns):
+        lines.append('{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"oi %d"}]}}' % i)
+        lines.append('{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"r"}]}}')
+    p.write_text("\n".join(lines) + "\n")
     old = time.time() - age_days * 86400
     os.utime(p, (old, old))
     return sessions.Session(id=p.stem, path=p, surface="codex")
 
 
 class PreEdgeHistoryIsMenteeLife(unittest.TestCase):
-    def test_pre_birth_unknown_codex_is_included(self):
+    def test_pre_birth_unknown_codex_with_dialogue_is_included(self):
         with tempfile.TemporaryDirectory() as tmp:
-            s = _codex_session_no_meta(tmp, age_days=30)
+            s = _codex_session_no_meta(tmp, age_days=30, turns=2)
             birth = time.time() - 1 * 86400          # install nasceu ontem
             self.assertIsNone(
                 sessions.user_session_exclusion_reason(s, install_birth=birth))
+
+    def test_pre_birth_without_dialogue_is_sem_dialogo(self):
+        """Piso #153 vale até para o suavizado: 1 turno humano não é conversa."""
+        with tempfile.TemporaryDirectory() as tmp:
+            s = _codex_session_no_meta(tmp, age_days=30, turns=1)
+            birth = time.time() - 1 * 86400
+            self.assertEqual(
+                sessions.user_session_exclusion_reason(s, install_birth=birth),
+                "codex-sem-dialogo")
 
     def test_post_birth_unknown_codex_still_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:

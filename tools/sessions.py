@@ -356,6 +356,7 @@ def _first_human_text(path, surface="claude") -> str:
 # Veredito por (path, mtime, size) — um wake classifica a MESMA sessão até 3x
 # (baseline, registro de exclusão, plano); o conteúdo só muda se mtime/size mudarem.
 _EXCLUSION_CACHE: dict = {}
+_DIALOGUE_CACHE: dict = {}
 
 
 def user_session_exclusion_reason(session: Session, install_birth=None) -> str | None:
@@ -381,16 +382,36 @@ def user_session_exclusion_reason(session: Session, install_birth=None) -> str |
         reason = _user_session_exclusion_reason(session)
         if key is not None:
             _EXCLUSION_CACHE[key] = reason
-    if reason is None or not install_birth:
+    if reason is not None and install_birth:
+        if reason in ("codex-unknown-provenance", "grok-unknown-provenance"):
+            try:
+                if Path(session.path).stat().st_mtime < float(install_birth):
+                    reason = None
+            except OSError:
+                pass
+    if reason is not None:
         return reason
-    softenable = reason in ("codex-unknown-provenance", "grok-unknown-provenance")
-    if softenable:
+    # Piso de DIÁLOGO (#153) — última porta de TODA inclusão: voz é conversa, e conversa
+    # tem ≥2 turnos humanos substantivos. One-shot de driver (`claude -p`, prompt-file)
+    # tem exatamente 1 turno "humano" (o prompt do agente) e passava como voz — num host
+    # de agente isso virou 812 falsas-vozes num estimate. Early-exit em 2; cache por
+    # (path, mtime, size) como o veredito.
+    if key is not None and key in _DIALOGUE_CACHE:
+        ok = _DIALOGUE_CACHE[key]
+    else:
+        human_turns = 0
         try:
-            if Path(session.path).stat().st_mtime < float(install_birth):
-                return None
-        except OSError:
-            pass
-    return reason
+            for turn in read_turns(session.path, surface=session.surface):
+                if turn.role == "human" and turn.text.strip():
+                    human_turns += 1
+                    if human_turns >= 2:
+                        break
+        except Exception:
+            human_turns = 0
+        ok = human_turns >= 2
+        if key is not None:
+            _DIALOGUE_CACHE[key] = ok
+    return None if ok else f"{session.surface}-sem-dialogo"
 
 
 def _user_session_exclusion_reason(session: Session) -> str | None:
@@ -441,21 +462,9 @@ def _user_session_exclusion_reason(session: Session) -> str | None:
     first = _first_human_text(session.path, surface=session.surface)
     if any(first.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
         return "automated-session-envelope"
-    if grok_unmarked:
-        # Old Grok root one-shots do not record whether --prompt-file or a person launched them.
-        # With no authoritative marker, fail closed unless the transcript itself proves an
-        # interactive exchange. This is topology/provenance, never a vocabulary classifier.
-        # early-exit: 2 turnos humanos bastam pra provar voz — nunca varrer o arquivo
-        # inteiro de uma sessão de agente só pra confirmar a ausência (caixa com 1GB de
-        # rollouts sem voz pagava a leitura completa de cada um).
-        human_turns = 0
-        for turn in read_turns(session.path, surface="grok"):
-            if turn.role == "human":
-                human_turns += 1
-                if human_turns >= 2:
-                    break
-        if human_turns < 2:
-            return "grok-unknown-provenance"
+    # (piso de diálogo aplicado no invólucro — vale para TODO caminho de inclusão,
+    # inclusive unknown-provenance suavizado pelo pré-nascimento)
+    del grok_unmarked
     return None
 
 

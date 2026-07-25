@@ -14,9 +14,28 @@ sys.path.insert(0, str(REPO / "tools"))
 import onboarding  # noqa: E402
 
 
-def _touch(path, age_days):
+
+
+def _mk_voiced(path, surface, human_turns=2, pad_bytes=0):
+    """Transcript legítimo com N turnos humanos no formato real da superfície."""
+    lines = []
+    pad = "x" * max(0, pad_bytes // max(1, human_turns))
+    for i in range(human_turns):
+        if surface == "codex":
+            lines.append('{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"oi %d %s"}]}}' % (i, pad))
+            lines.append('{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"r"}]}}')
+        elif surface == "grok":
+            lines.append('{"type":"user","content":"oi %d %s"}' % (i, pad))
+            lines.append('{"type":"assistant","content":"r"}')
+        else:
+            lines.append('{"type":"user","message":{"content":"oi %d %s"}}' % (i, pad))
+            lines.append('{"type":"assistant","message":{"content":"r"}}')
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("x" * (3 * 1024 * 1024))
+    path.write_text("\n".join(lines) + "\n")
+
+
+def _touch(path, age_days, surface="claude"):
+    _mk_voiced(path, surface, human_turns=2, pad_bytes=3 * 1024 * 1024)
     old = time.time() - age_days * 86400
     os.utime(path, (old, old))
 
@@ -29,7 +48,7 @@ class BackfillEstimate(unittest.TestCase):
         _touch(home / ".claude/projects/-home-b/s2.jsonl", 5)
         _touch(home / ".claude/projects/-home-a/s3.jsonl", 40)
         # codex: 1 recente aninhada por data
-        _touch(home / ".codex/sessions/2026/07/s4.jsonl", 2)
+        _touch(home / ".codex/sessions/2026/07/s4.jsonl", 2, surface="codex")
         # grok: harness AUSENTE (sem ~/.grok)
         return home
 
@@ -76,7 +95,9 @@ class EstimateIsVoiceOnly(unittest.TestCase):
             # sessão do próprio mentee: thread_source=user
             v = store / "rollout-2026-06-11T23-00-00-def.jsonl"
             v.write_text('{"type":"session_meta","payload":{"originator":"codex_cli","thread_source":"user"}}\n'
-                         + '{"type":"response_item","payload":{"role":"user","content":[{"type":"input_text","text":"oi"}]}}\n')
+                         + '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"oi"}]}}\n'
+                         + '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"opa"}]}}\n'
+                         + '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"bora"}]}}\n')
             for p in (d, v):
                 old = time.time() - 2 * 86400
                 os.utime(p, (old, old))
