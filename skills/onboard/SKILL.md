@@ -88,9 +88,12 @@ delivered, what they do for a living) and propose a NAMED starter set yourself:
   native to whatever the host shows they build (the pair changes per mentee; the
   absence of a generic default is the proof the list came from the profile).
 
-Each with one line of what it would feed. The operator accepts/rejects; accepted ones
-seed the phenotype `sources:` block, and the first mentor refines what to WATCH in each
-(bar item 3 of the Emenda).
+Each with one line of what it would feed. **Source ≠ artefato:** a source is a CONTINUOUS
+feed the wake/delta/grounding consume (a normative diary, an API, a changelog, a tag-feed);
+a one-shot investigation ("mine competitor reviews") is an artefato pauta, not a source —
+offer those separately as the install's first candidate themes. The operator
+accepts/rejects; accepted sources seed the phenotype `sources:` block, and the first
+mentor refines what to WATCH in each (bar item 3 of the Emenda).
 
 ## 1. Bootstrap — the skeleton
 
