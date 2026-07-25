@@ -41,7 +41,10 @@ def resolve_env_dir(home: Path, cfg: dict) -> Path:
     # TODO(agent.yaml): declare env_dir — agent.yaml is operator-dirty, so the field is deferred;
     #   this resolver already honors it the moment it is added, defaulting to <home>/secrets/."""
     raw = cfg.get("env_dir")
-    return Path(os.path.expanduser(str(raw))) if raw else home / "secrets"
+    if not raw:
+        return home / "secrets"
+    p = Path(os.path.expanduser(str(raw)))
+    return p if p.is_absolute() else home / p    # relativo ancora no home, nunca no cwd
 
 
 def _read_secret(home: Path, ref: str, env_dir: Path = None):

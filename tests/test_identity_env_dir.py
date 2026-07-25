@@ -53,6 +53,43 @@ class EnvDirResolution(unittest.TestCase):
                 self.assertEqual(_identity._env_dir(missing),
                                  Path(os.path.expanduser("~/edge")) / "secrets")
 
+    def test_relative_env_dir_anchors_on_edge_home_never_cwd(self):
+        """agent.yaml `env_dir: secrets` (relativo, como o onboarding escreve) resolve
+        contra o edge_home do install — nunca contra o cwd (o gap do edge-apply no
+        edgesandbox: cwd=genotipo-teste, secrets em ~/sandbox-home/secrets)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            yaml_p = Path(tmp) / "agent.yaml"
+            yaml_p.write_text(f"edge_home: {tmp}/casa\nenv_dir: secrets\n")
+            env = {k: v for k, v in os.environ.items() if k != "EDGE_SECRETS_DIR"}
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(_identity._env_dir(yaml_p), Path(tmp) / "casa" / "secrets")
+
+
+class ApplyResolveEnvDir(unittest.TestCase):
+    def _resolve(self, home, cfg):
+        import importlib.util
+        spec = importlib.util.spec_from_loader("edge_apply", loader=None)
+        mod = __import__("importlib").util.module_from_spec(spec)
+        mod.__dict__["__file__"] = str(REPO / "tools" / "edge-apply")
+        src = (REPO / "tools" / "edge-apply").read_text()
+        exec(compile(src, "edge-apply", "exec"), mod.__dict__)
+        return mod.resolve_env_dir(home, cfg)
+
+    def test_relative_env_dir_anchors_on_home(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "casa"
+            self.assertEqual(self._resolve(home, {"env_dir": "secrets"}), home / "secrets")
+
+    def test_absolute_env_dir_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "casa"
+            self.assertEqual(self._resolve(home, {"env_dir": f"{tmp}/fen"}), Path(tmp) / "fen")
+
+    def test_unset_defaults_to_home_secrets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "casa"
+            self.assertEqual(self._resolve(home, {}), home / "secrets")
+
 
 if __name__ == "__main__":
     unittest.main()

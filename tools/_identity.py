@@ -117,11 +117,13 @@ def _env_dir(agent_yaml=AGENT_YAML):
     if override:
         return Path(os.path.expanduser(override))
     cfg = _cfg(agent_yaml)
+    home = Path(os.path.expanduser(str(
+        cfg.get("edge_home") or os.environ.get("EDGE_HOME") or "~/edge")))
     raw = cfg.get("env_dir")
     if raw:
-        return Path(os.path.expanduser(str(raw)))
-    home = cfg.get("edge_home") or os.environ.get("EDGE_HOME") or "~/edge"
-    return Path(os.path.expanduser(str(home))) / "secrets"
+        p = Path(os.path.expanduser(str(raw)))
+        return p if p.is_absolute() else home / p    # relativo ancora no home, nunca no cwd
+    return home / "secrets"
 
 
 def neo4j_password(agent_yaml=AGENT_YAML):
