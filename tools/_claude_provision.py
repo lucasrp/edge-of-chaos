@@ -149,6 +149,22 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
     _write_if_changed(claude_home / "CLAUDE.md", render_claude_md(cfg))
     rows.append(f"CLAUDE.md → {claude_home / 'CLAUDE.md'}")
 
+    # 1a. Retention guard — o Claude Code apaga transcripts velhos (cleanupPeriodDays,
+    # default 30) no launch; as sessões SÃO a memória-substrato do edge (caso edgesandbox
+    # 2026-07-25: o 1º launch do install comeu o histórico de junho do mentee às 12:02).
+    # Só escreve quando o operador ainda não fixou o knob — nunca sobrepõe escolha dele.
+    import json as _json
+    settings_path = claude_home / "settings.json"
+    try:
+        settings = _json.loads(settings_path.read_text()) if settings_path.exists() else {}
+        if "cleanupPeriodDays" not in settings:
+            settings["cleanupPeriodDays"] = 3650
+            settings_path.parent.mkdir(parents=True, exist_ok=True)
+            settings_path.write_text(_json.dumps(settings, indent=2) + "\n")
+            rows.append(f"cleanupPeriodDays=3650 → {settings_path} (retenção de transcripts)")
+    except (OSError, ValueError) as e:
+        rows.append(f"retention guard skipped: {type(e).__name__}: {e}")
+
     # 2. skills/{name}/SKILL.md → skills/{prefix}-{name}/SKILL.md for each prefix
     skills_src = repo / "skills"
     installed = 0

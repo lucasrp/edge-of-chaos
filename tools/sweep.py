@@ -143,28 +143,57 @@ def _grok_enabled(project_dir, grok_dir):
     return surfaces_cfg.include_optional_surface("grok", project_dir, grok_dir)
 
 
-def _codex_baseline(cursors, codex_dir=None):
+def _install_birth(log=None):
+    """Epoch do 1º evento do log — o nascimento do install (None se log vazio/ilegível).
+
+    Fronteira da proveniência: sessão codex/grok anterior ao nascimento não pode ser
+    trabalho delegado do edge (caso edgesandbox 2026-07-25 — backfill filmava zero)."""
+    try:
+        for e in eventlog.read(log=log if log is not None else eventlog.LOG):
+            ts = e.get("ts")
+            if ts:
+                from datetime import datetime
+                return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+            break
+    except Exception:
+        return None
+    return None
+
+
+def _codex_baseline(cursors, codex_dir=None, install_birth=None):
     """First Codex-aware run starts from now: existing Codex logs are marked seen but not ingested.
     New sessions/deltas after this baseline flow through normally."""
     if cursors.get(CODEX_BASELINE_KEY):
         return cursors
     for s in sessions.list_codex_sessions(codex_dir):
-        if not sessions.is_user_session(s):
+        if not sessions.is_user_session(s, install_birth=install_birth):
             continue
+        if install_birth:
+            try:
+                if Path(s.path).stat().st_mtime < float(install_birth):
+                    continue   # vida pré-edge do mentee = backfill, nunca baseline
+            except OSError:
+                pass
         _turns, watermark = sessions.delta(s.path, 0, surface=s.surface)
         cursors[_cursor_id(s)] = watermark
     cursors[CODEX_BASELINE_KEY] = True
     return cursors
 
 
-def _grok_baseline(cursors, grok_dir=None):
+def _grok_baseline(cursors, grok_dir=None, install_birth=None):
     """First Grok-aware run starts from now: existing Grok logs are marked seen but not ingested.
     New sessions/deltas after this baseline flow through normally."""
     if cursors.get(GROK_BASELINE_KEY):
         return cursors
     for s in sessions.list_grok_sessions(grok_dir):
-        if not sessions.is_user_session(s):
+        if not sessions.is_user_session(s, install_birth=install_birth):
             continue
+        if install_birth:
+            try:
+                if Path(s.path).stat().st_mtime < float(install_birth):
+                    continue   # vida pré-edge do mentee = backfill, nunca baseline
+            except OSError:
+                pass
         _turns, watermark = sessions.delta(s.path, 0, surface=s.surface)
         cursors[_cursor_id(s)] = watermark
     cursors[GROK_BASELINE_KEY] = True
@@ -200,7 +229,8 @@ def record_session_exclusions(project_dir=None, *, log=eventlog.LOG, codex_dir=N
         session_id = _cursor_id(session)
         if session_id in already:
             continue
-        reason = sessions.user_session_exclusion_reason(session)
+        reason = sessions.user_session_exclusion_reason(
+            session, install_birth=_install_birth(log))
         if reason is None:
             continue
         additions.append((
@@ -1118,10 +1148,11 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             if excluded:
                 print(f"sweep: excluded {len(excluded)} delegated/protocol session(s) "
                       "from operator projections")
+            birth = _install_birth(log)
             if _codex_enabled(project_dir, codex_dir):
-                cursors = _codex_baseline(cursors, codex_dir)
+                cursors = _codex_baseline(cursors, codex_dir, install_birth=birth)
             if _grok_enabled(project_dir, grok_dir):
-                cursors = _grok_baseline(cursors, grok_dir)
+                cursors = _grok_baseline(cursors, grok_dir, install_birth=birth)
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
                               grok_dir=grok_dir)
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
