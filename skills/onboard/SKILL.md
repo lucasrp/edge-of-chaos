@@ -224,31 +224,33 @@ renders the timer at the interviewed cadence and ignites the autonomous pulse
 operator before flipping it — an operator who wants to drive by hand first says no, and
 that is a fine close (the interval still lands in the phenotype for later).
 
-**When you explain the heartbeat, DEMONSTRATE it** — run the first steps of a beat right
-there, over what the mentoring session just learned:
+**Then the final act, in one breath: heartbeat → skills → a real discovery.** After
+`finish`, the mentor closes the day like this:
 
-```bash
-tools/edge-python tools/pauta.py sortear
-tools/edge-python tools/pauta.py catalogo --cell '<a célula sorteada>'
-```
+1. **Explain the heartbeat** — "a cada <intervalo> eu acordo sozinho, leio teu estado,
+   sorteio um ângulo, e se algo sobreviver ao meu gate, publico no teu blog. Você não
+   precisa me chamar."
+2. **Present the skills** — the doors the operator can open by hand, each in half a
+   line: `/{prefix}-wake` (me orientar de manhã), `/{prefix}-mentor` (conversar),
+   `/{prefix}-report`, `/{prefix}-research`, `/{prefix}-discovery` (me pedir um achado),
+   e a Voz no blog (responder qualquer artefato por escrito).
+3. **EMENDA with a `/{prefix}-discovery` — no argument.** Free theme: the pauta road
+   draws the cell and picks the theme itself, fresh from everything the session just
+   built (the Direction, the wayfind holes, the new sources). The first artefato is born
+   LIVE, through the full autonomous pipeline, while the operator watches — this IS the
+   heartbeat demonstrated, not described: "isto que você acabou de ver é exatamente o
+   que vai acontecer sozinho às <intervalo>."
 
-then read the fresh material through that catálogo and DRAFT the candidate themes a
-`discovery` would bring (~3-5, each with the cell and one line of why, grounded in what
-was just learned — the operator's frontier, the holes the wayfind named). Show them:
-"quando o heartbeat pulsar às <intervalo>, é isto que acontece sozinho — sorteio uma
-célula, leio teu estado por ela, e temas como estes competem no gate; o que sobreviver
-vira artefato no blog." Do NOT publish — the demo stops at themes; the first real
-artifact belongs to the first real pulse.
-
-Then show the local surface:
+Then walk them to it:
 
 ```bash
 systemctl --user status blog-server   # or: tools/edge-python blog/server.py
 ```
 
-Artifacts land at **http://127.0.0.1:8766** (loopback-only by design — the local reader IS
-the mentee). Walk them there, show the first page, and hand over the keys: `/{prefix}-wake`
-to orient any morning, Voz on the blog to talk back.
+The artefato just published is waiting at **http://127.0.0.1:8766** (loopback-only by
+design — the local reader IS the mentee). Open it together; reading their first artefato
+is the last act of the onboarding, and the Voz box under it is the handover: "quando
+quiser me responder, é aqui."
 
 ## Failure honesty
 
