@@ -91,7 +91,12 @@ declaro escura, nunca finjo". The dig's findings become the proposed set:
 - the **domain-specific** ones the dig surfaced — the part that changes per mentee, and
   the proof the list came from the profile, not a template.
 
-Each with one line of what it would feed. **Source ≠ artefato:** a source is a CONTINUOUS
+Each with one line of what it would feed — and CLOSE the demo on the lesson it just made
+visible: the generic feeds everyone reads yield what everyone already knows; the
+personalized ones the dig dug from THEIR profile are where the delta will find what no
+generic feed carries. Point at one concrete pair from the run ("HN vai te dar o que todo
+mundo lê; ESTA aqui só existe porque você é você") — that contrast is the argument for
+fontes personalizadas, shown instead of told. **Source ≠ artefato:** a source is a CONTINUOUS
 feed the wake/delta/grounding consume (a normative diary, an API, a changelog, a tag-feed);
 a one-shot investigation ("mine competitor reviews") is an artefato pauta, not a source —
 offer those separately as the install's first candidate themes. The operator
