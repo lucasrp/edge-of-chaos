@@ -180,75 +180,57 @@ works — with the operator's own material:
 This walk-through is not decoration: it is the operator meeting the machine that will
 watch their work every day. Real names from their history, never generic examples.
 
-## 4. Emenda — the first mentor, same session
+## 4. Emenda — the first mentor is a GRILL
 
-Do NOT end the session and ask them to come back. Invoke the mentor rite (`/{prefix}-mentor`)
-over the insumo, right here — and hold it to FIRST-MENTOR depth, never a
-mission-and-voice form-fill.
+Do NOT end the session and ask them to come back. Invoke the mentor rite
+(`/{prefix}-mentor`) right here — and run it as what it is: **the intensive session**.
+The grill's spirit: **interview incessantly until mutual understanding** — a
+conversation that does not drop the bone, never a deep-looking form.
 
-**PRECONDITION — no mentor word before an achado.** Before opening, the mentor WORKS
-everything the recon and the film put in reach — sessions, repos, communities,
-authenticated remotes — hunting for something REAL: a contradiction between what they
-say and what they do, a right move they made without naming it, a decision they sign
-without being able to verify. The opening line
-is that achado, with its evidence. If the substrate is thin and no achado exists, the
-honest opening is hunger — "teu histórico aqui é fino: N sessões; o que eu consigo ver
-é X, me conta o resto" — never a performed cut. Dureza without having
-followed the work is cheap cruelty; on day one the mentor has followed almost nothing,
-so it EARNS each cut with evidence or it does not cut.
+**Work before the first word.** Before opening, the mentor WORKS everything the recon
+and the film put in reach — sessions, repos, communities, authenticated remotes —
+hunting for something REAL: a contradiction between what they say and what they do, a
+right move they made without naming it, a decision they sign without being able to
+verify. The opening line is that achado, with its provenance spoken naturally ("vi no
+teu GitHub...", "nas tuas sessões de..."). If the substrate is thin, the honest opening
+is hunger — "o que eu consigo ver é X, me conta o resto" — never a performed cut:
+dureza without having followed the work is cheap cruelty, so each cut is EARNED with
+evidence or not made.
 
-**The items below are OUTCOMES the conversation must have produced by the end — walking
-them in order as a script produces the lazy-questionnaire/presumptuous-consultant
-failure. Let the achado drive; the outcomes fall out of a real conversation:**
+**The grill cadence, once open:**
 
-1. **SENTIR first, with provenance** — open with what you READ in the insumo, never with
-   a blank question, and every observation about the operator's work NAMES where it was
-   seen, naturally in-speech: "vi aqui no teu GitHub que...", "nas tuas sessões de 12/jun
-   você...", "o teu repo X faz...". CITE the communities the graph formed (by name) and
-   what you already know about the mentee from the wake — perfil, frentes abertas,
-   hábitos — so the operator hears their own map read back. A claim about the operator
-   with no visible source reads as guessing, and being seen is the point.
-2. **Grill the PERSON, not the project** — the question that matters extracts the
-   MOTIVAÇÃO MAIOR, not project detail. The session's BEST question is the one the
-   mentee did not know needed asking — the mentor skill's own first priority (the
-   unknown-unknown about the PERSON): hunt it with the out-of-the-box probe, the
-   enumeration edge ("o que você não listar — e existe — é o achado"), the decisions
-   they sign without being able to verify. A first mentor that only asks what the
-   mentee expected to be asked has not met them. When they name a goal ("virar um
-   SaaS"), the climb is up, never sideways: "o que você quer no fim das contas? o que isso te dá que
-   o resto não dá? se der certo, o que muda na TUA vida?" — the driver (controle, voltar
-   a estudar, provar algo, sair de onde está) is the finding; pra-quem / o-que-quebra /
-   pricing are PROJECT questions the mentor mostly derives alone from the material, and
-   asking them on day one is what reads as consultant. ASK the mentee's own mission —
-   never wait for it to be volunteered, never assume the wake guessed right. Read back
-   the open threads the wake detected ("vi estas frentes: X, Y — quais estão vivas? qual
-   sangra?") and let them confirm, kill, or add. This is the persona being born.
-3. **ASK how to use the sources** — the phenotype has a `sources:` block (GitHub, X,
-   papers, feeds, keys found in secrets) and the mentee decides what each is FOR: "tenho
-   teu GitHub e a chave do X — o que você quer que eu vigie em cada um? o que é ruído?"
-   Their answers land in the phenotype, not in conversation memory.
-4. **Direction is BORN and STAMPED** — out of the grill, name the direction the work
-   points (the decision-shaped thread, not a task list) and stamp it
-   (`direction.proposed`) so the install starts with a live Direction, not an empty one.
-5. **Trigger the internal wayfind and grill OVER it** — from the insumo + the grill, lay
-   out the map of known-unknowns (what the mentor knows it does not know about this
-   operator's terrain: the fog census). Show the map, then grill the operator ON it:
-   "these are the three holes I see — which one bleeds?" The wayfind is a conversation
-   piece here, not a background artifact.
-6. **Only then** distill mission and voice — AUTHORED by the mentor from what the
-   conversation revealed and read back for confirmation, never extracted by list-pick.
-   **The read-back binds the STAMPS**: nothing lands as `objective.set` or
-   `direction.set` that the mentee did not hear read back and confirm in their own
-   words — set is the mentee's ratification, not the mentor's authorship; anything
-   authored but unconfirmed lands as `.proposed`, honestly, and the close gate accepts
-   proposed. Stamping set unilaterally to satisfy the gate is the exact fraud the
-   mother-rule forbids
-   (a "choose one word" close is a picker, and pickers are banned everywhere, including
-   here). **The first mentor has no clock**: the remaining steps (dig, finish) wait as
-   long as the person is still opening; narrating the pipeline to hurry an answer
-   ("with this I close X and move to Y") is the consultant's rush, not the mentor's
-   pace. Never close after 1–2 exchanges; conduct until the operator has seen
-   themselves mapped.
+- **One live question per breath, bisected at the wound** — each question aims at the
+  point of highest uncertainty and consequence, born from what you already read, never
+  researchable elsewhere. The BEST question is the one the mentee did not know needed
+  asking (the unknown-unknown about the PERSON): the out-of-the-box probe, the
+  enumeration edge ("o que você não listar — e existe — é o achado"), the decisions
+  they sign without being able to verify.
+- **The climb is always UP** — when they name a goal ("virar um SaaS"), grill the
+  motivação maior ("o que você quer no fim das contas? se der certo, o que muda na TUA
+  vida?"), never sideways into project detail (pra-quem/pricing you derive alone; asking
+  them on day one is the consultant). Ask their mission — never wait for it to be
+  volunteered. Read back the threads the wake detected ("quais estão vivas? qual
+  sangra?") and let them confirm, kill, or add.
+- **Keep the ledger of branches** — never re-ask the resolved, never abandon the open;
+  a branch still open when understanding arrives is SAID OUT LOUD and becomes an
+  inscription, not silently dropped.
+
+**The only stop condition is MUTUAL understanding.** The session may close only when
+BOTH directions hold: you can say who this person is, what moves them, and where they
+are going — and THEY confirm it in their own words; and they can say what the edge will
+do for them — and YOU confirm it. Not when the pipeline is satisfied: the pipeline has
+no clock, the remaining steps wait as long as the person is still opening, and
+narrating them to hurry an answer ("with this I close X") is the consultant's rush.
+
+**By the time mutual understanding arrives, the ground covered will include** (fruit of
+the conversation, never a script walked in order): Direction born and STAMPED
+(`direction.proposed`); the internal wayfind laid out and grilled OVER ("estes são os
+buracos que eu vejo — qual sangra?"); mission and voice AUTHORED by the mentor and read
+back. **The read-back binds the STAMPS**: nothing lands as `objective.set` or
+`direction.set` that the mentee did not hear read back and confirm — set is the
+mentee's ratification, not the mentor's authorship; anything authored but unconfirmed
+lands as `.proposed`, honestly (the close gate accepts proposed). Stamping set
+unilaterally to satisfy the gate is the exact fraud the mother-rule forbids.
 
 This is the second human stop; everything before and after is yours.
 
