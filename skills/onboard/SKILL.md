@@ -28,7 +28,7 @@ delivered by the operator — you never invent, fetch, or print key values.
 **The failure mode of this step has a name: questionário preguiçoso.** Firing the seven
 items as bare questions is it. The discipline: before EACH item, do the work the host
 already allows — inspect, derive, then present a VERIFIED proposal for confirmation
-("achei tuas chaves em ~/chaves-backup: openai, xai, exa — uso essas?"), not a blank
+("achei um diretório de chaves em <caminho encontrado no host>: openai, xai — uso essas?"), not a blank
 question ("onde estão os segredos?"). A true open question is reserved for what no
 inspection can answer (the name, the backfill appetite). Every proposal carries the one
 line of what it feeds. The seven decisions, in order:
@@ -61,7 +61,7 @@ line of what it feeds. The seven decisions, in order:
    - **none** — declared-dark, FTS covers search; can be added later by re-running bootstrap.
    Model override: `--embedding-model`. Never echo key values.
 6. **Heartbeat cadence** — how often the autonomous pulse fires once ignited
-   (`--heartbeat-interval`, e.g. `8h`; recommend 8h — ed's own cadence). Explain the
+   (`--heartbeat-interval`; recommend `8h` as the default cadence). Explain the
    trade-off in one line: shorter = more presence and more spend; the dial moves later by
    editing `heartbeat_interval` in `agent.yaml`. Whether it ignites AT ALL is still
    confirmed at the close (step 5), not here — this question only sets the rhythm.
@@ -84,8 +84,9 @@ delivered, what they do for a living) and propose a NAMED starter set yourself:
 - generic strong defaults: **arXiv** (their area's categories), **Hacker News**;
 - **Exa** if `EXA_API_KEY` landed in secrets (semantic search over the open web);
 - **X** if the xai key is there (community/practice signal);
-- 2-3 **domain-specific** ones inferred from their work (e.g. jurisprudência feeds for a
-  legal mentee, sports-data APIs for a betting product).
+- 2-3 **domain-specific** ones inferred from their work — feeds, APIs, or communities
+  native to whatever the host shows they build (the pair changes per mentee; the
+  absence of a generic default is the proof the list came from the profile).
 
 Each with one line of what it would feed. The operator accepts/rejects; accepted ones
 seed the phenotype `sources:` block, and the first mentor refines what to WATCH in each
@@ -148,14 +149,14 @@ material: reads the filmed sessions, the repos, the communities, hunting for som
 REAL — a contradiction between what they say and what they do, a right move they made
 without naming it, a decision they sign without being able to verify. The opening line
 is that achado, with its evidence. If the substrate is thin and no achado exists, the
-honest opening is hunger — "teu histórico aqui é fino: três sessões de junho; o que eu
-consigo ver é X, me conta o resto" — never a performed cut. Dureza without having
+honest opening is hunger — "teu histórico aqui é fino: N sessões; o que eu consigo ver
+é X, me conta o resto" — never a performed cut. Dureza without having
 followed the work is cheap cruelty; on day one the mentor has followed almost nothing,
 so it EARNS each cut with evidence or it does not cut.
 
 **The items below are OUTCOMES the conversation must have produced by the end — walking
-them in order as a script is the exact failure the operator named (consultor
-presunçoso). Let the achado drive; the outcomes fall out of a real conversation:**
+them in order as a script produces the lazy-questionnaire/presumptuous-consultant
+failure. Let the achado drive; the outcomes fall out of a real conversation:**
 
 1. **SENTIR first, with provenance** — open with what you READ in the insumo, never with
    a blank question, and every observation about the operator's work NAMES where it was
