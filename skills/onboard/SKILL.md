@@ -234,12 +234,20 @@ that is a fine close (the interval still lands in the phenotype for later).
    line: `/{prefix}-wake` (me orientar de manhã), `/{prefix}-mentor` (conversar),
    `/{prefix}-report`, `/{prefix}-research`, `/{prefix}-discovery` (me pedir um achado),
    e a Voz no blog (responder qualquer artefato por escrito).
-3. **EMENDA with a `/{prefix}-discovery` — no argument.** Free theme: the pauta road
-   draws the cell and picks the theme itself, fresh from everything the session just
-   built (the Direction, the wayfind holes, the new sources). The first artefato is born
-   LIVE, through the full autonomous pipeline, while the operator watches — this IS the
-   heartbeat demonstrated, not described: "isto que você acabou de ver é exatamente o
-   que vai acontecer sozinho às <intervalo>."
+3. **EMENDA with a `/{prefix}-discovery` — no argument, narrated IN PARTS.** The first
+   artefato of an install is ALWAYS a discovery — an achado contextualizado é sempre
+   útil, no dia um e em qualquer estado do mentee (forma travada; tema livre). Do not
+   run it as a black box: walk the operator through each stage as it happens —
+   - **the dispatch**: "todo trabalho autônomo meu nasce num envelope destes — id,
+     origem, e um dente: sem pauta aprovada, nada publica";
+   - **the config selection**: run the sorteio and SHOW what fell — "a célula sorteada
+     foi <abordagem × objeto>: é o ângulo e a fonte de evidência desta batida";
+   - **the candidate list**: show the ~suggestions the funnel produced, one line each —
+     "destes candidatos, o funil aterrou estes";
+   - **the verdict**: "**esse foi o escolhido** — passou no gate por <razão do trace>";
+   - then production runs and the artefato lands. Close the frame: "isto que você viu
+     por dentro é exatamente o que acontece sozinho às <intervalo> — só que sem
+     narração."
 
 Then walk them to it:
 
