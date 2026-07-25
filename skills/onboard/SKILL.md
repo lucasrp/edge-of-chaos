@@ -17,7 +17,7 @@ assume the known, never a jargon dump), and STOP at the two points that belong t
 the seed. No autonomous production (heartbeat) before a Direction exists. Secrets are
 delivered by the operator — you never invent, fetch, or print key values.
 
-## 0. Interview — four questions, one at a time
+## 0. Interview — one question at a time
 
 Converse; don't render a form. For each answer, say what it feeds. Lead with a
 recommendation when one exists:
@@ -25,10 +25,26 @@ recommendation when one exists:
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
    (the clone) and install home are different trees; say so.
-3. **Secrets** — where their keys are NOW. You will create `<home>/secrets/` and guide the
-   copy (`openai.env`, `xai.env`, …, one `VAR=value` per line). **Zero-key is first-class**:
-   no keys → embeddings and paid routes are declared-dark, nothing blocks. Never echo values.
-4. **Backfill days** — how much session history the first wake reads. Before accepting,
+3. **Which CLIs** — the edge is multi-CLI (Claude / Codex / Grok, each on its own
+   subscription). Show what is already on the host (`which claude codex grok`) and ask
+   which they want; offer to install the missing ones they choose (e.g.
+   `npm i -g @anthropic-ai/claude-code`, `npm i -g @openai/codex`). Detection at bootstrap
+   is by harness home dir — a CLI installed now is a surface filmed forever.
+4. **Adversarial** — who reviews the primary's work. Three honest shapes; ask which:
+   - **another CLI** (best: real second opinion — `--adversarial codex --adversarial grok`);
+   - **an API key** they will drop in secrets (review route via key, no second CLI);
+   - **self-fallback** (no flags: the primary reviews itself — works, weakest; say so).
+5. **Secrets & embeddings** — where their keys are NOW. You will create `<home>/secrets/`
+   and guide the copy (`openai.env`, `xai.env`, …, one `VAR=value` per line). Then the
+   embedding adapter, explicitly: which provider serves embeddings —
+   - **OpenAI direto** (`OPENAI_API_KEY`, default model `text-embedding-3-small`) — no flags;
+   - **OpenRouter** (`OPENROUTER_API_KEY`) — `--embedding-provider openrouter`;
+   - **Azure** — `--embedding-provider azure --embedding-var AZURE_OPENAI_API_KEY
+     --embedding-base-url https://<recurso>.openai.azure.com/openai/v1`;
+   - **any OpenAI-compatible endpoint** — `--embedding-base-url` + `--embedding-var`;
+   - **none** — declared-dark, FTS covers search; can be added later by re-running bootstrap.
+   Model override: `--embedding-model`. Never echo key values.
+6. **Backfill days** — how much session history the first wake reads. Before accepting,
    run the cost check:
 
 ```bash
@@ -42,13 +58,16 @@ and if the operator wants to wait, they wait. Their call, never yours.
 ## 1. Bootstrap — the skeleton
 
 ```bash
-tools/edge-python tools/edge-bootstrap bootstrap --home <home> --name <name> --backfill-days <N>
+tools/edge-python tools/edge-bootstrap bootstrap --home <home> --name <name> --backfill-days <N> \
+  [--adversarial codex --adversarial grok] \
+  [--embedding-provider … --embedding-var … --embedding-model … --embedding-base-url …]
 ```
 
 Explain while it runs: install tree + `state/bootstrap.json` (pre-phenotype knobs), skills
 provisioned into EVERY CLI harness present (`~/.claude`, `~/.codex`, `~/.grok` — detection
-by directory), adversarial cast (none available → primary self-adversarial), embeddings
-wired only if the key is in secrets. **Heartbeat stays off** — say why (no Direction yet).
+by directory), adversarial cast as interviewed (none → primary self-adversarial), the
+embedding route wired through the adapter chosen in the interview (or declared-dark).
+**Heartbeat stays off** — say why (no Direction yet).
 
 ## 2. Runtime — the graph
 

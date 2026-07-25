@@ -180,24 +180,50 @@ def resolve_adversarial_cast(
     }
 
 
-def embedding_from_inventory(inventory: dict) -> Optional[dict[str, str]]:
-    """Optional embeddings secret. None = declared-dark (install continues)."""
+# Auto-detecção por var conhecida, em ordem de preferência. Azure NÃO auto-detecta
+# sozinho um base_url — entra por escolha explícita (a entrevista pergunta o endpoint).
+_EMBED_PROVIDER_VARS = (
+    ("openai", "OPENAI_API_KEY"),
+    ("openrouter", "OPENROUTER_API_KEY"),
+    ("azure", "AZURE_OPENAI_API_KEY"),
+)
+_DEFAULT_EMBED_MODEL = "text-embedding-3-small"
+
+
+def embedding_from_inventory(inventory: dict, provider: Optional[str] = None,
+                             var: Optional[str] = None, model: Optional[str] = None,
+                             base_url: Optional[str] = None) -> Optional[dict[str, str]]:
+    """Optional embeddings secret → o adapter declarado no fenótipo.
+
+    Escolha explícita (provider/var/model/base_url — a entrevista do onboarding) vence;
+    var explícita ausente do inventário é fail-loud. Sem escolha: auto-detecção pela
+    primeira var conhecida. Sem chave nenhuma: None = declared-dark (install continues).
+    base_url explícito cobre azure e qualquer endpoint OpenAI-compatível fora do registry
+    (_llm.resolve_base_url: explícito vence, senão deriva do provider)."""
     vars_ = set(inventory.get("vars") or [])
     by_file = inventory.get("by_file") or {}
-    if "OPENAI_API_KEY" not in vars_:
-        return None
-    # prefer openai.env if present
-    file_name = "openai.env"
-    for fname, names in by_file.items():
-        if "OPENAI_API_KEY" in names:
-            file_name = fname
-            break
-    return {
-        "secret_ref": f"{file_name}:OPENAI_API_KEY",
-        "provider": "openai",
-        "model": "text-embedding-3-small",
+    if provider or var:
+        var = var or dict((p, v) for p, v in _EMBED_PROVIDER_VARS).get(provider)
+        if not var or var not in vars_:
+            raise ValueError(
+                f"embedding: var {var!r} não está nos secrets (inventário: {sorted(vars_)})")
+    else:
+        for p, v in _EMBED_PROVIDER_VARS:
+            if v in vars_:
+                provider, var = p, v
+                break
+        else:
+            return None
+    file_name = next((f for f, names in by_file.items() if var in names), None)
+    out = {
+        "secret_ref": f"{file_name}:{var}",
+        "provider": provider or "openai",
+        "model": model or _DEFAULT_EMBED_MODEL,
         "status": "on",
     }
+    if base_url:
+        out["base_url"] = base_url
+    return out
 
 
 def persist_bootstrap(home: Path | str, **payload: Any) -> Path:
@@ -289,8 +315,10 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
         routers["embedding"] = {
             "provider": embedding.get("provider", "openai"),
             "secret_ref": embedding["secret_ref"],
-            "model": embedding.get("model", "text-embedding-3-small"),
+            "model": embedding.get("model", _DEFAULT_EMBED_MODEL),
         }
+        if embedding.get("base_url"):
+            routers["embedding"]["base_url"] = embedding["base_url"]
     return routers
 
 
@@ -760,6 +788,7 @@ def run_bootstrap(
     adversarials: Optional[list[str]] = None,
     primary: str = "claude",
     provision_skills: bool = True,
+    embedding_choice: Optional[dict] = None,
 ) -> dict:
     """Layout + secrets inventory + bootstrap.json. Never enables heartbeat."""
     home = Path(home).expanduser()
@@ -772,7 +801,7 @@ def run_bootstrap(
         sdir.mkdir(parents=True, exist_ok=True)
     inv = inventory_secrets(sdir)
     cast = resolve_adversarial_cast(adversarials or [], primary=primary)
-    emb = embedding_from_inventory(inv)
+    emb = embedding_from_inventory(inv, **(embedding_choice or {}))
     payload = {
         "name": name,
         "backfill_days": n,

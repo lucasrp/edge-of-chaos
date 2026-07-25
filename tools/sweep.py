@@ -908,8 +908,16 @@ def graphiti_ingest(items):
 
 
 def _openai_embed(text):
-    """The real embedder: one OpenAI embedding call (lazy-imported so importing sweep on bare
-    python3 still works). Used when `embed_and_signal` is called without an injected `embed_fn`."""
+    """The real embedder. The phenotype's embedding adapter (llm_routes.embed_fn: openai
+    direto, openrouter, azure/base_url — routers.embedding) wins; the legacy hardcoded
+    OpenAI call survives as fallback for installs whose phenotype predates the route."""
+    try:
+        import llm_routes
+        fn = llm_routes.embed_fn()
+        if fn is not None:
+            return fn(text)
+    except Exception:
+        pass  # adapter dark/malformed → estrada legada abaixo (degrade, never crash)
     from openai import OpenAI
     _load_openai_key()
     return OpenAI().embeddings.create(model="text-embedding-3-small", input=text).data[0].embedding

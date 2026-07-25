@@ -382,7 +382,16 @@ def _default_embed_fn(text):
 
     Loads the install's ``secrets/`` into the env (same seam as sweep/publisher) so a paid
     OpenAI key in ``secrets/openai.env`` is visible without requiring the caller to export it.
+    The phenotype's embedding adapter (llm_routes.embed_fn — openai direto, openrouter,
+    azure/base_url) wins when wired; the legacy OpenAI call is the fallback.
     """
+    try:
+        import llm_routes
+        fn = llm_routes.embed_fn()
+        if fn is not None:
+            return fn(text)
+    except Exception:
+        pass  # adapter dark/malformed → estrada legada abaixo
     try:
         import _secrets
         _secrets.load_env(_identity._env_dir(_identity.AGENT_YAML))

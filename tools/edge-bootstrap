@@ -19,6 +19,10 @@ def cmd_bootstrap(args) -> int:
     if not args.home:
         print("edge-bootstrap: --home or EDGE_HOME required", file=sys.stderr)
         return 2
+    choice = {k: v for k, v in (
+        ("provider", args.embedding_provider), ("var", args.embedding_var),
+        ("model", args.embedding_model), ("base_url", args.embedding_base_url),
+    ) if v}
     try:
         result = onboarding.run_bootstrap(
             home=args.home,
@@ -27,6 +31,7 @@ def cmd_bootstrap(args) -> int:
             adversarials=args.adversarials or None,
             primary=args.primary,
             provision_skills=not args.no_provision_skills,
+            embedding_choice=choice or None,
         )
     except ValueError as e:
         print(f"edge-bootstrap: {e}", file=sys.stderr)
@@ -129,6 +134,11 @@ def main(argv=None) -> int:
     b.add_argument("--adversarial", action="append", default=[], dest="adversarials")
     b.add_argument("--primary", default="claude")
     b.add_argument("--no-provision-skills", action="store_true")
+    # o adapter de embeddings (entrevista): openai direto, openrouter, azure/base_url custom
+    b.add_argument("--embedding-provider", default=None)
+    b.add_argument("--embedding-var", default=None)
+    b.add_argument("--embedding-model", default=None)
+    b.add_argument("--embedding-base-url", default=None)
 
     e = sub.add_parser("estimate", help="lookback check: sessions/MB/minutes for --days")
     e.add_argument("--days", type=int, required=True)

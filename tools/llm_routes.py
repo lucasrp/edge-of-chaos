@@ -75,6 +75,29 @@ def routes(repo=REPO):
     return out
 
 
+def _llm_mod():
+    """Seam de teste: o módulo _llm por trás do adapter (mock aqui, nunca no import)."""
+    return _llm
+
+
+def embed_fn(repo=REPO):
+    """O adapter de embeddings do fenótipo: `routers.embedding` → callable text→vector.
+
+    make_client honra base_url explícito antes do registry (_llm.resolve_base_url), então
+    openai direto, openrouter e azure/custom entram todos por esta única porta. Rota
+    ausente ou sem chave resolvida → None (o caller escurece, como sempre)."""
+    r = _load_routers(repo).get(EMBEDDING_ROUTE)
+    if not r:
+        return None
+    key = _secret_value(repo, r.get("secret_ref"))
+    if not key:
+        return None
+    client = _llm_mod().make_client(r, key)
+    model = r.get("model") or "text-embedding-3-small"
+    return lambda text: client.embeddings.create(
+        model=model, input=text).data[0].embedding
+
+
 def probe_route(route, repo=REPO):
     """Chamada mínima REAL na rota (reusa _llm.probe). Retorna {ok, status, detail}."""
     routers = _load_routers(repo)
