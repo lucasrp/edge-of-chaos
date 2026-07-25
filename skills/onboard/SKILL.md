@@ -55,7 +55,10 @@ per turn: do the work the host allows (inspect, derive), present ONE verified pr
 ("achei um diretório de chaves em <caminho>: openai, xai — uso essas?") with the one
 line of what it feeds and why it matters, then WAIT for the answer before the next
 decision. A true open question is reserved for what no inspection can answer (the name,
-the backfill appetite). The mentee should end the interview understanding the seven
+the backfill appetite). **The seven decisions below are the WHOLE interview — a closed
+set.** Do not invent extra questions; anything else you feel like asking either has its
+own later step (sources, em particular, are NEVER asked here — they are hunted by the
+dig and PROPOSED after Direction exists, §4b) or can be derived and confirmed. The mentee should end the interview understanding the seven
 decisions because each one was a small conversation — never because they reviewed a
 table. The seven decisions, in order:
 
@@ -248,7 +251,10 @@ growth* (feeds, normative diaries, tag-feeds, communities, APIs) *plus orientati
 material* (the 2-3 field maps worth their reading time). Narrate it as the demo it is:
 "isto é o dig — é assim que eu pesquiso antes de escrever qualquer coisa; cada perna
 varre um ângulo, e fonte sem chave eu declaro escura, nunca finjo". Never ask "quais
-fontes você quer?" — you hunt, they trim. The dig's findings become the proposed set:
+fontes você quer?" — you hunt, they trim; machine-local realities count too (reachable
+ssh peers, local archives), each proposed by NAME with what it would feed and its
+read-only scope, never as a category for the operator to fill in. The dig's findings
+become the proposed set:
 
 - generic strong defaults the dig confirms or kills: **arXiv** (their area), **Hacker News**;
 - **Exa** if `EXA_API_KEY` landed in secrets; **X** if the xai key is there;
