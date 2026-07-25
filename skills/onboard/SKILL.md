@@ -96,12 +96,26 @@ Neo4j 5.x pinned, docker container `edge-neo4j`, password generated into
 If it prints `DARK — Docker is absent`: stop, offer to help install docker, or continue
 with the graph declared-dark (FTS covers node search zero-key) — operator's call.
 
-## 3. First wake — the insumo
+## 3. First wake — the insumo, shown and explained
 
 Run predispatch/wake (lookback = the backfill days). It films the operator's history and
 stamps `state/onboarding-insumo.md` — a wake package WITHOUT Direction, because Direction
-does not exist yet. Explain: "this is me reading your last N days so the mentor session
-starts knowing you, not from a cold form."
+does not exist yet.
+
+Then SHOW what was just built, because this is the moment the edge demonstrates how it
+works — with the operator's own material:
+
+- **the wake** — "isto foi um wake: eu li teus últimos N dias e acordei sabendo onde você
+  está. É assim que eu começo TODO dia de trabalho";
+- **the communities** — open what the graph formed and name them ("das tuas sessões
+  nasceram estes agrupamentos: X, Y, Z — é a minha memória se organizando sozinha");
+- **the atividades** — the threads of work it detected ("eu vi estas frentes abertas:
+  ..."), each with where it was seen;
+- and close the frame: "é assim que eu funciono — filmo o que você faz, isso vira
+  memória, a memória vira orientação, e o mentor conversa contigo em cima disso."
+
+This walk-through is not decoration: it is the operator meeting the machine that will
+watch their work every day. Real names from their history, never generic examples.
 
 ## 4. Emenda — the first mentor, same session
 
