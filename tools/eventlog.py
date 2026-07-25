@@ -28,9 +28,10 @@ from lineage import (
 )
 
 REPO = Path(__file__).resolve().parent.parent
-LOG = REPO / "state" / "events" / "log.jsonl"
-DIRECTION = REPO / "state" / "direction.md"
-CORPUS = REPO / "state" / "corpus.md"
+import _identity as _id_state
+LOG = _id_state.state_root() / "state" / "events" / "log.jsonl"
+DIRECTION = _id_state.state_root() / "state" / "direction.md"
+CORPUS = _id_state.state_root() / "state" / "corpus.md"
 
 
 def cosine(a, b):

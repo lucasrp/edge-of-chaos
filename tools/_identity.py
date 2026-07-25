@@ -92,6 +92,22 @@ def edge_home(cfg=None, agent_yaml=AGENT_YAML):
     return Path(os.path.expanduser(str(home)))
 
 
+def state_root(agent_yaml=AGENT_YAML):
+    """Raiz do ESTADO do install: EDGE_HOME env → agent.yaml `edge_home` → REPO (legado).
+
+    Raiz do #154: state/cursors/log eram RELATIVOS AO REPO (era repo==install), então
+    qualquer run com cwd num checkout de genótipo escrevia estado DENTRO do checkout —
+    inclusive no ~/edge de outro install. Com EDGE_HOME declarado, o estado pousa na
+    casa declarada, independente do cwd. Sem declaração nenhuma, comportamento legado."""
+    env = os.environ.get("EDGE_HOME")
+    if env:
+        return Path(os.path.expanduser(env))
+    home = _cfg(agent_yaml).get("edge_home")
+    if home:
+        return Path(os.path.expanduser(str(home)))
+    return REPO
+
+
 def _env_dir(agent_yaml=AGENT_YAML):
     """Where this install's secrets live: EDGE_SECRETS_DIR (override explícito, espelha
     onboarding.secrets_dir) → agent.yaml `env_dir` → <edge_home>/secrets → EDGE_HOME/secrets

@@ -23,7 +23,8 @@ import _identity  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent
 AGENT_YAML = REPO / "agent.yaml"
 MEMORY = REPO / "memory"
-STATE = REPO / "state"
+import _identity as _id_state
+STATE = _id_state.state_root() / "state"
 
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
 

@@ -78,7 +78,8 @@ import _envconf                     # noqa: E402  # EDGE_GROUNDING_FLOOR knob (S
 RECOGNIZER_REV = 1
 
 STORE_ROOT = Path.home() / ".claude" / "projects"
-CURSORS = REPO / "state" / "harvest-cursors.json"
+import _identity as _id_state
+CURSORS = _id_state.state_root() / "state" / "harvest-cursors.json"
 
 # Opaque-script recognition (B2) is a CATEGORY, not a source registry: a script is opaque
 # precisely because the transcript cannot see its query, so we CANNOT know its source by its

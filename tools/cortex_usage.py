@@ -92,7 +92,8 @@ def usage_path():
     append non-event records into an authoritative log and corrupt replay. The VALIDATED resolved path
     is returned (validate-then-write the same path), fail closed, never silent."""
     raw = os.environ.get("EDGE_CORTEX_USAGE_PATH")
-    p = Path(raw) if raw else (REPO / "state" / "cortex" / "usage.jsonl")
+    import _identity as _id_state
+    p = Path(raw) if raw else (_id_state.state_root() / "state" / "cortex" / "usage.jsonl")
     resolved = p.resolve()
     # reject ANY state/events target (this repo OR a foreign install), by segment pair — not a single
     # hardcoded directory. Also reject the configured Tier-0 log itself if it is resolvable.

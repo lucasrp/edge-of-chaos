@@ -30,7 +30,7 @@ import eventlog
 import sessions
 import _identity
 
-CURSORS = REPO / "state" / "cursors.json"
+CURSORS = _identity.state_root() / "state" / "cursors.json"
 CODEX_BASELINE_KEY = "_codex_baselined"
 GROK_BASELINE_KEY = "_grok_baselined"
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
@@ -160,7 +160,7 @@ def _film_window_start(log=None):
     if days is None:
         try:
             import json as _json
-            boot = _json.loads((REPO / "state" / "bootstrap.json").read_text())
+            boot = _json.loads((_identity.state_root() / "state" / "bootstrap.json").read_text())
             days = boot.get("backfill_days")
         except Exception:
             pass
@@ -1109,7 +1109,7 @@ def reproject():
     group = _identity.require_group()
     try:
         import wiki_render
-        wiki_render.main(group, str(REPO / "state" / "wiki"), "threads")
+        wiki_render.main(group, str(_identity.state_root() / "state" / "wiki"), "threads")
     except Exception as e:
         print(f"sweep: wiki render skipped ({type(e).__name__}: {e}) — "
               f"Direction projected from the log; the wiki needs Neo4j")
