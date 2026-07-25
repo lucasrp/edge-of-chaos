@@ -788,7 +788,10 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
         # graph ingest must never gate the wake. It runs on a daemon thread with a hard deadline —
         # a HANG (add_episode on a network call with no client timeout) degrades dark LOUD exactly
         # like a raise; the graph re-projects from the log. Fail loud on a bad budget, never un-cap.
-        budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "30")
+        # Default 600s (qualidade>latência, operador 2026-07-25): extração LLM honesta
+        # passa fácil de 30s e o grafo vivia truncando em silêncio; o cap segue existindo
+        # só para HANG de rede — nunca para apressar trabalho real.
+        budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
         try:
             budget = float(budget_raw)
         except (TypeError, ValueError):
