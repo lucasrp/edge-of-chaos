@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# edge-python — resolve the edge runtime python, host-agnostically (#20, ADR-0011).
+#
+# The graph tier is MANDATORY on every host: extraction (graphiti_core + neo4j + openai) runs
+# locally, so every host needs the venv. This resolves <edge_home>/.venv and execs its python.
+# It FAILS LOUD when the venv is missing — no silent fallback to system python3, which under
+# ADR-0011 would mask a broken install (the old two-tier "degrade to Tier-0" is gone). Run
+# `edge-apply` to provision the venv.
+#
+# edge_home: $EDGE_HOME → agent.yaml `edge_home` → ~/edge.
+here="$(cd "$(dirname "$0")" && pwd)"
+repo="$(dirname "$here")"
+
+home="${EDGE_HOME:-}"
+if [ -z "$home" ]; then
+  home="$(python3 - "$repo/agent.yaml" <<'PY' 2>/dev/null
+import sys, os
+try:
+    import yaml
+    cfg = yaml.safe_load(open(sys.argv[1])) or {}
+    print(os.path.expanduser(cfg.get("edge_home") or "~/edge"))
+except Exception:
+    print(os.path.expanduser("~/edge"))
+PY
+)"
+fi
+home="${home:-$HOME/edge}"
+
+venv_py="$home/.venv/bin/python"
+if [ -x "$venv_py" ]; then
+  exec "$venv_py" "$@"
+fi
+
+echo "edge-python: no venv at $venv_py — the graph tier is mandatory (ADR-0011)." >&2
+echo "edge-python: run 'edge-apply' to provision <edge_home>/.venv (no system-python3 fallback)." >&2
+exit 1

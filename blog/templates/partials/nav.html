@@ -1,0 +1,6 @@
+{#- The shared header/nav — ONE navigation linking every surface ("one app, not a pile of
+    pages"). Marks the active surface with aria-current="page" so the bar reads as one app.
+    Driven by nav_links [(path, label)] + the active `current` path. -#}
+<nav class="site-nav">{% for path, label in nav_links -%}
+<a href="{{ path }}"{% if path == current %} aria-current="page"{% endif %}>{{ label | e }}</a>
+{%- endfor %}</nav>

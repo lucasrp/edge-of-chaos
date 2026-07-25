@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% from "components/ui.html" import steer, metric, inspect_panel, connects_to_pill with context %}
+{% block title %}edge — ux-catalog{% endblock %}
+{% block body_class %}ux-catalog{% endblock %}
+{% block content %}
+<main class="blog ux-catalog-page">
+<h1>edge — ux-catalog</h1>
+<p class="meta">o style guide vivo (FRONTEND.md / docs/frontend.md): os design tokens, a paleta dark
+preservada sobre o Tabler, e os componentes/macros Jinja compartilhados. Antes de criar um
+componente, cheque aqui — pode já existir. Ao adicionar uma variante, registre-a.</p>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">design tokens (<code>:root</code>)</h2>
+  <p class="meta">a fonte da verdade da identidade. O Tabler dá o vocabulário de componentes; estes
+  tokens carregam a paleta dark aprovada (carregados <em>depois</em> do Tabler, então vencem a cascata).</p>
+  <ul class="token-grid">
+    {% for name, value in tokens %}
+    <li class="token">
+      {% if value.startswith('#') or value.startswith('rgb') %}
+      <span class="swatch" style="background: {{ value | e }}"></span>
+      {% endif %}
+      <code class="token-name">{{ name | e }}</code>
+      <code class="token-val">{{ value | e }}</code>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">navegação — <code>.site-nav</code></h2>
+  <p class="meta">uma navegação ligando toda superfície (one app, not a pile of pages).</p>
+  {% include "partials/nav.html" %}
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">composer + botão — <code>.composer</code></h2>
+  <p class="meta">o composer compartilhado (Voz: comentário, chat, resposta, correção de nó).</p>
+  <form class="composer" onsubmit="return false">
+    <textarea name="body" placeholder="comente (vira um Directive)…"></textarea>
+    <button type="submit">comentar</button>
+  </form>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">vote pills — <code>.votes / .vote</code></h2>
+  <p class="meta">toggle capped at 1; o ativo ganha o glow accent.</p>
+  <form class="votes" onsubmit="return false">
+    <button type="button" class="vote like active" aria-pressed="true">👍 <span class="count">1</span></button>
+    <button type="button" class="vote dislike" aria-pressed="false">👎 <span class="count">0</span></button>
+  </form>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">artifact chips — <code>.artifacts</code></h2>
+  <ul class="artifacts">
+    <li class="cite">cites · fonte</li>
+    <li class="distill">distills · cluster</li>
+    <li class="proposes">proposes · um steer</li>
+  </ul>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">thread + reply — <code>.thread / .comment / .replies</code></h2>
+  <ul class="thread">
+    <li class="comment"><p class="body">um Directive do mentee</p>
+      <ul class="replies"><li class="reply"><p class="body">a resposta inline do edge</p></li></ul>
+    </li>
+  </ul>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">steer cards — <code>.steer</code> (Direction)</h2>
+  <section class="direction-tier set">
+    <h3 class="tier-title">set — curados (Voz)</h3>
+    <ul class="steers">{{ steer('priority', 'um steer curado, a maior autoridade') }}</ul>
+  </section>
+  <section class="direction-tier proposed">
+    <h3 class="tier-title">proposed — candidatos</h3>
+    <ul class="steers">{{ steer('thread', 'um candidato aguardando o grill — mais apagado') }}</ul>
+  </section>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">health metrics — <code>.health-strip / .metric</code></h2>
+  <section class="health-strip">
+    <h3 class="health-title">read-model health</h3>
+    <div class="health-metrics">
+      {{ metric('log cursor', 'demo-cursor', '128') }}
+      {{ metric('graph', 'demo-graph', 'reachable') }}
+      {{ metric('Voz backlog', 'demo-backlog', '3', bad=true) }}
+    </div>
+  </section>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">doc/cluster list — <code>.doc-list / .wiki-clusters</code></h2>
+  <section class="doc-group"><h3>ADR</h3>
+    <ul class="doc-list"><li><a href="#">um doc navegável (glossário, ADR, Idiom, roadmap)</a></li></ul>
+  </section>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">cortex inspect panel — <code>.cortex-inspect</code> (<code>inspect_panel</code>)</h2>
+  <p class="meta">o painel lateral enriquecido do Cortex (Slice 3): desliza ao selecionar um nó —
+  termo + definição, FULL DEFINITION + READ MORE, SEEN IN THE WILD (a procedência real do nó), o
+  compositor de correção do nó Earmarked, e o fechar. O island preenche as regiões por DOM API +
+  <code>esc()</code> (a defesa de breakout). Mostrado aqui como a casca vazia (não dispensada).</p>
+  <div class="catalog-inspect-demo">{{ inspect_panel() }}</div>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">cortex connects-to pills — <code>.connects-pill</code> (<code>connects_to_pill</code>)</h2>
+  <p class="meta">os vizinhos clicáveis (CONNECTS TO, Slice 4) na região <code>connects</code> do painel:
+  clicar voa a câmera até o nó, re-renderiza o painel e escreve <code>?node=</code>. O island constrói
+  cada pill por DOM API + <code>.textContent</code> (a defesa de breakout — o label deriva do conteúdo
+  do grafo). Mostrados aqui como instâncias de referência da vocabulário compartilhado.</p>
+  <nav class="cortex-inspect-connects catalog-connects-demo">
+    {{ connects_to_pill('alpha') }}{{ connects_to_pill('beta') }}{{ connects_to_pill('gamma') }}
+  </nav>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">macros Jinja — <code>templates/components/ui.html</code></h2>
+  <p class="meta">os macros reutilizáveis registrados. Importe com
+  <code>{% raw %}{% from "components/ui.html" import … %}{% endraw %}</code>.</p>
+  <ul class="macro-list">
+    {% for name in macros %}<li><code>{{ name | e }}</code></li>{% endfor %}
+  </ul>
+</section>
+
+<section class="catalog-section">
+  <h2 class="catalog-h">templates</h2>
+  <p class="meta">o scaffold: <code>base.html</code> (chrome) · <code>partials/</code> (head, nav)
+  · <code>components/</code> (macros) · <code>pages/</code> (cada superfície estende o base).</p>
+</section>
+</main>
+{% endblock %}

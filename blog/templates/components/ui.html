@@ -1,0 +1,57 @@
+{#- Shared component macros — the ONE component vocabulary every surface reuses
+    (docs/frontend.md: "HTML repetido vira macro em components/"). These mirror the dark-theme
+    classes in style.css; the /ux-catalog renders them live so the catalog cannot drift from the
+    CSS. New components EXTEND this set (and get registered here), never a one-off per-surface style. -#}
+
+{%- macro badge(text, kind='') -%}
+<span class="artifacts"><li class="{{ kind | e }}">{{ text | e }}</li></span>
+{%- endmacro -%}
+
+{%- macro nav_pill(path, label, active=false) -%}
+<a href="{{ path | e }}"{% if active %} aria-current="page"{% endif %}>{{ label | e }}</a>
+{%- endmacro -%}
+
+{#- a primary action button — the composer's gradient pill, the catalog's reference button -#}
+{%- macro action_button(label) -%}
+<button type="button" class="catalog-btn">{{ label | e }}</button>
+{%- endmacro -%}
+
+{#- the steer card (Direction's curated/proposed tiers reuse .steer) -#}
+{%- macro steer(kind, body) -%}
+<li class="steer"><span class="kind">{{ kind | e }}</span><p class="body">{{ body | e }}</p></li>
+{%- endmacro -%}
+
+{#- one health-strip metric cell (the briefing read-model band) -#}
+{%- macro metric(label, key, value, bad=false) -%}
+<span class="{{ 'metric bad' if bad else 'metric' }}"><span class="m-label">{{ label | e }}</span><span class="m-val" data-metric="{{ key | e }}">{{ value | e }}</span></span>
+{%- endmacro -%}
+
+{#- The Cortex CONNECTS-TO neighbor pill (Slice 4, M9) — a clickable neighbor in the inspect panel's
+    `connects` region: clicking it flies the camera to that node, re-renders the panel, and writes
+    ?node=. The island BUILDS each live pill by DOM API + .textContent (the breakout defense — a
+    neighbor label derives from graph content, so it is never interpolated as markup); this macro is
+    the catalog reference + the shared .connects-pill vocabulary the island reuses (never a one-off
+    style). A button, not an <a>: the hop is a client camera move, not a document navigation. -#}
+{%- macro connects_to_pill(label) -%}
+<button type="button" class="connects-pill">{{ label | e }}</button>
+{%- endmacro -%}
+
+{#- The Cortex inspect panel (Slice 3, M7) — the enriched slide-in side panel that opens on
+    node-select. Rendered as an EMPTY shell: the cortex.js island FILLS each data-panel-region by DOM
+    API + esc() on select (the breakout defense is a security feature — the macro never interpolates
+    payload content; it only lays out the regions). The composer slot stays empty until an Earmarked
+    node is selected (the island appends the Slice-6b correction composer there, verbatim). The
+    `connects` region is the clean seam the Slice-4 CONNECTS-TO pills mount into — present, not wired. -#}
+{%- macro inspect_panel() -%}
+<aside id="cortex-inspect" class="cortex-inspect hidden" aria-hidden="true">
+  <button type="button" class="cortex-inspect-close" aria-label="fechar">×</button>
+  <header class="cortex-inspect-head">
+    <span class="kind" data-panel-region="term"></span>
+    <p class="title" data-panel-region="definition"></p>
+  </header>
+  <section class="cortex-inspect-full" data-panel-region="full"></section>
+  <section class="cortex-inspect-wild" data-panel-region="wild"></section>
+  <nav class="cortex-inspect-connects" data-panel-region="connects"></nav>
+  <div class="cortex-inspect-composer" data-panel-region="composer"></div>
+</aside>
+{%- endmacro -%}

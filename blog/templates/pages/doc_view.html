@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}edge — {{ doc_title }}{% endblock %}
+{% block content %}
+<main class="blog doc-page">
+<p class="meta"><a href="/docs">← docs</a> · {{ doc_kind }}</p>
+<article class="doc-body">{{ doc_html }}</article></main>
+{% endblock %}

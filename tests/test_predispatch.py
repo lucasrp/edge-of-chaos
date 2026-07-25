@@ -1,0 +1,445 @@
+"""ADR-0016 — no wake, no publish. The entry-driver (tools/predispatch.py) runs the mechanical
+pre-dispatch floor (sweep → briefing → recall brief) and stamps `dispatch.open`; the publisher —
+the one mechanical wall every real publish crosses (the close's publish stage) — refuses without
+a stamp newer than the last `artefato.published`. One wake per publish. Delta stays agentic and
+is never stamped nor gated (ADR-0001/0011)."""
+
+import io
+import sys
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
+from unittest import mock
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tools"))
+
+import eventlog    # noqa: E402
+import publisher   # noqa: E402
+import predispatch  # noqa: E402
+
+
+class WakeFreshness(unittest.TestCase):
+    """The fold: a dispatch.open newer than the last artefato.published = a fresh wake."""
+
+    def test_no_stamp_is_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            self.assertFalse(eventlog.wake_fresh(log=log))
+
+    def test_stamp_on_empty_log_is_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            self.assertTrue(eventlog.wake_fresh(log=log))
+
+    def test_stamp_is_consumed_by_a_publish_one_wake_per_publish(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog._append_orphan_published_for_test("a-slug", log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log),
+                             "a stamp must not be reusable across publishes (ADR-0016)")
+            eventlog.dispatch_open(log=log)
+            self.assertTrue(eventlog.wake_fresh(log=log))
+
+
+class NoWakeNoPublish(unittest.TestCase):
+    """The publisher refuses without a fresh stamp — BEFORE proof verification, so the refusal
+    names the real gap (`no-wake`), not a proof error."""
+
+    def test_publish_without_stamp_raises_no_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with self.assertRaises(RuntimeError) as ctx:
+                publisher.publish("any-slug", "<h1>x</h1>", "intent", skill="report",
+                                  verdict={"not": "a proof"}, log=log,
+                                  blog_dir=Path(tmp) / "blog")
+            self.assertIn("no-wake", str(ctx.exception))
+
+    def test_fresh_stamp_releases_the_gate_to_the_proof_check(self):
+        # with a stamp, the same call proceeds past the wake gate and fails on the fake proof
+        # instead (ValueError from verify_proof) — proving gate order and release
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            with self.assertRaises(ValueError):
+                publisher.publish("any-slug", "<h1>x</h1>", "intent", skill="report",
+                                  verdict={"not": "a proof"}, log=log,
+                                  blog_dir=Path(tmp) / "blog")
+
+
+class EntryDriver(unittest.TestCase):
+    """predispatch.run — the mechanical floor, injectable (house style) so it runs offline."""
+
+    def test_runs_the_floor_and_stamps_with_the_sweep_yield(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            briefing_text, recall_text = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
+                sweep_fn=lambda: 7,
+                briefing_fn=lambda: "BRIEFING",
+                recall_fn=lambda: "RECALL",
+                harvest_fn=lambda: 0,
+                log=log)
+            self.assertEqual((briefing_text, recall_text), ("BRIEFING", "RECALL"))
+            evs = eventlog.read(types=["dispatch.open"], log=log)
+            self.assertEqual(len(evs), 1)
+            self.assertEqual(evs[0]["payload"].get("swept_sessions"), 7,
+                             "the stamp carries the sweep yield (the read-side metric)")
+
+    def test_stamp_lands_even_when_a_brief_degrades(self):
+        # the gate proves the wake RAN, not that the world cooperated (ADR-0016): a degraded
+        # brief (e.g. graph outage) still stamps — only a raising SWEEP (fail-loud store,
+        # ADR-0015) aborts before the stamp
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+
+            def dark_recall():
+                raise RuntimeError("graph down")
+
+            briefing_text, recall_text = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
+                sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=dark_recall,
+                harvest_fn=lambda: 0, log=log)
+            self.assertIn("DARK", recall_text)
+            self.assertTrue(eventlog.wake_fresh(log=log))
+
+    def test_a_failing_sweep_aborts_before_the_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+
+            def loud_sweep():
+                raise RuntimeError("transcript store not found")
+
+            with self.assertRaises(RuntimeError):
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=loud_sweep, briefing_fn=lambda: "B",
+                                recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log),
+                             "a dispatch that could not wake must not look woken")
+
+
+class HotCutoffLeg(unittest.TestCase):
+    """A perna quente do briefing default: o window_start do quente (select_window) vira o
+    hot_cutoff do compose_briefing (tempo-divide-donos). DEGRADE-DARK: qualquer falha no scan →
+    None (clusters expandem; a perna quente nunca derruba nem atrasa o wake)."""
+
+    def test_window_start_becomes_the_cutoff(self):
+        self.assertEqual(
+            predispatch._hot_cutoff(window_fn=lambda: ([{"id": "s"}], "2026-07-05T00:00:00Z")),
+            "2026-07-05T00:00:00Z")
+
+    def test_degrades_dark_to_none_on_a_failing_scan(self):
+        def boom():
+            raise RuntimeError("store gone")
+        self.assertIsNone(predispatch._hot_cutoff(window_fn=boom))
+
+    def test_empty_window_is_none_never_empty_string(self):
+        # janela vazia (nenhuma sessão substancial) = sem quente → tudo expande; '' truthy-falso
+        # no _section_clusters seria acidente, não contrato
+        self.assertIsNone(predispatch._hot_cutoff(window_fn=lambda: ([], "")))
+
+    def test_default_briefing_fn_threads_the_cutoff_into_compose(self):
+        """A fiação real: run() sem briefing_fn injeta hot_cutoff=window_start no
+        compose_briefing (stubs de módulo — o caminho default atravessado de ponta a ponta)."""
+        import types
+        seen = {}
+        stub_briefing = types.ModuleType("briefing")
+
+        def _compose(hot_cutoff=None):
+            seen["hot_cutoff"] = hot_cutoff
+            return "BRIEFING"
+        stub_briefing.compose_briefing = _compose
+        stub_quente = types.ModuleType("quente")
+        stub_quente.select_window = lambda: ([{"id": "s"}], "2026-07-01T00:00:00Z")
+        saved = {n: sys.modules.get(n) for n in ("briefing", "quente")}
+        sys.modules["briefing"], sys.modules["quente"] = stub_briefing, stub_quente
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                text, _ = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, recall_fn=lambda: "R",
+                                          harvest_fn=lambda: 0, probe_fn=lambda spec: None,
+                                          log=log)
+        finally:
+            for n, m in saved.items():
+                if m is None:
+                    sys.modules.pop(n, None)
+                else:
+                    sys.modules[n] = m
+        self.assertEqual(seen.get("hot_cutoff"), "2026-07-01T00:00:00Z")
+        self.assertIn("BRIEFING", text)
+
+
+class WakeFreshnessRealPaths(unittest.TestCase):
+    """Opus review — the consume semantic through the REAL atomic publish, and the
+    two-stamps case (one wake per publish: extra stamps are spent by the next publish)."""
+
+    def test_atomic_publish_consumes_the_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog.publish_artefato_atomic("a-slug", "the why", log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log))
+            eventlog.dispatch_open(log=log)
+            self.assertTrue(eventlog.wake_fresh(log=log))
+
+    def test_two_stamps_then_one_publish_is_stale(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog.dispatch_open(log=log)
+            eventlog.publish_artefato_atomic("a-slug", "the why", log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log),
+                             "a publish spends ALL prior stamps (global max), not just one")
+
+
+class WakeGateIsAuthoritativeUnderTheLock(unittest.TestCase):
+    """Codex gate (BLOCKING) — the early wake_fresh check in publisher.publish is a fast-fail
+    TOCTOU: two concurrent publishers could both observe one stamp as fresh and BOTH publish.
+    The authoritative check lives INSIDE publish_artefato_atomic's locked critical section:
+    one stamp admits exactly one publish, no matter how many callers passed the early check."""
+
+    def test_atomic_publish_with_require_wake_refuses_without_a_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with self.assertRaises(RuntimeError) as ctx:
+                eventlog.publish_artefato_atomic("a", "why", log=log, require_wake=True)
+            self.assertIn("no-wake", str(ctx.exception))
+            self.assertEqual(eventlog.read(log=log), [], "a refused publish must write NOTHING")
+
+    def test_one_stamp_admits_exactly_one_publish(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog.publish_artefato_atomic("first", "why", log=log, require_wake=True)
+            with self.assertRaises(RuntimeError) as ctx:
+                eventlog.publish_artefato_atomic("second", "why", log=log, require_wake=True)
+            self.assertIn("no-wake", str(ctx.exception))
+            slugs = [e["payload"]["slug"] for e in
+                     eventlog.read(types=["artefato.published"], log=log)]
+            self.assertEqual(slugs, ["first"],
+                             "the second publish must lose even though a caller-side check "
+                             "could have raced past (the lock-held check is authoritative)")
+
+
+class EntryDriverRealWiring(unittest.TestCase):
+    """Opus review — the lazy-import production wiring and the REAL degrade paths,
+    not only the injected stand-ins."""
+
+    def test_lazy_default_wiring_resolves_the_real_modules(self):
+        from unittest import mock
+        import sweep as _sweep
+        import briefing as _briefing
+        import recall as _recall
+        import harvest as _harvest
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            with mock.patch.object(_sweep, "run", return_value=3), \
+                 mock.patch.object(_briefing, "compose_briefing", return_value="B"), \
+                 mock.patch.object(_recall, "compose_recall_brief", return_value="R"), \
+                 mock.patch.object(_harvest, "harvest", return_value=5):
+                b, r = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, log=log)
+            self.assertEqual((b, r), ("B", "R"))
+            evs = eventlog.read(types=["dispatch.open"], log=log)
+            self.assertEqual(evs[0]["payload"].get("swept_sessions"), 3)
+            # #62: harvested moved off the identity stamp to its own dispatch.grounding event
+            g = eventlog.read(types=["dispatch.grounding"], log=log)
+            self.assertEqual(g[0]["payload"].get("harvested"), 5,
+                             "the harvest leg lazily resolves the real harvest.harvest default")
+
+    def test_real_recall_dark_marker_flows_through(self):
+        import recall as _recall
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _, r = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B",
+                                   recall_fn=lambda: _recall.compose_recall_brief(subgraph=None),
+                                   harvest_fn=lambda: 0, log=log)
+            self.assertIn("DARK", r)
+            self.assertTrue(eventlog.wake_fresh(log=log))
+
+    def test_a_raising_briefing_aborts_before_the_stamp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+
+            def lobotomy():
+                raise RuntimeError("BriefingIdentityError: thin agent.yaml")
+
+            with self.assertRaises(RuntimeError):
+                predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lobotomy,
+                                recall_fn=lambda: "R", harvest_fn=lambda: 0, log=log)
+            self.assertFalse(eventlog.wake_fresh(log=log),
+                             "a lobotomized install must not look woken")
+
+
+class BackgroundRationalizationWiring(unittest.TestCase):
+    def test_enqueues_only_after_identity_and_grounding_are_durable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            observed_types = []
+
+            def enqueue():
+                observed_types.extend(event["type"] for event in eventlog.read(log=log))
+                return True
+
+            result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
+                sweep_fn=lambda: 0,
+                briefing_fn=lambda: "B",
+                recall_fn=lambda: "R",
+                harvest_fn=lambda: 0,
+                probe_fn=lambda _spec: None,
+                enqueue_fn=enqueue,
+                log=log,
+            )
+
+            self.assertEqual(result, ("B", "R"))
+            self.assertEqual(observed_types, ["dispatch.open", "dispatch.grounding"])
+
+    def test_enqueue_failure_is_visible_but_never_unstamps_or_blocks_the_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = io.StringIO()
+
+            def unavailable():
+                raise RuntimeError("systemd user manager unavailable")
+
+            with redirect_stdout(output):
+                result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
+                    sweep_fn=lambda: 0,
+                    briefing_fn=lambda: "B",
+                    recall_fn=lambda: "R",
+                    harvest_fn=lambda: 0,
+                    probe_fn=lambda _spec: None,
+                    enqueue_fn=unavailable,
+                    log=log,
+                )
+
+            self.assertEqual(result, ("B", "R"))
+            self.assertEqual(
+                [event["type"] for event in eventlog.read(log=log)],
+                ["dispatch.open", "dispatch.grounding"],
+            )
+            self.assertIn("rationalization enqueue", output.getvalue())
+            self.assertIn("systemd user manager unavailable", output.getvalue())
+
+    def test_nonzero_systemd_result_is_visible_but_never_blocks_the_wake(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            output = io.StringIO()
+
+            with redirect_stdout(output):
+                result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
+                    sweep_fn=lambda: 0,
+                    briefing_fn=lambda: "B",
+                    recall_fn=lambda: "R",
+                    harvest_fn=lambda: 0,
+                    probe_fn=lambda _spec: None,
+                    enqueue_fn=lambda: False,
+                    log=log,
+                )
+
+            self.assertEqual(result, ("B", "R"))
+            self.assertEqual(
+                [event["type"] for event in eventlog.read(log=log)],
+                ["dispatch.open", "dispatch.grounding"],
+            )
+            self.assertIn("rationalization enqueue", output.getvalue())
+            self.assertIn("systemd start returned failure", output.getvalue())
+
+
+class EmploymentRecallDefault(unittest.TestCase):
+    """UX.W-floor-employment: user-facing wakes stamp portfolio recall; ambient beat stays map-blind.
+
+    Default `recall_fn` is portfolio-aware when origin is user_requested, geometry is themed,
+    or --employment is set. Heartbeat (origin=beat, geometry=ambient, no --employment) keeps
+    compose_recall_brief so lazer/delta-style ambient paths remain map-blind.
+    """
+
+    def _run_default_recall(self, **kw):
+        """Run with recall_fn=None so the wiring under test selects the default."""
+        import recall
+        portfolio = mock.Mock(return_value="PORTFOLIO RECALL")
+        ordinary = mock.Mock(return_value="MAP-BLIND RECALL")
+        with mock.patch.object(recall, "compose_portfolio_recall_brief", portfolio), \
+             mock.patch.object(recall, "compose_recall_brief", ordinary):
+            with tempfile.TemporaryDirectory() as tmp:
+                log = Path(tmp) / "log.jsonl"
+                result = predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, 
+                    sweep_fn=lambda: 0,
+                    briefing_fn=lambda: "B",
+                    recall_fn=None,
+                    harvest_fn=lambda: 0,
+                    probe_fn=lambda _spec: None,
+                    log=log,
+                    **kw,
+                )
+        return result, portfolio, ordinary
+
+    def test_user_requested_default_recall_is_portfolio(self):
+        result, portfolio, ordinary = self._run_default_recall(origin="user_requested")
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_themed_geometry_default_recall_is_portfolio(self):
+        result, portfolio, ordinary = self._run_default_recall(geometry="themed")
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_theme_flag_implies_themed_portfolio_recall(self):
+        # theme without explicit geometry flips geometry to themed (existing contract)
+        result, portfolio, ordinary = self._run_default_recall(theme="grounding")
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_employment_flag_forces_portfolio_on_ambient_beat(self):
+        result, portfolio, ordinary = self._run_default_recall(
+            origin="beat", geometry="ambient", employment=True)
+        self.assertEqual(result, ("B", "PORTFOLIO RECALL"))
+        portfolio.assert_called_once_with()
+        ordinary.assert_not_called()
+
+    def test_ambient_beat_stays_map_blind_without_employment(self):
+        result, portfolio, ordinary = self._run_default_recall(
+            origin="beat", geometry="ambient")
+        self.assertEqual(result, ("B", "MAP-BLIND RECALL"))
+        ordinary.assert_called_once_with()
+        portfolio.assert_not_called()
+
+    def test_main_passes_employment_flag_through(self):
+        seen = {}
+
+        def fake_run(**kw):
+            seen.update(kw)
+            return "B", "R"
+
+        with mock.patch.object(predispatch, "run", fake_run), redirect_stdout(io.StringIO()):
+            predispatch.main(["--employment", "--origin", "beat"])
+        self.assertTrue(seen.get("employment"))
+        self.assertEqual(seen.get("origin"), "beat")
+
+
+class TheDriverIsPinnedInProse(unittest.TestCase):
+    """Every producer's SKILL.md carries the entry snippet; the pipeline names the stamp."""
+
+    def test_producers_run_the_entry_driver(self):
+        for producer in ("report", "research", "map", "plan", "discovery"):
+            skill = (REPO / "skills" / producer / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("predispatch.py", skill,
+                          f"skills/{producer} is missing the ADR-0016 entry-driver snippet")
+
+    def test_pipeline_names_the_stamp_and_the_gate(self):
+        pipeline = (REPO / "skills" / "_shared" / "pipeline.md").read_text(encoding="utf-8")
+        self.assertIn("predispatch.py", pipeline)
+        self.assertIn("dispatch.open", pipeline)
+        flat = " ".join(pipeline.lower().split())   # collapse wrapping
+        self.assertIn("no wake, no publish", flat)
+
+    def test_wake_skill_passes_user_requested_origin(self):
+        # UX.W-floor-employment: operator wake is employment-bearing, not ambient beat
+        skill = (REPO / "skills" / "wake" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("--origin user_requested", skill)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
