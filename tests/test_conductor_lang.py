@@ -13,7 +13,7 @@ import close  # noqa: E402
 _BANNED_LITERALS = ("Why this holds", "Open questions", "What I don't know", "The through-line",
                     "From the mined findings", "Why this matters", "The finding",
                     "What this changes", "What remains uncertain")
-_PT_OBJ = "Estruturar o factor hierarchy jurídico do CASOX para retrieval de jurisprudência do ORGX"
+_PT_OBJ = "Estruturar o factor hierarchy jurídico do CASO para retrieval de jurisprudência do ORG"
 
 
 def _nodes():

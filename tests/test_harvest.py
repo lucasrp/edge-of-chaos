@@ -170,7 +170,7 @@ class GoldenGhCall(unittest.TestCase):
         rows = recognize_fixture("gh_call.jsonl")
         self.assertEqual(len(rows), 2)
         self.assertTrue(rows[0]["query_literal"].startswith("gh api user/orgs"))
-        self.assertTrue(rows[1]["query_literal"].startswith("gh search repos --owner org-x"))
+        self.assertTrue(rows[1]["query_literal"].startswith("gh search repos --owner ORG-XY"))
         for r in rows:
             self.assertEqual((r["source"], r["interface"]), ("github", "gh-cli"))
             self.assertIsNone(r["hits"])   # gh output has no mechanical count — unknown
