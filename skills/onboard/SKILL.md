@@ -140,10 +140,11 @@ and unset the flag after the first sweep — post-install delegated work never f
 not-yet-consolidated graph; the INSTALL does not. The same split governs the ingest
 clock: the daily wake BOUNDS graph ingest (`EDGE_SWEEP_INGEST_BUDGET_S`, default 30s)
 so a morning never hangs on a slow extraction — but at install that default is a
-skipped step in disguise. Before the first sweep, size the budget from the estimate
-(its minutes ×3, in seconds, floor 600) and export it for that sweep only; an ingest
-that "degrades dark" during install means you did not wait, not that the data was
-absent — "communities vazias, esperado no dia 1"
+skipped step in disguise. At install, give the ingest HOURS — export
+`EDGE_SWEEP_INGEST_BUDGET_S=14400` (or more for a big backfill, without hesitation)
+for the first sweep; quality over time is doctrine, and the only wrong number is one
+that truncates extraction. An ingest that "degrades dark" during install means you did
+not wait, not that the data was absent — "communities vazias, esperado no dia 1"
 is skipped work dressed as honesty. Before the walk-through: run the ingestion to
 completion, then the consolidation
 (`tools/edge-python -c "import communities; communities.consolidate()"`), and the
