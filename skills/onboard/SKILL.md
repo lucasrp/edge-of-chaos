@@ -55,10 +55,14 @@ per turn: do the work the host allows (inspect, derive), present ONE verified pr
 ("achei um diretório de chaves em <caminho>: openai, xai — uso essas?") with the one
 line of what it feeds and why it matters, then WAIT for the answer before the next
 decision. A true open question is reserved for what no inspection can answer (the name,
-the backfill appetite). **The seven decisions below are the WHOLE interview — a closed
-set.** Do not invent extra questions; anything else you feel like asking either has its
-own later step (sources, em particular, are NEVER asked here — they are hunted by the
-dig and PROPOSED after Direction exists, §4b) or can be derived and confirmed. The mentee should end the interview understanding the seven
+the backfill appetite). **The seven decisions below are the floor, not a cage.** Spontaneous questions are
+welcome — a guide that notices something real and asks about it is the product working.
+But whatever you bring spontaneously obeys the SAME two laws as everything else: (1) it
+arrives worked — derived from what you saw and proposed by name, never a blank category
+for the operator to fill ("quais sources? o que você nomear" is the lazy form of a good
+instinct); (2) it arrives in its moment — sources, em particular, are hunted and
+proposed AFTER Direction exists (§4b), because before knowing the person they are just
+plumbing. The mentee should end the interview understanding the seven
 decisions because each one was a small conversation — never because they reviewed a
 table. The seven decisions, in order:
 
