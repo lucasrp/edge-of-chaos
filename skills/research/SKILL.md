@@ -38,6 +38,8 @@ publisher refuses without a `dispatch.open` that MINTED the artefato's `dispatch
 dead-ends at publish. (The delta is separate and agentic — fan `skills/delta` when you judge you
 need the world; it never gates.)
 
+**Theme (if not given by the beat/user):** choose under Δ mente in this install's domain — `tools/edge-python tools/theme_suggest.py --edge-home "$PWD" -n 6 --form research`. Do not redigest open bets as the title.
+
 ## Slot mapping — research's fill of the shared role-slots
 
 The scaffold names three role-defined slots; research maps each to its directed-deep-dive form:
