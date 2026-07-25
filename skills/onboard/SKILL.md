@@ -126,6 +126,17 @@ Run predispatch/wake (lookback = the backfill days). It films the operator's his
 stamps `state/onboarding-insumo.md` — a wake package WITHOUT Direction, because Direction
 does not exist yet.
 
+**Delegated sessions (obra) stay OUT of the film — that filter is right.** Sessions
+another agent drove (e.g. codex with `originator: Claude Code`) carry the delegating
+agent's words in the "user" turns, never the mentee's voice. EXCEPTION, onboarding only:
+when the filmed substrate comes out very poor (almost no mentee-voice sessions), you may
+open the explicit escape — `EDGE_ONBOARD_FILM_DELEGATED=1` for the first sweep — which
+admits PRE-install delegated work as film. **You MUST be explicit with the operator when
+you do it**, before running it: "teu histórico de voz aqui é quase nulo; vou filmar a
+obra delegada (o trabalho que agentes fizeram por ti) como insumo — ela entra como OBRA,
+nunca como tua fala, e o mentor vai tratá-la assim". Never open the exception silently,
+and unset the flag after the first sweep — post-install delegated work never films.
+
 **AT INSTALL, EVERYTHING STOPS UNTIL THE DATA EXISTS.** The daily wake tolerates a
 not-yet-consolidated graph; the INSTALL does not — "communities vazias, esperado no dia 1"
 is skipped work dressed as honesty. Before the walk-through: run the ingestion to
