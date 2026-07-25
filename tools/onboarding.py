@@ -882,6 +882,19 @@ def run_bootstrap(
         inventory=inv,
         primary=primary,
     )
+    # Doctrine seeds → install memory (o purge 2026-07-25 tirou memory/ do genótipo e
+    # levou a doutrina junto — method/personality/canone são CORE, o wake exige space-0).
+    # Seeds vivem em seeds/memory/; copiadas se ausentes, {name} rendido — nunca sobrescreve.
+    try:
+        repo_seeds = Path(__file__).resolve().parent.parent / "seeds" / "memory"
+        if repo_seeds.is_dir():
+            for seed in sorted(repo_seeds.glob("*.md")):
+                dst = home / "memory" / seed.name
+                if not dst.exists():
+                    dst.write_text(seed.read_text().replace("{name}", name))
+    except Exception as e:  # noqa: BLE001
+        payload["seeds_warning"] = f"{type(e).__name__}: {e}"
+
     # Place canonical skills under install home so Claude/Codex/Grok wrappers resolve
     try:
         import shutil
