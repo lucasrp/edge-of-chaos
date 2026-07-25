@@ -80,8 +80,8 @@ tools/edge-python tools/edge-bootstrap bootstrap --home <home> --name <name> --b
 ```
 
 Explain while it runs: install tree + `state/bootstrap.json` (pre-phenotype knobs), skills
-provisioned into EVERY CLI harness present (`~/.claude`, `~/.codex`, `~/.grok` — detection
-by directory), adversarial cast as interviewed (none → primary self-adversarial), the
+provisioned into EVERY CLI harness present (`~/.claude`, `~/.codex`, `~/.grok`,
+`~/.hermes` — detection by directory), adversarial cast as interviewed (none → primary self-adversarial), the
 embedding route wired through the adapter chosen in the interview (or declared-dark).
 **Heartbeat stays off** — say why (no Direction yet).
 
@@ -131,18 +131,26 @@ mission-and-voice form-fill. The bar:
    hábitos — so the operator hears their own map read back. A claim about the operator
    with no visible source reads as guessing, and being seen is the point.
 2. **Grill the person, not the form** — telos, driver, values, constraints, active
-   frontier. When they name a goal ("virar um SaaS"), do not record it and move on: grill
-   WHY, for WHOM, what breaks first, what they are afraid of, what they already tried.
-   Each answer sharpens the next question. This is the persona being born.
-3. **Direction is BORN and STAMPED** — out of the grill, name the direction the work
+   frontier. ASK the mentee's own mission — never wait for it to be volunteered and never
+   assume the wake guessed it right. ASK about their threads: read back the open fronts
+   the wake detected ("vi estas frentes: X, Y — quais estão vivas? qual sangra?") and let
+   the mentee confirm, kill, or add. When they name a goal ("virar um SaaS"), do not
+   record it and move on: grill WHY, for WHOM, what breaks first, what they are afraid
+   of, what they already tried. Each answer sharpens the next question. This is the
+   persona being born.
+3. **ASK how to use the sources** — the phenotype has a `sources:` block (GitHub, X,
+   papers, feeds, keys found in secrets) and the mentee decides what each is FOR: "tenho
+   teu GitHub e a chave do X — o que você quer que eu vigie em cada um? o que é ruído?"
+   Their answers land in the phenotype, not in conversation memory.
+4. **Direction is BORN and STAMPED** — out of the grill, name the direction the work
    points (the decision-shaped thread, not a task list) and stamp it
    (`direction.proposed`) so the install starts with a live Direction, not an empty one.
-4. **Trigger the internal wayfind and grill OVER it** — from the insumo + the grill, lay
+5. **Trigger the internal wayfind and grill OVER it** — from the insumo + the grill, lay
    out the map of known-unknowns (what the mentor knows it does not know about this
    operator's terrain: the fog census). Show the map, then grill the operator ON it:
    "these are the three holes I see — which one bleeds?" The wayfind is a conversation
    piece here, not a background artifact.
-5. **Only then** distill mission and voice for the close. Never close after 1–2
+6. **Only then** distill mission and voice for the close. Never close after 1–2
    exchanges; the mentor conducts until the operator has seen themselves mapped.
 
 This is the second human stop; everything before and after is yours.
