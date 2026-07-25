@@ -143,6 +143,44 @@ def _grok_enabled(project_dir, grok_dir):
     return surfaces_cfg.include_optional_surface("grok", project_dir, grok_dir)
 
 
+def _film_window_start(log=None):
+    """Início da janela do filme (epoch) a partir do backfill_days declarado — agent.yaml
+    lentes.backfill_days, senão state/bootstrap.json. None = sem limite (legado).
+
+    A janela é o APETITE DECLARADO do operador: classificar/filmar fora dela é trabalho
+    morto — com backfill=0 o wake não toca arquivo nenhum (operador 2026-07-25: '0 dias
+    e mesmo assim tá foda')."""
+    days = None
+    try:
+        import surfaces_cfg
+        cfg = surfaces_cfg.load_agent_cfg()
+        days = (cfg.get("lentes") or {}).get("backfill_days")
+    except Exception:
+        pass
+    if days is None:
+        try:
+            import json as _json
+            boot = _json.loads((REPO / "state" / "bootstrap.json").read_text())
+            days = boot.get("backfill_days")
+        except Exception:
+            pass
+    if days is None:
+        return None
+    try:
+        return time.time() - float(days) * 86400
+    except (TypeError, ValueError):
+        return None
+
+
+def _in_window(path, window_start):
+    if window_start is None:
+        return True
+    try:
+        return Path(path).stat().st_mtime >= window_start
+    except OSError:
+        return False
+
+
 def _install_birth(log=None):
     """Epoch do 1º evento do log — o nascimento do install (None se log vazio/ilegível).
 
@@ -165,7 +203,10 @@ def _codex_baseline(cursors, codex_dir=None, install_birth=None):
     New sessions/deltas after this baseline flow through normally."""
     if cursors.get(CODEX_BASELINE_KEY):
         return cursors
+    window = _film_window_start()
     for s in sessions.list_codex_sessions(codex_dir):
+        if not _in_window(s.path, window):
+            continue
         if not sessions.is_user_session(s, install_birth=install_birth):
             continue
         if install_birth:
@@ -185,7 +226,10 @@ def _grok_baseline(cursors, grok_dir=None, install_birth=None):
     New sessions/deltas after this baseline flow through normally."""
     if cursors.get(GROK_BASELINE_KEY):
         return cursors
+    window = _film_window_start()
     for s in sessions.list_grok_sessions(grok_dir):
+        if not _in_window(s.path, window):
+            continue
         if not sessions.is_user_session(s, install_birth=install_birth):
             continue
         if install_birth:
@@ -225,12 +269,15 @@ def record_session_exclusions(project_dir=None, *, log=eventlog.LOG, codex_dir=N
         and payload["sessao_id"]
     }
     additions = []
+    window = _film_window_start()
+    birth = _install_birth(log)
     for session in discovered:
+        if not _in_window(session.path, window):
+            continue           # fora do apetite declarado: nem classifica, nem registra
         session_id = _cursor_id(session)
         if session_id in already:
             continue
-        reason = sessions.user_session_exclusion_reason(
-            session, install_birth=_install_birth(log))
+        reason = sessions.user_session_exclusion_reason(session, install_birth=birth)
         if reason is None:
             continue
         additions.append((
@@ -264,8 +311,11 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
     if project_dir is None:
         project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
     cursors = cursors or {}
+    window = _film_window_start()
     found = []
     for s in sessions.list_sessions(project_dir):
+        if not _in_window(s.path, window):
+            continue
         if not sessions.is_user_session(s, install_birth=install_birth):
             continue
         sid = _cursor_id(s)
@@ -276,6 +326,8 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
         found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
+            if not _in_window(s.path, window):
+                continue
             if not sessions.is_user_session(s, install_birth=install_birth):
                 continue
             sid = _cursor_id(s)
@@ -286,6 +338,8 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     if include_grok:
         for s in sessions.list_grok_sessions(grok_dir):
+            if not _in_window(s.path, window):
+                continue
             if not sessions.is_user_session(s, install_birth=install_birth):
                 continue
             sid = _cursor_id(s)
