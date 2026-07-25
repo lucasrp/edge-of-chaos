@@ -1,9 +1,11 @@
 # The shared pipeline
 
-THE single shared pipeline definition (ADR-0012). Every producer-skill — `report`, `map`,
-`research`, `plan`, … — funnels through this one pipeline. The beat is a pure round-robin
-scheduler; the pipeline is what runs once a producer's turn comes. There is no per-skill
-pipeline: a skill supplies theme and producing cognition, the pipeline supplies the spine.
+THE single shared pipeline definition (ADR-0012; a escolha foi superseded pelo ADR-0024). Every
+producer-skill — `report`, `map`, `research`, `plan`, … — funnels through this one pipeline.
+The beat is a shell: the **Pauta** (ADR-0024) draws the cell, judges grounded candidates and
+emits the PROPOSTA; the pipeline is what runs once the PROPOSTA names the forma/producer. There
+is no per-skill pipeline: the PROPOSTA supplies the theme, a skill supplies the producing
+cognition, the pipeline supplies the spine.
 
 This is the modern, **de-YAML'd, publish-only rewrite** of the legacy `consolidate-state` +
 the `_shared/` trio (`report-template` / `state-protocol` / `workflow-conventions`). The legacy
@@ -172,13 +174,13 @@ a beat artefato is exploration, indistinguishable from noise. Everything that le
 artefatos (source curation, pontes, the quente's attention, the trunk's ato-1) weighs
 user_requested above beat: o pedido do usuário é o gradiente; o beat é exploração.
 
-## Producers round-robin; close-roles do NOT
+## Producers are chosen by the Pauta; close-roles are fixed
 
-The **producer-skills** are the open, round-robinable roster: the beat rotates strictly through
-them, one turn each. The **close-roles** — the two reviewers and the publisher — are parts of
-this shared protocol and are **NOT round-robinable**: they are not skills in the rotation, they
-run at every producer's exit. Round-robin is for the producers; the close is the fixed gate they
-all funnel through.
+The **producer-skills** are the open roster the Pauta's `forma` selects from
+(`publisher.PRODUCER_ROSTER` ∩ installed skills — ADR-0024 killed the beat rotation). The
+**close-roles** — the two reviewers and the publisher — are parts of this shared protocol and
+are **NOT selectable**: they are not producers; they run at every producer's exit. The PROPOSTA
+picks the producer; the close is the fixed gate they all funnel through.
 
 ## The grounding floor at the close (S6)
 

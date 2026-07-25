@@ -6,7 +6,6 @@ at all — the live session runs the skill in-place (never spawns claude -p).
 """
 import argparse
 import fcntl
-import hashlib
 import json
 import os
 import random
@@ -20,7 +19,6 @@ import cortex
 import eventlog
 
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_PRODUCER_ROSTER = ("report", "map", "plan")
 
 # Headless beat runtimes. `opus`/`fable` are Anthropic model aliases on the claude CLI
 # (`claude --model opus|fable`); there is no separate fable binary on the fleet.
@@ -44,7 +42,7 @@ def heartbeat_lock(home):
     producer) let one invocation produce NOTHING yet pass, because another appended a kerneled
     Artefato inside its before/after window — so a corpus increase is no longer attributable to the
     invocation that produced it. Holding an exclusive `fcntl.flock` on a per-install lockfile for the
-    full window (the same flock pattern as `next_producer`/`append_batch`) means the second heartbeat
+    full window (the same flock pattern as `append_batch`) means the second heartbeat
     cannot begin its own before/after window until the first's gate completes: no overlap, so any
     increase is attributable to the invocation that produced it. Blocking flock is simplest + correct.
     """
@@ -58,28 +56,72 @@ def heartbeat_lock(home):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def assert_beat_produced(log, before_count, expected_producer=None) -> list:
+def assert_beat_produced(log, before_count, expected_producer=None, dispatch_id=None) -> list:
     """The deterministic POST-DISPATCH gate (Codex gate finding [high]): a `claude -p` exit of 0
     only proves the subprocess ran — NOT that stage-(iii) corpus work happened. Folding the log is
     the only proof. Given the corpus count captured BEFORE the beat, return the list of GAPS — empty
-    means the beat produced; non-empty means a beat that 'succeeded' did no real work and must fail:
+    means the beat produced (or honestly declined); non-empty means the invocation must fail:
 
-      * the corpus did NOT grow by >=1 (no new Artefato was published), and/or
+      * the corpus did NOT grow by >=1 — UNLESS ``dispatch_id`` is given, the LATEST pauta.*
+        event for it is a `pauta.silencio` AND no live `pauta.proposta` stands (spec §4 lei do
+        risco: logged silence is the HONEST failure mode, never a punished one; latest-event
+        replay, never any-historical, adv r1 #9 — and a LIVE proposta still owes production
+        even when a later silêncio landed, because silêncio doesn't kill: exemption inversion,
+        adv r2 #2);
+      * the live proposta is a FORGERY per `pauta.proposta_for`'s own read-side verification
+        (voz without a commanded dispatch.open, or an out-of-roster forma — round 4, Variant A):
+        the fold RAISES for every other reader; this gate alone converts the raise into a named
+        gap and proceeds with proposta=None, because the post-gate's job is to REPORT, never to
+        crash the heartbeat gate;
       * `artefatos_without_kernel(log)` is non-empty (a published Artefato with no intent kernel — C3
-        debt), which is a gap even when the corpus grew.
+        debt), which is a gap even when the corpus grew;
+      * THE DENTE (ADR-0024), when ``dispatch_id`` is given: new Artefato(s) with no live
+        `pauta.proposta` for this dispatch, whose skill is not the proposta's `forma`, or whose
+        slug does not start with the proposta's `slug_prefix` (spec §3 "o nome carrega o setup" —
+        enforced mechanically at this gate, never asserted in agent JSON; adv r1 #10).
 
-    A pure reader over the log (no append, no claude): edge-heartbeat captures before_count, runs the
-    beat, then calls this; non-empty gaps → NONZERO exit."""
+    ``expected_producer`` remains for callers that already hold a forma. A pure reader over the
+    log: edge-heartbeat captures before_count, runs the beat, then calls this; gaps → NONZERO exit."""
     gaps = []
     corpus = cortex.corpus_at(log=log)
     after_count = len(corpus)
+    proposta = None
+    silencio = False
+    if dispatch_id is not None:
+        import pauta
+        try:
+            proposta = pauta.proposta_for(dispatch_id, log=log)
+        except ValueError as forgery:
+            # round 4 (Variant A): the fold verifies once and raises for every reader;
+            # the post-gate alone reports instead — the remaining dente logic then
+            # correctly gaps "artefato with no live proposta" / "no new Artefato".
+            gaps.append(f"pauta.proposta forjada (leitura recusada pelo fold): {forgery}")
+        silencio = pauta.latest_pauta_state(dispatch_id, log=log) == "silencio"
     if after_count - before_count < 1:
-        gaps.append(f"no new Artefato: corpus stayed at {after_count} (was {before_count})")
+        # exemption iff latest==silencio AND no live proposta (adv r2 #2): a proposta
+        # viva ainda deve produção mesmo com silêncio posterior (silêncio não mata).
+        if not (silencio and proposta is None):
+            gaps.append(f"no new Artefato: corpus stayed at {after_count} (was {before_count})")
     debt = cortex.artefatos_without_kernel(log=log)
     if debt:
         gaps.append(f"C3 debt — Artefato(s) published without an intent kernel: {debt}")
+    new_items = corpus[before_count:]
+    if dispatch_id is not None and new_items:
+        if proposta is None:
+            gaps.append(
+                "the dente (ADR-0024): Artefato(s) published with no live pauta.proposta for "
+                f"dispatch {dispatch_id!r}: {[i.get('slug') for i in new_items]}")
+        else:
+            expected_producer = proposta["forma"]
+            prefix = proposta.get("slug_prefix")
+            if prefix:
+                wrong_slug = [i.get("slug") for i in new_items
+                              if not str(i.get("slug") or "").startswith(prefix)]
+                if wrong_slug:
+                    gaps.append(
+                        f"o nome carrega o setup (spec §3): slug sem o prefixo da célula "
+                        f"{prefix!r}: {wrong_slug}")
     if expected_producer is not None:
-        new_items = corpus[before_count:]
         wrong = [item.get("slug") for item in new_items
                  if item.get("skill") != expected_producer]
         if wrong:
@@ -89,106 +131,44 @@ def assert_beat_produced(log, before_count, expected_producer=None) -> list:
     return gaps
 
 
-def next_producer(roster, state_path) -> str:
-    """Advance the round-robin cursor strictly and return whose turn it is (ADR-0012).
+def dispatch_plan(subject, dispatch_id, *, runtime_command=None, log=eventlog.LOG,
+                  require_pauta=True):
+    """Plan one beat dispatch: the producer IS the Pauta's `forma` (ADR-0024 — the choice left
+    the producer/rotation and became a dispatch stage; the rotation cursor road is DEAD).
 
-    The beat carries ONLY rotation state — no judgment, no queue-jump. Given roster
-    ["report","map","plan"] and a fresh cursor, successive calls return report, map, plan,
-    report, ... The cursor (the next index to serve) is persisted to `state_path` as JSON;
-    the path is injectable so tests use a temp file.
-
-    The read-modify-write is guarded by an exclusive flock on a sibling lockfile (#6): two
-    concurrent beats (the systemd timer overlapping a manual run) serialize and never read
-    the same index — no lost turn.
-    """
-    state_path = Path(state_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = state_path.with_name(state_path.name + ".lock")
-    with open(lock_path, "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            state = json.loads(state_path.read_text())
-            idx = state["next"]
-        except (FileNotFoundError, ValueError, KeyError):
-            state = {}
-            idx = 0
-        idx %= len(roster)
-        producer = roster[idx]
-        state["next"] = (idx + 1) % len(roster)
-        state_path.write_text(json.dumps(state, sort_keys=True))
-    return producer
-
-
-def _dispatch_fingerprint(voz, session, contract, subject, roster, runtime_command):
-    try:
-        encoded = json.dumps(
-            {"voz": voz, "session": session, "contract": contract,
-             "subject": subject, "roster": list(roster),
-             "runtime_command": list(runtime_command)},
-            ensure_ascii=False, sort_keys=True, separators=(",", ":"),
-        )
-    except (TypeError, ValueError) as exc:
-        raise ValueError("dispatch causal inputs must be JSON-serializable") from exc
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _producer_for_dispatch(dispatch_id, fingerprint, roster, state_path):
-    """Idempotent rotation allocation: one dispatch id spends at most one cursor slot."""
-    state_path = Path(state_path)
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = state_path.with_name(state_path.name + ".lock")
-    with open(lock_path, "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            state = json.loads(state_path.read_text())
-            if not isinstance(state, dict):
-                state = {}
-        except (FileNotFoundError, ValueError):
-            state = {}
-        plans = state.get("plans") if isinstance(state.get("plans"), dict) else {}
-        existing = plans.get(dispatch_id)
-        if isinstance(existing, dict):
-            if existing.get("fingerprint") != fingerprint:
-                raise ValueError(
-                    f"dispatch_id {dispatch_id!r} was already bound to different causal inputs")
-            return existing["producer"]
-        idx = state.get("next", 0)
-        if not isinstance(idx, int) or isinstance(idx, bool):
-            idx = 0
-        idx %= len(roster)
-        producer = roster[idx]
-        plans[dispatch_id] = {"fingerprint": fingerprint, "producer": producer}
-        state.update({"next": (idx + 1) % len(roster), "plans": plans})
-        state_path.write_text(json.dumps(state, ensure_ascii=False, sort_keys=True))
-        return producer
-
-
-def dispatch_plan(voz, session, contract, subject, dispatch_id, *,
-                  roster=DEFAULT_PRODUCER_ROSTER, state_path=None,
-                  runtime_command=None):
-    """Plan one beat dispatch from its causal inputs and concrete runtime surface.
+    THE DENTE: with ``require_pauta`` (the default — the Ato-2 door), no live `pauta.proposta`
+    for ``dispatch_id`` raises; the plan's producer is `proposta['forma']`. The heartbeat
+    launcher computes a PRE-LAUNCH plan (``require_pauta=False``) before the agent exists:
+    producer is explicitly None + `pauta: pendente` — the trunk runs the funnel (sortear →
+    catálogo → sugestões → shortlist → grounding → propose) and re-derives the plan through
+    this same seam before opening any branch.
 
     Portfolio is deliberately absent: maps describe the mentee's work and cannot authorize the
-    edge. The producer decision is allocated internally and idempotently by ``dispatch_id``; no
-    caller-supplied decision callback can close over portfolio. Tools and permissions describe the
-    actual already-built Claude CLI command without presenting it as a tool to relaunch.
-    """
+    edge. A pure read of the eventlog + the static surface — idempotent by construction
+    (ADR-0006: the log is the truth; no cursor state to spend)."""
     if not isinstance(subject, str) or not subject.strip():
         raise ValueError("dispatch subject must be a non-blank string")
     if not isinstance(dispatch_id, str) or not dispatch_id.strip():
         raise ValueError("dispatch_id must be a non-blank string")
-    roster = list(roster)
-    if not roster or not all(isinstance(item, str) and item.strip() for item in roster):
-        raise ValueError("roster must contain non-blank producer names")
-    if state_path is None:
-        state_path = REPO / "state" / "beat" / "cursor.json"
+    dispatch_id = dispatch_id.strip()
     runtime_command = list(runtime_command or ["claude", "-p", "-"])
-    fingerprint = _dispatch_fingerprint(
-        voz, session, contract, subject.strip(), roster, runtime_command)
-    producer = _producer_for_dispatch(
-        dispatch_id.strip(), fingerprint, roster, state_path)
-    decision = {"dispatch_id": dispatch_id.strip(), "producer": producer,
-                "input_fingerprint": fingerprint}
+    import pauta
+    if require_pauta:
+        proposta = pauta.require_proposta(dispatch_id, log=log)
+    else:
+        # round 4 (Variant A): proposta_for itself verifies the live proposta (forged
+        # voz authority, out-of-roster forma) and RAISES — the r3 per-door roster
+        # re-check that lived here is deleted; this door inherits the buckle for free.
+        proposta = pauta.proposta_for(dispatch_id, log=log)
+    if proposta is None:
+        decision = {"dispatch_id": dispatch_id, "producer": None,
+                    "pauta": "pendente — rode o funil da Pauta (tools/pauta.py sortear → "
+                             "propose) e re-derive o plano via tools/_beat.py dispatch-plan "
+                             "antes de abrir Ato-2 (o dente, ADR-0024)"}
+    else:
+        decision = {"dispatch_id": dispatch_id, "producer": proposta["forma"],
+                    "pauta_seq": proposta.get("seq"), "tema": proposta.get("tema"),
+                    "slug_prefix": proposta.get("slug_prefix")}
     import cortex_config
     surface = cortex_config.dispatch_surface(
         subject=subject.strip(), runtime_command=runtime_command,
@@ -199,20 +179,6 @@ def dispatch_plan(voz, session, contract, subject, dispatch_id, *,
 
 def mint_plan_dispatch_id():
     return f"beat-{uuid.uuid4()}"
-
-
-def runtime_dispatch_inputs(home, dispatch_id, env=None):
-    """Portfolio-blind causal inputs available before the Claude beat process exists."""
-    env = os.environ if env is None else env
-    import _identity
-    cfg = _identity._cfg(Path(home) / "agent.yaml")
-    anchor = (env.get("CLAUDE_CODE_SESSION_ID") or env.get("CODEX_THREAD_ID")
-              or env.get("CODEX_SESSION_ID") or dispatch_id)
-    return (
-        cfg.get("voice") or "",
-        {"anchor": anchor, "kind": "heartbeat", "dispatch_id": dispatch_id},
-        {"skill": "beat", "read_only_world": True, "mission": cfg.get("mission") or ""},
-    )
 
 
 def bind_dispatch_plan(prompt, plan):
@@ -441,7 +407,8 @@ def load_beat_prompt(home) -> str:
 
 
 def main(argv=None, stdin=None, stdout=None):
-    """Interactive fallback: compute the same authoritative plan before skill grounding."""
+    """Interactive fallback: the same authoritative plan seam — the DENTE included (no live
+    pauta.proposta for the dispatch id → this command fails loud; Ato-2 never opens)."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     plan_parser = sub.add_parser("dispatch-plan")
@@ -458,11 +425,10 @@ def main(argv=None, stdin=None, stdout=None):
     config_path = (Path(args.mcp_config).resolve() if args.mcp_config else
                    ensure_cortex_config(home, group=args.group))
     command = build_beat_command(claude_bin, mcp_config_path=config_path)
-    voz, session, contract = runtime_dispatch_inputs(home, args.dispatch_id)
     result = dispatch_plan(
-        voz, session, contract, args.subject, args.dispatch_id,
-        state_path=home / "state" / "beat" / "cursor.json",
+        args.subject, args.dispatch_id,
         runtime_command=command,
+        log=home / "state" / "events" / "log.jsonl",
     )
     json.dump(result, stdout, ensure_ascii=False, sort_keys=True)
     stdout.write("\n")

@@ -47,13 +47,21 @@ Escala pra bloqueio por evidência logada, não por vibe (ADR-00XX).
 - **Usage signal:** re-rank efêmero de leitura (recência+frequência), atrás de `EDGE_CORTEX_USAGE`; **não** é self-state (o log é a verdade — ADR-0006).
 - **Earmarked:** o subconjunto harm-bearing do Cortex — nós importantes o bastante pra que contradições sejam resolvidas por humano (Voz). Curado pela Curadoria (Módulo 6).
 
+## 2-A. Pauta / Escolha (Ato-1)
+**Resp:** escolher a pauta ANTES da produção — etapa do **dispatch**, gate de entrada simétrico ao Close (ADR-0024; contrato assinado: `docs/agencia/pauta-tabela-normativa.md`).
+**Interface:** `propose(constraints) → PROPOSTA | silêncio` (`tools/pauta.py`)
+
+- **Pauta:** cisão do "mirar" do producer — sorteio uniforme `{objeto × abordagem}` ANTES do wake, funil (catálogo → sugestões → shortlist A → grounding), gate da abordagem, caneta no log (`pauta.proposta`/`pauta.silencio`/`pauta.veto`, ADR-0006 — nenhum estado próprio). Rotação/budget = política de alocação AQUI (a `forma` nasce na sugestão); o beat vira shell.
+- **O dente:** sem `pauta.proposta` viva não abre Ato-2 — uniforme para autônomo e comandado. Voz = PROPOSTA-ok por autoridade; contra ordem não há silêncio, há **seca declarada**.
+- Verbetes plenos: seção **Pauta / Escolha (Ato-1)** no glossário abaixo.
+
 ## 3. Produção   ⟶ CONGELADO (agente vivo é dono do conductor)
-**Resp:** mirar o tema Worthwhile e montar contexto rico num rascunho.
-**Interface:** `produce(theme, depth) → draft`
+**Resp:** desenvolver a PROPOSTA da Pauta num contexto rico (a escolha saiu daqui — ADR-0024).
+**Interface:** `produce(proposta, depth) → draft`
 
 - **Artefato:** o entregável de um beat — carrega Worthwhile content, existe pra **mover ou confirmar a Direction**. Transiente (esfria, é prunável); o durável vive no cluster, o steer na Direction. Nasce aqui, é julgado no 4, publicado no 5.
-- **Worthwhile content:** a interseção — insight profundo de domínio **aplicado ao trabalho vivo do mentee**. Domínio sozinho é genérico; mentee sozinho é raso.
-- **Producer-skill:** uma skill que rende um Artefato na sua forma — report/research/map/plan/discovery/critique. Mira o tema mais Worthwhile contra Direction + delta, produz, sai pelo close.
+- **Worthwhile content:** a interseção — insight profundo de domínio **aplicado ao trabalho vivo do mentee**. Domínio sozinho é genérico; mentee sozinho é raso. **O centro tem nome:** este é o bar de UM setup (o report profundo aplicado) — desde ADR-0024 é a Pauta que escolhe o setup; Worthwhile não é mais o seletor único de pauta.
+- **Producer-skill:** uma skill que rende um Artefato na sua forma — report/research/map/plan/discovery/critique. Recebe a PROPOSTA da Pauta (ADR-0024), desenvolve o tema na sua forma, sai pelo close — a escolha de pauta não vive mais aqui.
 - **Conductor:** a maquinaria de montagem do genus deep-dive — outline vivo por-nó (empty→draft→revised→final), split/merge, arco motivate→deliver→change-the-course estrutural. O gate de discharge por-nó **chama** a interface do Close. **Dark by default** (`EDGE_CONDUCTOR`).
 - **Rich rite (ato):** os moves cognitivos que o produtor **faz** — derivação de primeiros princípios, um "o que eu não sei" marcado, um benchmark/frame de fora, a lineage. (O Close afere; aqui se gera.)
 - **Depth:** o alvo de desenvolvimento que o **operador** seta (brief/standard/deep) — o recurso escasso é a atenção do mentee. Ceiling, não floor.
@@ -98,7 +106,7 @@ Escala pra bloqueio por evidência logada, não por vibe (ADR-00XX).
 
 - **Eventlog:** o log append-only, **a verdade** — navega o Cortex, replaya o log (ADR-0006). Un-navegável por design; toda página é projeção dele.
 - **Dispatch:** qualquer invocação de skill — heartbeat, ou `/ed-report`/`/ed-grill` manual. **Todo dispatch observa os mesmos efeitos** (sweep na entrada, persistência no close); o lifecycle é do dispatch, não da skill.
-- **Beat / Heartbeat:** o pulso autônomo (cron, hoje 3h) — round-robin puro sobre os producers, carrega só rotation state. Cadência é o único dial de gasto.
+- **Beat / Heartbeat:** o pulso autônomo (cron, hoje 3h) — shell puro: sem rotation state, sem juízo (ADR-0024: escolha e alocação são da Pauta; producer = `forma` da PROPOSTA). Cadência é o único dial de gasto.
 - **Sequenciador de entrada:** no wake, blocking — `Aquisição.sweep()` → `Cortex.project()` → **commita o cursor só no fim** (atômico). O antigo **Assemble dissolveu** aqui (a lógica voltou pros Módulos 1 e 2); o **Consolidate** já dissolvera no ADR-0008.
 - **Briefing:** a orientação apresentada a cada dispatch (Memento's tattoo) — 4 partes projetadas: Knowledge clusters (←grafo) · Direction (←log) · Recap (←corpus) · source orientation (←roster).
 - **Corpus / Recap:** o corpus é o trabalho próprio do edge (fold de `artefato.published`); o Recap é sua projeção no briefing, correlacionada fresh à Atividade do mentee.
@@ -433,14 +441,16 @@ never in the lifecycle around it. The lifecycle belongs to the **dispatch**, not
 *Avoid*: beat (it is one shell, not the lifecycle), run, invocation
 
 **Beat / Heartbeat** *(synonyms)*:
-The edge's **autonomous pulse** — the cron-fired dispatch (today every 3h) whose loop is a **pure
-round-robin scheduler** over the producer-skills: it carries **only rotation state** (whose turn
-it is), never judgment (ADR-0012 evacuated it from the loop: **breadth comes from rotation, aim
-from Direction — exercised inside the producer**, never here). The moment does not jump the queue.
-Its **cadence is the edge's only spend dial**: cost is tuned by frequency, never by depth — a beat
-is always full-depth (plumbing + rich rite are a floor, not a dial).
-*Avoid*: judgment loop (the old ADR-0004 shape — superseded), lifecycle (that belongs to the
-dispatch), cron (the mechanism, not the concept)
+The edge's **autonomous pulse** — the cron-fired dispatch (today every 3h), now a **pure shell**
+(ADR-0024 revising ADR-0012): it opens the dispatch, requires the Pauta's `pauta.proposta` (**the
+dente** — no proposal, no Ato-2) and dispatches the producer named by `proposta["forma"]`. It
+carries **no rotation state and no judgment**: breadth comes from the Pauta's uniform cell draw,
+aim from the abordagem gates — both penned in the log, never a cursor. Its **cadence is the
+edge's only spend dial**: cost is tuned by frequency, never by depth — a beat is always
+full-depth (plumbing + rich rite are a floor, not a dial).
+*Avoid*: judgment loop (the old ADR-0004 shape — superseded), round-robin scheduler (the
+ADR-0012 shape — rotation left for the Pauta), lifecycle (that belongs to the dispatch), cron
+(the mechanism, not the concept)
 
 **Wake**:
 Coming online **under command** — the beat's open without its act. Fan the **three briefs**
@@ -454,9 +464,10 @@ contract, not a missing step)
 
 **Producer-skill / Producer**:
 A skill that yields **one Artefato in its form** — the roster today: `report`, `research`, `map`,
-`plan`, `discovery`. When its turn comes **the producer** points itself at the most Worthwhile theme
-against Direction + the delta, produces, and exits through the shared pipeline's **close**.
-Theme-choice and production live here, never in the beat.
+`plan`, `discovery`. The producer **receives the Pauta's PROPOSTA** (ADR-0024) — tema, faceta,
+lastro-that-seeds-the-gather — develops it in its form, and exits through the shared pipeline's
+**close**. Production lives here; **theme-choice lives in the Pauta (Ato-1)**, never here and
+never in the beat.
 *Avoid*: generator, template, cognition (every subagent is one; this is the Artefato-yielding kind)
 
 **Assemble / Consolidação prévia**:
@@ -546,3 +557,79 @@ Written by whoever lived the session (the loop, or live grilling). (A no-skill *
 leaves none; the sweep captures its raw and the grill picks it up.) The tier boundary, not the kernel,
 is what stops a vent becoming a curated decision (ADR-0008, the Zep failure).
 *Avoid*: summary, notes, handoff (that is the digested delta, not the kernel)
+
+## Pauta / Escolha (Ato-1)
+
+> Contrato assinado: `docs/agencia/pauta-tabela-normativa.md` (2026-07-25) · ADR-0024 ·
+> `tools/pauta.py`. A escolha de pauta ANTES da produção — etapa do dispatch, gate de entrada
+> simétrico ao Close. Estado = fold de `pauta.proposta`/`pauta.silencio`/`pauta.veto` (ADR-0006).
+
+**Pauta**:
+O módulo da **escolha** — `propose(constraints) → PROPOSTA | silêncio`. Sorteia
+`{objeto × abordagem}` uniforme **antes de ler o wake** (a leitura sai mirada), roda o funil
+(catálogo da célula → ~12 sugestões baratas → shortlist A → 2–3 aterrados) e julga no gate da
+abordagem — AND mecânico sobre evidência, **nunca rebaixa critério**. Rotação/budget = política
+de alocação AQUI (a `forma` nasce na sugestão `{tema, forma}`); célula inviável morre em
+**silêncio logado** (3 consecutivos = evidência de poda, nunca blocklist a priori).
+*Avoid*: theme_suggest (a estrada velha — pool fixo no repo + regex, morre na fiação do dente),
+mirar-no-producer (ADR-0012 — superseded), fila/backlog (não há fila: cada batida sorteia)
+
+**PROPOSTA**:
+O evento `pauta.proposta` — meia página, pointers:
+`{abordagem, objeto, forma, tema, faceta, lastro, gate_trace, delta_voz, origem, depth}`.
+**Não carrega outline/ângulo** — desenvolvimento é agência do producer (Ato-2). O lastro da
+Pauta **semeia** o gather do producer (grounding pra ESCOLHER ≠ grounding pra DESENVOLVER;
+encadeiam, não duplicam). **O nome carrega o setup:** slug prefixado
+`{abordagem}-{objeto}--<tema>-<install><data>` — mecânico no publish, não opção do producer.
+A palavra do operador (Voz) é **PROPOSTA-ok por autoridade**; grounding seco num caminho
+comandado = **seca declarada** dentro da PROPOSTA, nunca silêncio.
+*Avoid*: outline, briefing (é escolha penada, não orientação), tema-solto (sem célula/lastro/trace)
+
+**Gate de PROPOSTA / plan-gate**:
+O julgamento que decide PROPOSTA (1) ou silêncio (0): **pisos universais** (lastro · delta_voz ·
+substrato — higiene, cortam sem rankear, valem até em `{ser,ser}`) + o **gate da abordagem
+sorteada** (os 7 da tabela §5), como checks estruturados julgados por completer
+(`llm_routes.completer_for`), AND mecânico em código, trace integral em `gate_trace`.
+**Δ mente NUNCA dentro do gate** — é veredito do operador a posteriori (`pauta.veto`, com razão).
+Lei do risco: nenhum gate contém "pergunta ao operador" — toda dúvida vira aposta afirmada com
+lastro; o modo de falha honesto é silêncio logado, nunca espera.
+*Avoid*: classificador de keyword/substring (proibido), score/ranking (o gate é AND), rebaixar
+critério pra passar alguém
+
+**delta_voz / Redigest**:
+Piso universal: a Voz é a **baseline, não blocklist** — o candidato compete contra onde a cabeça
+do mentee JÁ está (recall da Voz no tema → juízo semântico de delta, citado no trace).
+**Redigest** = pousar onde a cabeça já está (reprova); tema repetido **com delta novo é o caso
+bom**. Guarda reversa: Voz mostra domínio → claim de lacuna morre. Roda só na shortlist A
+(custo por proposta a medir — dívida §7).
+*Avoid*: blocklist de temas, denylist, "já falamos disso" sem juízo de delta
+
+**Shortlist A**:
+O corte do meio do funil: das ~12 sugestões baratas (função do wake da célula — **NUNCA pool
+fixo no repo**) ficam ~6 por mérito dentro do pólo **+ 1 slot estrutural de serendipidade**,
+com os checks delta_voz · filtro direction/wayfind-aberto · substrato. Números (12/6/2–3) são
+iniciais — calibrar por evidência (§7).
+*Avoid*: ranking global (mérito é DENTRO do pólo), pool/seed list no genótipo
+
+**Catálogo**:
+O que o **objeto** sorteado abre pra leitura mirada do wake: `mundo`→sources ·
+`atividade`→conversas/obra · `si`→leveling/fog · `ser`→livre. Objeto re-mira o catálogo,
+**nunca acrescenta critério** (o gate pendura só na abordagem). O catálogo já nasce filtrado
+pelo piso do substrato: evidência sobre o mentee vem das conversas DELE, nunca de log de agente
+delegado codando (o resíduo delegado tem outro destino: censo do fog).
+*Avoid*: fonte-fixa-por-abordagem (eixos independentes), catálogo-como-gate
+
+**si (objeto)**:
+O objeto cuja evidência vem do **estado do mentee** (leveling/fog — perfil, fronteira ativa,
+lacunas declaradas). Gate-si de qualidade depende do persona-no-brief (gap nomeado 2026-07-13)
+— **pilotar `si` depois, não primeiro** (dívida §7).
+*Avoid*: si=introspecção-do-edge (isso é `curiosidade do edge`, abordagem — sujeito invertido)
+
+**Coringa / serendipidade (`ser`)**:
+Valor-coringa nos DOIS eixos: **desamarra o eixo onde aparece** (objeto=`ser` → catálogo sem
+limite; abordagem=`ser` → sem lente fixa; `{ser,ser}` = liberdade máxima, ~1/28 por aritmética).
+Gate próprio (§5): o desamarrado é **real** (fora do circuito habitual, checável no lastro),
+ponte nomeada ao trabalho vivo em UMA linha, e os pisos valem inteiros — liberdade de onde/como
+olhar, **nunca de olhar pra nada nem de recontar**. Peso uniforme lançado; se ~36% de
+batidas-com-coringa for demais, o dial é o peso (§7).
+*Avoid*: random-como-desculpa (pisos valem), lazer (outro genus), os-dois-comuns-com-rótulo-ser

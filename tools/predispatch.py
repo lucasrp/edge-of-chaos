@@ -428,6 +428,9 @@ def main(argv=None):
     print(briefing_text)
     print("\n\n---\n")
     print(recall_text)
+    # A estrada do pool-fixo-de-temas morreu aqui (commit-to-remove; ADR-0024): a escolha
+    # de pauta é do Módulo Pauta — tools/pauta.py sortear → funil → propose — nunca um
+    # pool fixo no repo (§3.3 da tabela assinada).
 
 
 if __name__ == "__main__":

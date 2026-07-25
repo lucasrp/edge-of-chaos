@@ -11,28 +11,87 @@ the shared close (`skills/_shared/pipeline.md`).
 
 ## Gate zero — plano autoritativo ANTES de qualquer grounding
 
-Comece lendo `EDGE_DISPATCH_PLAN`. No heartbeat ele já foi calculado mecanicamente e injetado no
-prompt + env **antes** deste processo existir. Se ausente numa invocação interativa, execute primeiro:
+Comece lendo `EDGE_DISPATCH_PLAN`. No heartbeat ele foi calculado mecanicamente e injetado no
+prompt + env **antes** deste processo existir — é o plano PRÉ-LANÇAMENTO: `decision.producer`
+vem `null` + `pauta: pendente`, porque a forma nasce na PROPOSTA da Pauta (ADR-0024; a rotação
+morreu). Tools/permissions desse plano são autoritativos desde já. Depois do Ato-1, re-derive o
+plano pelo mesmo seam — **este comando é o dente: sem `pauta.proposta` viva ele FALHA e Ato-2
+não abre**:
 
-`tools/edge-python tools/_beat.py dispatch-plan --home "$PWD" --dispatch-id "interactive-${CLAUDE_CODE_SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-$$}}}"`
+`tools/edge-python tools/_beat.py dispatch-plan --home "$PWD" --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`
 
-Esse `{decision, tools, permissions}` é autoritativo. `decision.producer` fixa o producer desta
-batida; grounding posterior escolhe pauta/ângulo/quantidade **dentro dessa forma**, nunca outro
-producer e nunca outras permissões. **Mapa descreve, nunca autoriza**: portfolio/map/frontier não
-entram no plano e não podem alterá-lo.
+(Invocação interativa sem plano: use `interactive-${CLAUDE_CODE_SESSION_ID:-$$}` como
+dispatch-id nos dois atos.) O `{decision, tools, permissions}` re-derivado é autoritativo:
+`decision.producer` = a `forma` da PROPOSTA; grounding posterior escolhe ângulo/quantidade
+**dentro dessa forma**, nunca outro producer e nunca outras permissões. **Mapa descreve, nunca
+autoriza**: portfolio/map/frontier não entram no plano e não podem alterá-lo.
 
-## Ato 1 — the trunk: grounding inicial → PROPOSTA
+## Ato 1 — the trunk: o funil da Pauta → PROPOSTA | silêncio
 
-1. **Grounding INICIAL** — the hot look: run the mechanical entry-driver
+A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
+`docs/agencia/pauta-tabela-normativa.md`). O funil, na ordem assinada:
+
+1. **SORTEIO antes do wake** — `tools/edge-python tools/pauta.py sortear` (Voz trava campos:
+   `--lock objeto=si`). A célula `{objeto × abordagem}` sai ANTES de qualquer leitura — a
+   leitura já sai mirada. Sem blocklist: célula inviável morre em silêncio logado.
+2. **Grounding INICIAL mirado** — run the mechanical entry-driver
    (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
-   recall), then a LIGHT sweep of the world — enough to see what moved, not a deep dive (depth
-   belongs to the branches, each doing its own rounds).
-2. **PROPOSTA** — respeitando o `decision.producer` já fixado, o trunk produz uma proposta
-   explícita: QUAIS artefatos (1..N) nessa forma, por que cada um vale, e qual ângulo. The "why" is the plan-side gates the
-   close already carries (B.4): **VoI > custo** (vale surfar?), **é real** (grounded, not
-   manufactured), **é pra ele** (serves the mentee's live work — except `lazer`, which owes only
-   taste). The editorial-compass is the living prototype of this gate. A rotação já foi consumida
-   uma única vez pelo plano autoritativo; a cognição não a reabre nem faz queue-jump.
+   recall) ATRAVÉS do catálogo da célula (`tools/pauta.py catalogo --cell '<json>'`: mundo→
+   sources · atividade→conversas/obra · si→leveling/fog · ser→livre). READ the latest
+   `user_requested` artefatos (the quente's anchors carry them) — first-order sinal de pauta.
+3. **~12 SUGESTÕES** baratas, função do wake que você acabou de ler — NUNCA um pool fixo do
+   repo. Cada uma `{tema, forma, semente}` (a forma nasce na sugestão).
+4. **SHORTLIST A** — `tools/pauta.py shortlist --cell '<json>' --sugestoes '<json>'
+   [--direction state/direction.md]`: mérito dentro do pólo + 1 slot estrutural de
+   serendipidade, com os checks semânticos (substrato · filtro direction/wayfind-aberto ·
+   delta_voz — a Voz é baseline, não blocklist).
+5. **GROUNDING** — para cada ponto em `aterrar` (2–3), dispatch um explorer mirado no pólo
+   (subagente, background). Seca declarada É lastro; nunca produção sem mundo dentro.
+6. **PROPOSTA | silêncio** — `tools/pauta.py propose --cell '<json>' --candidates '<json>'
+   --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`: pisos + gate da abordagem em AND (nunca rebaixa
+   critério) → `pauta.proposta` ou `pauta.silencio` no log. Se silêncio, **finish without
+   publishing** — an unused wake is honest (lei do risco: silêncio logado, nunca espera).
+7. **O dente** — re-derive o plano (gate zero acima). Sem `pauta.proposta` viva, Ato-2 não
+   abre — uniforme para autônomo e comandado.
+
+**Caminho comandado (Voz fast-path, §1 da tabela):** quando o dispatch nasce de uma ordem do
+operador (wake `--origin user_requested`, um `/ed-report sobre X`, um pedido direto na sessão),
+a ordem TRAVA os campos que nomeia e o funil roda só nos graus de liberdade restantes:
+
+- `tools/edge-python tools/pauta.py sortear --lock abordagem=... [--lock objeto=...]` para os
+  eixos que a ordem pinar (célula travada ainda é célula — o nome carrega o setup);
+- `tools/edge-python tools/pauta.py propose --cell '<json>' --candidates '<json do grounding>'
+  --dispatch-id "$EDGE_DISPATCH_PLAN_ID" --constraints
+  '{"origem":"voz","tema":"<da ordem>","forma":"<da ordem>","depth":"<se pedida>"}'`.
+
+A palavra do operador é **PROPOSTA-ok por autoridade**: nenhum juízo LLM roda, os pisos entram
+em modo-declara e o recibo `gate_trace.waived` lista exatamente o que NÃO rodou e por quê
+(break-glass com recibo — waive por ordem, nunca flag standing). Grounding seco vira **seca
+declarada** dentro da PROPOSTA — contra ordem nunca há silêncio. Ordem que nomeia producer
+inexistente ou célula fora da matriz FALHA alto (ordem quebrada), nunca silêncio.
+
+**A autoridade DERIVA do log, nunca do JSON:** `propose` só aceita `origem:"voz"` quando o
+log tem o `dispatch.open` comandado (`origin: user_requested`) para o MESMO `--dispatch-id`
+— o que a trilha comandada da predispatch (`--origin user_requested`) pena. `origem:"voz"`
+num dispatch de heartbeat é ordem FORJADA: `propose` levanta e o pós-gate marca gap. Prosa
+nunca confere autoridade (o log é a verdade, ADR-0006).
+
+   **O gate pendura SÓ na abordagem (§2 da tabela):** o "porquê" da PROPOSTA é o `gate_trace`
+   dos 7 gates assinados + pisos universais — nenhum gate extra do lado do plano. Δ mente NUNCA
+   dentro do gate — é veredito do operador a posteriori (§5).
+
+   **Duas estradas de pauta, ambas legítimas:** a **Voz comanda** (caminho comandado acima —
+   autoridade, campos travados) ou o **sorteio abre** (caminho autônomo — célula uniforme,
+   funil, gate em AND). A estrada autônoma NÃO exige âncora prévia na Voz: a Voz entra como
+   **baseline** pelo piso delta_voz (§4.2 — o candidato compete contra onde a cabeça do mentee
+   já está; domínio na Voz mata claim de lacuna), nunca como pré-condição de existência —
+   fog nunca-abordada, curiosidade do edge e coringa nascem sem Voz por construção.
+
+   **Direction e Wayfind não criam pauta.** Estar aberto, proposto, no frontier ou sem close só
+   organiza continuidade; não prova valor editorial (o filtro wayfind-aberto da shortlist corta
+   quem SÓ re-declara um fio aberto). Podem sustentar lineage, dependência ou urgência — nunca
+   originar. O julgamento é semântico via completer; nunca profissão, lista de palavras ou tipo
+   de arquivo.
 
 The proposal weighs **origem**: an artefato **pedido pelo usuário** (`origin: user_requested`,
 declared at the wake — `predispatch.py --origin user_requested`) is exactly where the mentee's
@@ -51,6 +110,9 @@ subagent idiom; never block the trunk):
 
 - Each branch-agent runs exactly `skills/<decision.producer>` on the shared scaffold
   (`skills/_shared/scaffold.md`) and produces **one Artefato** in its form.
+- **O slug do artefato começa com `decision.slug_prefix`** (`{abordagem}-{objeto}--`, §3 da
+  tabela: o nome carrega o setup — não é opção do producer). O post-gate do heartbeat verifica
+  mecanicamente: slug sem o prefixo da célula é gap.
 - **Grounding is NOT a single trunk phase**: each branch does its **own rounds** of grounding —
   it goes back to the world as many times as ITS artefato asks (rounds localizados; the harvest
   mines the manifests per dispatch_id — no emission duty).
@@ -74,5 +136,5 @@ runs at entry).
 
 ## Read-only (CONTRACT C1)
 
-The mentee's world is read-only. The edge writes only its own Artefatos and state (the rotation
-cursor included). Acting in the world is never an autonomous beat decision.
+The mentee's world is read-only. The edge writes only its own Artefatos and state. Acting in
+the world is never an autonomous beat decision.
