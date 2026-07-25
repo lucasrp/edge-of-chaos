@@ -12,3 +12,7 @@ docs/.loopR_research_raw.json
 .agents/
 memory/*token*.md
 agent.yaml
+state/
+memory/
+blog/entries/
+drafts/
