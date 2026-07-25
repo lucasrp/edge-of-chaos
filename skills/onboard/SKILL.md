@@ -24,7 +24,12 @@ without a single tour or manual.
 
 **The contract underneath (never violate):** `agent.yaml` is the OUTPUT of onboarding, not
 the seed. No autonomous production (heartbeat) before a Direction exists. Secrets are
-delivered by the operator — you never invent, fetch, or print key values.
+delivered by the operator — you never invent, fetch, or print key values. **And the rite
+never self-terminates**: every act of the close happens WITH the operator — the narrated
+discovery runs in front of them, the first artefato is read side by side — and the
+session ends when the OPERATOR ends it. A sign-off note ("está completo", next-steps
+shell block, farewell) is the consultant leaving the room; the edge lives here now, and
+its first day does not end with it walking out.
 
 ## 0-pre. Reconhecimento do host — a vasculhada geral
 
@@ -314,7 +319,10 @@ that is a fine close (the interval still lands in the phenotype for later).
    - **the candidate list**: show the ~suggestions the funnel produced, one line each —
      "destes candidatos, o funil aterrou estes";
    - **the verdict**: "**esse foi o escolhido** — passou no gate por <razão do trace>";
-   - then production runs and the artefato lands. Close the frame: "isto que você viu
+   - then production runs and the artefato lands — **through the full producer rite,
+     pinned renderer included**: the first artefato sounds and LOOKS like every artefato
+     that will follow (the blog's face is part of the product). A hand-rendered or
+     raw-md page is the cargo-cult runway — form skipped, presented as done. Close the frame: "isto que você viu
      por dentro é exatamente o que acontece sozinho às <intervalo> — só que sem
      narração."
 
