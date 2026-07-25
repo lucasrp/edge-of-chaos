@@ -228,7 +228,12 @@ close; the wayfind is not a report to file, it is the instrument by which the me
 verifies being understood. **And the map LANDS as state, not just speech**: the session
 ends with the wayfind MAPPED in the install (the map opened through the bound surface,
 each confirmed hole/open branch already a created internal ticket with its one-line why)
-— the mentee walks away from day one with a live map and a queue, not a promise of one. The session may close only when BOTH directions hold: you
+— the mentee walks away from day one with a live map and a queue, not a promise of one.
+And the map is EARNED by the grill, never dumped at the end: each ticket traces to a
+branch the conversation actually grilled (the ledger's residue — a ticket the session
+never touched is fabrication), each hole was named and probed with the mentee, and the
+grill runs as long as it takes to make the map real. The wayfind is the grill's
+crystallization; without the grill behind it, it is scenery. The session may close only when BOTH directions hold: you
 can say who this person is, what moves them, and where they are going — and THEY
 confirm the map in their own words; and they can say what the edge will do for them —
 and YOU confirm it. Not when the pipeline is satisfied: the pipeline has
