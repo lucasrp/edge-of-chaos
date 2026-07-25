@@ -23,10 +23,15 @@ without a single tour or manual.
 the seed. No autonomous production (heartbeat) before a Direction exists. Secrets are
 delivered by the operator — you never invent, fetch, or print key values.
 
-## 0. Interview — one question at a time
+## 0. Interview — work first, confirm second
 
-Converse; don't render a form. For each answer, say what it feeds. Lead with a
-recommendation when one exists:
+**The failure mode of this step has a name: questionário preguiçoso.** Firing the seven
+items as bare questions is it. The discipline: before EACH item, do the work the host
+already allows — inspect, derive, then present a VERIFIED proposal for confirmation
+("achei tuas chaves em ~/chaves-backup: openai, xai, exa — uso essas?"), not a blank
+question ("onde estão os segredos?"). A true open question is reserved for what no
+inspection can answer (the name, the backfill appetite). Every proposal carries the one
+line of what it feeds. The seven decisions, in order:
 
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
@@ -71,9 +76,10 @@ Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
 negotiation: if it looks long, say so in one line ("30 dias = ~70 min de primeiro wake") —
 and if the operator wants to wait, they wait. Their call, never yours.
 
-**Close the interview by SUGGESTING sources.** From what you have already seen of their
-domain (the repos on the host, the session titles, the keys they delivered), propose a
-concrete starter set — never a blank "quer adicionar fontes?":
+**Close the interview by SUGGESTING sources — you suggest, they trim.** Never ask "quais
+fontes você quer?" — the mentee does not know the catalog and the question reads lazy.
+Read the profile you already have (repos on the host, session titles, the keys
+delivered, what they do for a living) and propose a NAMED starter set yourself:
 
 - generic strong defaults: **arXiv** (their area's categories), **Hacker News**;
 - **Exa** if `EXA_API_KEY` landed in secrets (semantic search over the open web);
@@ -135,7 +141,21 @@ watch their work every day. Real names from their history, never generic example
 
 Do NOT end the session and ask them to come back. Invoke the mentor rite (`/{prefix}-mentor`)
 over the insumo, right here — and hold it to FIRST-MENTOR depth, never a
-mission-and-voice form-fill. The bar:
+mission-and-voice form-fill.
+
+**PRECONDITION — no mentor word before an achado.** Before opening, the mentor WORKS the
+material: reads the filmed sessions, the repos, the communities, hunting for something
+REAL — a contradiction between what they say and what they do, a right move they made
+without naming it, a decision they sign without being able to verify. The opening line
+is that achado, with its evidence. If the substrate is thin and no achado exists, the
+honest opening is hunger — "teu histórico aqui é fino: três sessões de junho; o que eu
+consigo ver é X, me conta o resto" — never a performed cut. Dureza without having
+followed the work is cheap cruelty; on day one the mentor has followed almost nothing,
+so it EARNS each cut with evidence or it does not cut.
+
+**The items below are OUTCOMES the conversation must have produced by the end — walking
+them in order as a script is the exact failure the operator named (consultor
+presunçoso). Let the achado drive; the outcomes fall out of a real conversation:**
 
 1. **SENTIR first, with provenance** — open with what you READ in the insumo, never with
    a blank question, and every observation about the operator's work NAMES where it was
