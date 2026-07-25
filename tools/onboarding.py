@@ -869,6 +869,23 @@ def run_bootstrap(
     """Layout + secrets inventory + bootstrap.json. Never enables heartbeat."""
     home = Path(home).expanduser()
     name = require_name(name)
+    # #154: home que já pertence a OUTRO install = recusa (instalar por cima clobbera —
+    # caso ed×turing 2026-07-25, 3 colonizações num dia). Mesmo nome = re-bootstrap ok.
+    for probe, extract in ((home / "state" / "bootstrap.json",
+                            lambda s: (json.loads(s) or {}).get("name")),
+                           (home / "agent.yaml",
+                            lambda s: next((l.split(":", 1)[1].strip() for l in s.splitlines()
+                                            if l.startswith("name:")), None))):
+        if probe.is_file():
+            try:
+                owner = extract(probe.read_text())
+            except Exception:
+                owner = None
+            if owner and owner != name:
+                raise ValueError(
+                    f"--home {home} já pertence ao install '{owner}' ({probe.name}) — "
+                    f"instalar '{name}' por cima clobberaria (#154); escolha outro --home "
+                    "ou remova o install existente explicitamente")
     n = require_backfill_days(backfill_days)
     for d in ("blog/entries", "state", "memory", "threads", "secrets", "skills"):
         (home / d).mkdir(parents=True, exist_ok=True)

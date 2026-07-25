@@ -145,9 +145,20 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
         prefixes = ["ed"]
     rows = []
 
-    # 1. CLAUDE.md
-    _write_if_changed(claude_home / "CLAUDE.md", render_claude_md(cfg))
-    rows.append(f"CLAUDE.md → {claude_home / 'CLAUDE.md'}")
+    # 1. CLAUDE.md — #154: harness ocupado por OUTRO codename = fail loud, nunca
+    # overwrite (a identidade do ed foi clobberada 3x em 2026-07-25 por um install de
+    # teste). Mesmo codename = re-provision normal.
+    claude_md = claude_home / "CLAUDE.md"
+    my_name = str(cfg.get("codename") or cfg.get("name") or "").strip()
+    if claude_md.is_file() and my_name:
+        first = next((l.strip() for l in claude_md.read_text().splitlines() if l.strip()), "")
+        owner = first.lstrip("# ").strip()
+        if owner and owner != my_name:
+            raise RuntimeError(
+                f"{claude_md} pertence ao install '{owner}' — provisionar '{my_name}' "
+                "sobrescreveria a identidade dele (#154); este harness já tem dono")
+    _write_if_changed(claude_md, render_claude_md(cfg))
+    rows.append(f"CLAUDE.md → {claude_md}")
 
     # 1a. Retention guard — o Claude Code apaga transcripts velhos (cleanupPeriodDays,
     # default 30) no launch; as sessões SÃO a memória-substrato do edge (caso edgesandbox
