@@ -2,7 +2,7 @@
 
 The producer-loop every producer-skill inherits (ADR-0012). A producer-skill — `report`,
 `map`, `research`, `plan`, … — does **not** write its own loop. It inherits this scaffold,
-supplies the theme and the producing cognition, and fills three **role-defined slots**. The
+supplies the theme and the producing cognition, and fills three **role-defined slots**. **Theme policy (beats and autonomous producers):** the theme comes from the Pauta's `pauta.proposta` (ADR-0024 — o dente: sem proposta viva não abre Ato-2; read it via `tools/edge-python tools/pauta.py proposta --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`). The PROPOSTA carries tema/forma/faceta/lastro — the producer develops them in its form and never re-chooses the theme. Never seed from open-bet / exp ticket vocabulary. The
 loop structure and the context-denial ladder are the same for every producer; only the slot
 *content* differs.
 

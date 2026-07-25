@@ -121,11 +121,14 @@ def main() -> None:
         return
 
     dispatch_id = args.dispatch_id or _beat.mint_plan_dispatch_id()
-    voz, session, contract = _beat.runtime_dispatch_inputs(home, dispatch_id)
+    # PRE-LAUNCH plan (ADR-0024): no proposta exists before the agent runs the Pauta
+    # funnel — producer is explicitly pendente; the trunk re-derives the plan through
+    # the same seam (dispatch-plan CLI, require_pauta) before opening Ato-2.
     plan = _beat.dispatch_plan(
-        voz, session, contract, "lead", dispatch_id,
-        state_path=home / "state" / "beat" / "cursor.json",
+        "lead", dispatch_id,
         runtime_command=cmd,
+        log=home / "state" / "events" / "log.jsonl",
+        require_pauta=False,
     )
     prompt = _beat.bind_dispatch_plan(prompt, plan)
     child_env = _beat.build_beat_env(home)
@@ -158,8 +161,9 @@ def main() -> None:
         if rc != 0:
             sys.exit(rc)
 
-        gaps = _beat.assert_beat_produced(
-            log, before_count, expected_producer=plan["decision"]["producer"])
+        # Post-gate carries the dente: artefatos require a live pauta.proposta whose
+        # forma matches; a logged pauta.silencio is the honest no-produce (never punished).
+        gaps = _beat.assert_beat_produced(log, before_count, dispatch_id=dispatch_id)
     if gaps:
         for gap in gaps:
             print(f"edge-heartbeat: beat exited 0 but produced no corpus progress: {gap}",
