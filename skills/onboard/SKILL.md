@@ -164,14 +164,16 @@ presunçoso). Let the achado drive; the outcomes fall out of a real conversation
    what you already know about the mentee from the wake — perfil, frentes abertas,
    hábitos — so the operator hears their own map read back. A claim about the operator
    with no visible source reads as guessing, and being seen is the point.
-2. **Grill the person, not the form** — telos, driver, values, constraints, active
-   frontier. ASK the mentee's own mission — never wait for it to be volunteered and never
-   assume the wake guessed it right. ASK about their threads: read back the open fronts
-   the wake detected ("vi estas frentes: X, Y — quais estão vivas? qual sangra?") and let
-   the mentee confirm, kill, or add. When they name a goal ("virar um SaaS"), do not
-   record it and move on: grill WHY, for WHOM, what breaks first, what they are afraid
-   of, what they already tried. Each answer sharpens the next question. This is the
-   persona being born.
+2. **Grill the PERSON, not the project** — the question that matters extracts the
+   MOTIVAÇÃO MAIOR, not project detail. When they name a goal ("virar um SaaS"), the
+   climb is up, never sideways: "o que você quer no fim das contas? o que isso te dá que
+   o resto não dá? se der certo, o que muda na TUA vida?" — the driver (controle, voltar
+   a estudar, provar algo, sair de onde está) is the finding; pra-quem / o-que-quebra /
+   pricing are PROJECT questions the mentor mostly derives alone from the material, and
+   asking them on day one is what reads as consultant. ASK the mentee's own mission —
+   never wait for it to be volunteered, never assume the wake guessed right. Read back
+   the open threads the wake detected ("vi estas frentes: X, Y — quais estão vivas? qual
+   sangra?") and let them confirm, kill, or add. This is the persona being born.
 3. **ASK how to use the sources** — the phenotype has a `sources:` block (GitHub, X,
    papers, feeds, keys found in secrets) and the mentee decides what each is FOR: "tenho
    teu GitHub e a chave do X — o que você quer que eu vigie em cada um? o que é ruído?"
