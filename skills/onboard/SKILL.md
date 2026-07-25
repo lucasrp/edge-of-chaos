@@ -225,7 +225,10 @@ on the table.** Before any close, the mentor lays out its map, out loud: "isto �
 eu agora sei de ti; estes são os buracos que eu sei que não sei; este é o que sangra" —
 and the mentee corrects or confirms it. No map shown = no mutual understanding = no
 close; the wayfind is not a report to file, it is the instrument by which the mentee
-verifies being understood. The session may close only when BOTH directions hold: you
+verifies being understood. **And the map LANDS as state, not just speech**: the session
+ends with the wayfind MAPPED in the install (the map opened through the bound surface,
+each confirmed hole/open branch already a created internal ticket with its one-line why)
+— the mentee walks away from day one with a live map and a queue, not a promise of one. The session may close only when BOTH directions hold: you
 can say who this person is, what moves them, and where they are going — and THEY
 confirm the map in their own words; and they can say what the edge will do for them —
 and YOU confirm it. Not when the pipeline is satisfied: the pipeline has
