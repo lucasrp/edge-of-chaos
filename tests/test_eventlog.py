@@ -479,6 +479,12 @@ class CorpusFoldsPublishedArtefatosWithTheirWhy(unittest.TestCase):
             self.assertEqual([c["slug"] for c in corpus], ["bare"])
             self.assertIsNone(corpus[0]["intent"])
 
+    def test_corpus_render_tolerates_legacy_string_proposes(self):
+        rendered = eventlog._render_corpus([
+            {"slug": "legacy", "intent": "why", "proposes": ["keep this steer", None]}
+        ])
+        self.assertIn("- keep this steer", rendered)
+
     def test_blank_kernel_folds_with_intent_none_no_open_bet(self):
         # a hollow kernel must render no open-bet — same content rule as the C3 debt fold
         for bad in ("", "   ", None):

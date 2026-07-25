@@ -335,13 +335,13 @@ reason)` — a measurement never becomes an opinion.
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"<explain the insight the mentor reached, contextualized to the mentee's live work; end on what it changes>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'first_authorial_draft': lambda o: f"<explain the insight the mentor reached, contextualized to the mentee's live work; end on what it changes. WRITE FOR A READER WHO DID NOT LIVE THE SESSION and stands alone on re-read: NAME every referent the first time it appears and say what it IS (e.g. what the anti-PM skill / the mentor-to-PM collapse / the 2026-07-13 patch / Ato-1 actually are), EXPLAIN don't label — never drop a term-plus-referent and move on. NO bare inscription-slugs (#slug), ULIDs, or a date without what happened on it, as if the reader could resolve them — spell out the fact, cite the handle only in parentheses. Feynman-calibrated: spend the words on what is genuinely NEW, assume only what is truly shared. The mentee's own architecture (the edge itself) IS legitimate subject — ed dogfoods edge-of-chaos — so the fix is always to EXPLAIN the internal concept, never to avoid it.>\n\nDOSSIER:\n{o['grounding1_dossier']}",
         'gap_critique':          lambda o: f"<is the insight real and useful; what is asserted not shown>\n\n{o['first_authorial_draft']}",
         'grounding2_targeted':   lambda o: f"<targeted grounding closing the named gaps>\n\n{o['gap_critique']}",
         'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
         'fact_audit':            lambda o: f"<independent fact audit vs grounding1>\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
-        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup. ALSO cut any author-process preamble or changelog that is not reader-facing: a lead-in like 'Fixing only the four FAIL claims...' before the H1, or a trailing 'Changes: dropped...' after the body — those are process narration about how the draft was edited, never part of the artefact.>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
         'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
     }
 

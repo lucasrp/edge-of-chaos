@@ -125,7 +125,7 @@ class DispatchOpenCarriesIdentityAndSessionAnchor(unittest.TestCase):
 class MainPrintsTheMachineReadableLine(unittest.TestCase):
     """S2 — the live path is CLI → skill-snippet in separate processes: an in-process return
     does not cross, so main() prints `DISPATCH_ID=<id>` machine-readable on stdout and the
-    printed id is EXACTLY the one run() stamps (one mint, one identity)."""
+    printed id is EXACTLY the one run() stamps (one planned-or-minted identity)."""
 
     def test_main_prints_dispatch_id_line_matching_the_stamped_id(self):
         seen = {}
@@ -149,6 +149,19 @@ class MainPrintsTheMachineReadableLine(unittest.TestCase):
         self.assertEqual(printed, seen.get("dispatch_id"),
                          "the printed id must be the SAME identity run() stamps — "
                          "one mint per dispatch (E1)")
+
+    def test_main_reuses_the_authoritative_plan_dispatch_id(self):
+        seen = {}
+
+        def fake_run(**kw):
+            seen.update(kw)
+            return "B", "R"
+
+        with mock.patch.dict(os.environ, {"EDGE_DISPATCH_PLAN_ID": "beat-fixed"}), \
+             mock.patch.object(predispatch, "run", fake_run), \
+             redirect_stdout(io.StringIO()):
+            predispatch.main([])
+        self.assertEqual(seen.get("dispatch_id"), "beat-fixed")
 
     def test_main_passes_the_declared_flags_through(self):
         seen = {}

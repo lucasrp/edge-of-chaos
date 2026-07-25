@@ -4669,7 +4669,8 @@ def _render_corpus(items):
     for it in reversed(items):  # most-recent-first
         why = it.get("intent") or "_no intent recorded (C3 debt)_"
         lines.append(f"### {it['slug']}\n\n**why:** {why}\n")
-        steers = [p.get("body", "") for p in it.get("proposes", [])]
+        steers = [p.get("body") if isinstance(p, dict) else p for p in it.get("proposes", [])]
+        steers = [s for s in steers if isinstance(s, str) and s.strip()]
         if steers:
             lines.append("proposes:\n" + "\n".join(f"- {s}" for s in steers) + "\n")
     return "\n".join(lines)

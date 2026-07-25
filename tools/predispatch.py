@@ -407,7 +407,7 @@ def main(argv=None):
                         help="force portfolio-aware recall (UX.W-floor-employment) even on an "
                              "ambient beat origin — open maps/atividades stamp into the recall brief")
     args = parser.parse_args(argv)
-    dispatch_id = mint_dispatch_id()
+    dispatch_id = (os.environ.get("EDGE_DISPATCH_PLAN_ID") or "").strip() or mint_dispatch_id()
     # machine-readable FIRST (S2, E1 + gate D2): the skill-snippet reads this exact line off
     # the wake's stdout — but the real floor (sweep/recall degrades) PRINTS warnings of its
     # own, so run()'s stdout is CAPTURED and flushed AFTER the DISPATCH_ID line. The noise is
