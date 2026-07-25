@@ -125,10 +125,11 @@ def catalogo(cell):
 # chamada, AND mecânico. Δ mente NUNCA aqui — é veredito do operador a posteriori.
 GATES = {
     "fog": [
-        {"id": "a", "exigencia": "lacuna ancorada em UMA de 3 fontes: declarada "
-         "(mentor/wayfind marcou), nunca-abordada (existe no mundo/produto, zero Voz) ou "
-         "vibe-coded (existe e foi feito sem participação direta do mentee — logs "
-         "delegados provam existência E ausência); a fonte é nomeada e citada"},
+        {"id": "a", "exigencia": "lacuna NOMEADA. Âncora em uma das 3 fontes "
+         "(declarada / nunca-abordada / vibe-coded) FORTALECE e vai citada no "
+         "veredito quando existir — mas ausência de âncora JAMAIS reprova (operador "
+         "2026-07-25: wake é insumo, não coleira; a guarda contra lacuna falsa é o "
+         "delta_voz reverso — domínio na Voz mata a claim)"},
         {"id": "b", "exigencia": "caminho concreto de vir a saber: primeiro passo "
          "executável + material verificado; entrega em modo afirmação-com-evidência"},
     ],
@@ -142,11 +143,15 @@ GATES = {
          "profundo rebaixado a serviço do porquê, nunca entregável"},
     ],
     "estrategico": [
-        {"id": "a", "exigencia": "cita a Direction que toca (id); set: gate normal; "
-         "proposed: exigência extra — o artefato serve de evidência para o mentee "
-         "RATIFICAR ou DERRUBAR o fio (testa, não constrói sobre)"},
-        {"id": "b", "exigencia": "nomeia a decisão não-tomada + o custo de seguir sem "
-         "decidi-la (afirmado como aposta)"},
+        {"id": "a", "exigencia": "nomeia a decisão não-tomada (o fork) — SUBSTÂNCIA, "
+         "nunca fórmula: lacuna nomeada cujo custo compõe VALE mesmo com o custo "
+         "implícito; NUNCA reprove por redação. Âncora na Direction é ADVISORY: se "
+         "tocar um fio, cite o id no veredito; um fork genuinamente não-visto pode "
+         "ainda NÃO existir na Direction — ausência de âncora JAMAIS reprova "
+         "(operador 2026-07-25: o wake é insumo, não coleira)"},
+        {"id": "b", "exigencia": "o custo de seguir sem decidir é real e discernível "
+         "no material (explícito ou implícito-mas-derivável) — reprove só quando não "
+         "há custo algum, nunca porque a frase não tem forma de aposta"},
         {"id": "c", "exigencia": "abre obra ou muda rumo (espelho do zero-pré-requisito "
          "do operacional)"},
     ],
@@ -470,10 +475,12 @@ def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text=
         "shortlist/forma_fit"), "forma_fit")
     trace["forma_fit"] = "rodado"
 
-    # Piso substrato (§4.3, com a nuance vibe-coded — instrução única, adv r1 #14).
-    _apply_cut(_batch_cut(completer, A, _SUBSTRATO_INSTRUCAO,
-                          "shortlist/substrato"), "substrato")
-    trace["substrato"] = "rodado"
+    # Substrato: ADVISORY (operador 2026-07-25: "o wake é insumo, não coleira" —
+    # nenhuma âncora é eliminatória; a agência leu o wake; afastar-se dele é
+    # julgamento, não defeito). Roda e REGISTRA no trace; nunca corta.
+    _sub_adv = _batch_cut(completer, A, _SUBSTRATO_INSTRUCAO, "shortlist/substrato")
+    trace["substrato"] = ("advisory: " + "; ".join(str(v) for v in _sub_adv.values())
+                          if _sub_adv else "advisory: sem ressalvas")
 
     # Filtro direction/wayfind-aberto: Direction/Wayfind não CRIAM pauta — sustentam.
     if str(direction_text or "").strip():
@@ -691,13 +698,10 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
         # Piso substrato: SEMPRE re-julgado aqui do material bruto (adv r1 #1 — a
         # anotação da shortlist viajou pelo agente; a evidência tem o único voto).
         cuts = _batch_cut(judge, [cand], _SUBSTRATO_INSTRUCAO, "propose/substrato")
-        sub = ({"veredito": "reprova", "evidencia": cuts[0]} if 0 in cuts
-               else {"veredito": "passa"})
-        floors["substrato"] = sub
-        if sub.get("veredito") == "reprova":
-            por_candidato.append({"tema": cand.get("tema"), "morreu": "piso substrato",
-                                  "evidencia": sub.get("evidencia")})
-            continue
+        # ADVISORY (operador 2026-07-25: nenhuma âncora elimina — wake é insumo,
+        # não coleira). A ressalva vai no trace; o candidato segue.
+        floors["substrato"] = ({"veredito": "ressalva", "evidencia": cuts[0]}
+                               if 0 in cuts else {"veredito": "passa"})
         # Piso delta_voz: computado via voz_recall_fn (organ ausente OU rail escuro
         # devolvendo None → DECLARADO indisponível) — nunca fingido, nunca anotação
         # de agente. recall_status alimenta o alarme do fold (dig r2 #7: "downtime

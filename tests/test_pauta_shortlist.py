@@ -66,7 +66,7 @@ class ShortlistJudgesSemantically(unittest.TestCase):
         with self.assertRaises(ValueError):
             pauta.shortlist(self.CELL, [sug(i) for i in range(3)], completer=comp)
 
-    def test_substrato_check_cuts_with_quoted_evidence(self):
+    def test_substrato_is_advisory_never_cuts(self):
         sugestoes = [sug(i) for i in range(3)]
         comp = scripted([
             self._merit([0, 1, 2], ser=2),
@@ -74,9 +74,10 @@ class ShortlistJudgesSemantically(unittest.TestCase):
             json.dumps({"reprova": [{"idx": 0, "evidencia": "vem de log de agente delegado"}]}),
         ])
         out = pauta.shortlist(self.CELL, sugestoes, completer=comp)
-        self.assertNotIn("tema-0", [c["tema"] for c in out["A"]])
-        cortado = next(c for c in out["cortados"] if c["tema"] == "tema-0")
-        self.assertIn("delegado", cortado["checks"]["substrato"]["evidencia"])
+        # operador 2026-07-25: wake é insumo, não coleira — substrato NUNCA corta;
+        # a ressalva sobrevive no trace, o candidato fica no A.
+        self.assertIn("tema-0", [c["tema"] for c in out["A"]])
+        self.assertIn("advisory", out["trace"]["substrato"])
 
     def test_wayfind_filter_runs_only_with_direction_text_and_cuts(self):
         sugestoes = [sug(i) for i in range(3)]
@@ -169,10 +170,10 @@ class ShortlistJudgesSemantically(unittest.TestCase):
             json.dumps({"reprova": [{"idx": 2, "evidencia": "rastro de agente delegado"}]}),
         ])
         out = pauta.shortlist(self.CELL, sugestoes, completer=comp)
-        self.assertIn("substrato", out["trace"]["slot_ser"])
-        cortado = next(c for c in out["cortados"] if c.get("slot") == "ser")
-        self.assertEqual(cortado["tema"], "tema-2")
-        self.assertFalse([c for c in out["A"] if c.get("slot") == "ser"])
+        # operador 2026-07-25: substrato é advisory — o slot ser SOBREVIVE com a
+        # ressalva no trace (o corte-declarado agora só ocorre por pisos reais).
+        self.assertTrue([c for c in out["A"] if c.get("slot") == "ser"])
+        self.assertIn("advisory", out["trace"]["substrato"])
 
     def test_forma_fit_check_cuts_the_absurd_forma_with_evidence(self):
         # adv r3 #6 / §2 Forma: o critério assinado ("que desenvolvimento o candidato
