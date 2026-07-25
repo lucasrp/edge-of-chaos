@@ -192,8 +192,13 @@ failure. Let the achado drive; the outcomes fall out of a real conversation:**
    hábitos — so the operator hears their own map read back. A claim about the operator
    with no visible source reads as guessing, and being seen is the point.
 2. **Grill the PERSON, not the project** — the question that matters extracts the
-   MOTIVAÇÃO MAIOR, not project detail. When they name a goal ("virar um SaaS"), the
-   climb is up, never sideways: "o que você quer no fim das contas? o que isso te dá que
+   MOTIVAÇÃO MAIOR, not project detail. The session's BEST question is the one the
+   mentee did not know needed asking — the mentor skill's own first priority (the
+   unknown-unknown about the PERSON): hunt it with the out-of-the-box probe, the
+   enumeration edge ("o que você não listar — e existe — é o achado"), the decisions
+   they sign without being able to verify. A first mentor that only asks what the
+   mentee expected to be asked has not met them. When they name a goal ("virar um
+   SaaS"), the climb is up, never sideways: "o que você quer no fim das contas? o que isso te dá que
    o resto não dá? se der certo, o que muda na TUA vida?" — the driver (controle, voltar
    a estudar, provar algo, sair de onde está) is the finding; pra-quem / o-que-quebra /
    pricing are PROJECT questions the mentor mostly derives alone from the material, and
