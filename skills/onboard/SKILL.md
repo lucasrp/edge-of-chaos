@@ -76,17 +76,20 @@ Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
 negotiation: if it looks long, say so in one line ("30 dias = ~70 min de primeiro wake") —
 and if the operator wants to wait, they wait. Their call, never yours.
 
-**Close the interview by SUGGESTING sources — you suggest, they trim.** Never ask "quais
-fontes você quer?" — the mentee does not know the catalog and the question reads lazy.
-Read the profile you already have (repos on the host, session titles, the keys
-delivered, what they do for a living) and propose a NAMED starter set yourself:
+**Close by SUGGESTING sources — hunted by a real dig, not from your head.** Never ask
+"quais fontes você quer?" — the mentee does not know the catalog and the question reads
+lazy. Once the profile is rich enough (after the first wake, at the latest), run the dig
+rite (`/{prefix}-dig` — the grounded-research organ the producers use) with the mentee's
+profile as the question: *live sources in their domain* (feeds, APIs, normative diaries,
+tag-feeds, communities) *plus orientation material* (the 2-3 field maps worth their
+reading time). Narrate it as the demo it is: "isto é o dig — é assim que eu pesquiso
+antes de escrever qualquer coisa; cada perna varre um ângulo, e fonte sem chave eu
+declaro escura, nunca finjo". The dig's findings become the proposed set:
 
-- generic strong defaults: **arXiv** (their area's categories), **Hacker News**;
-- **Exa** if `EXA_API_KEY` landed in secrets (semantic search over the open web);
-- **X** if the xai key is there (community/practice signal);
-- 2-3 **domain-specific** ones inferred from their work — feeds, APIs, or communities
-  native to whatever the host shows they build (the pair changes per mentee; the
-  absence of a generic default is the proof the list came from the profile).
+- generic strong defaults the dig confirms or kills: **arXiv** (their area), **Hacker News**;
+- **Exa** if `EXA_API_KEY` landed in secrets; **X** if the xai key is there;
+- the **domain-specific** ones the dig surfaced — the part that changes per mentee, and
+  the proof the list came from the profile, not a template.
 
 Each with one line of what it would feed. **Source ≠ artefato:** a source is a CONTINUOUS
 feed the wake/delta/grounding consume (a normative diary, an API, a changelog, a tag-feed);
