@@ -319,7 +319,10 @@ that is a fine close (the interval still lands in the phenotype for later).
    - **the candidate list**: show the ~suggestions the funnel produced, one line each —
      "destes candidatos, o funil aterrou estes";
    - **the verdict**: "**esse foi o escolhido** — passou no gate por <razão do trace>";
-   - then production runs and the artefato lands. Close the frame: "isto que você viu
+   - then production runs and the artefato lands — **through the full producer rite,
+     pinned renderer included**: the first artefato sounds and LOOKS like every artefato
+     that will follow (the blog's face is part of the product). A hand-rendered or
+     raw-md page is the cargo-cult runway — form skipped, presented as done. Close the frame: "isto que você viu
      por dentro é exatamente o que acontece sozinho às <intervalo> — só que sem
      narração."
 
