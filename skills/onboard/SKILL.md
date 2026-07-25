@@ -23,6 +23,21 @@ without a single tour or manual.
 the seed. No autonomous production (heartbeat) before a Direction exists. Secrets are
 delivered by the operator — you never invent, fetch, or print key values.
 
+## 0-pre. Reconhecimento do host — a vasculhada geral
+
+Before the first question, survey the terrain — read-only, broad, everything the host
+lets you see: the repos and working trees (where are the git dirs, what do they build,
+how recent), the services alive (systemd user+system units, docker containers, crontabs,
+listening ports), the tooling installed (languages, CLIs, package managers), the data
+that accumulates (session stores of every harness, notable data dirs), and the obvious
+key/env candidates (never echoing values). Two minutes of `find`/`systemctl`/`docker ps`/
+`crontab -l` buy the whole rite its substance: this sweep is where the interview's
+verified proposals come from, where the mentee profile starts, and what the mentor's
+provenance cites later ("vi no teu host o serviço X rodando desde junho"). Say in one
+line what you are doing and that nothing leaves the machine. A guide that asks before
+looking is the lazy consultant; a guide that looked first never needs to ask what the
+host already answers.
+
 ## 0. Interview — work first, confirm second
 
 **This is a CONVERSATION — one decision per turn, each explained.** Two failure modes,
