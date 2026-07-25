@@ -25,13 +25,18 @@ recommendation when one exists:
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
    (the clone) and install home are different trees; say so.
-3. **Which CLIs** — the edge is multi-CLI (Claude / Codex / Grok, each on its own
-   subscription). Show what is already on the host (`which claude codex grok`) and ask
-   which they want; offer to install the missing ones they choose (e.g.
-   `npm i -g @anthropic-ai/claude-code`, `npm i -g @openai/codex`). Detection at bootstrap
-   is by harness home dir — a CLI installed now is a surface filmed forever.
-4. **Adversarial** — who reviews the primary's work. Three honest shapes; ask which:
-   - **another CLI** (best: real second opinion — `--adversarial codex --adversarial grok`);
+3. **Which CLIs, and which is PRIMARY** — the edge is multi-CLI (Claude / Codex / Grok /
+   Hermes, each on its own subscription). Show what is already on the host
+   (`which claude codex grok hermes`) and ask which they want; offer to install the
+   missing ones they choose (e.g. `npm i -g @anthropic-ai/claude-code`,
+   `npm i -g @openai/codex`, `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`).
+   Then ask which one LEADS (`--primary`, default claude) — any installed CLI can be the
+   primary; never assume. Detection at bootstrap is by harness home dir — a CLI installed
+   now is a surface filmed forever.
+4. **Adversarial** — who reviews the primary's work. SYMMETRIC: whatever the primary is,
+   the candidates are the OTHER installed CLIs (codex primary → claude/grok adversarial;
+   claude primary → codex/grok; and so on). Three honest shapes; ask which:
+   - **another CLI** (best: real second opinion — `--adversarial <cli>`, repeatable);
    - **an API key** they will drop in secrets (review route via key, no second CLI);
    - **self-fallback** (no flags: the primary reviews itself — works, weakest; say so).
 5. **Secrets & embeddings** — where their keys are NOW. You will create `<home>/secrets/`
@@ -44,7 +49,12 @@ recommendation when one exists:
    - **any OpenAI-compatible endpoint** — `--embedding-base-url` + `--embedding-var`;
    - **none** — declared-dark, FTS covers search; can be added later by re-running bootstrap.
    Model override: `--embedding-model`. Never echo key values.
-6. **Backfill days** — how much session history the first wake reads. Before accepting,
+6. **Heartbeat cadence** — how often the autonomous pulse fires once ignited
+   (`--heartbeat-interval`, e.g. `8h`; recommend 8h — ed's own cadence). Explain the
+   trade-off in one line: shorter = more presence and more spend; the dial moves later by
+   editing `heartbeat_interval` in `agent.yaml`. Whether it ignites AT ALL is still
+   confirmed at the close (step 5), not here — this question only sets the rhythm.
+7. **Backfill days** — how much session history the first wake reads. Before accepting,
    run the cost check:
 
 ```bash
@@ -87,12 +97,33 @@ stamps `state/onboarding-insumo.md` — a wake package WITHOUT Direction, becaus
 does not exist yet. Explain: "this is me reading your last N days so the mentor session
 starts knowing you, not from a cold form."
 
-## 4. Emenda — the first mentor, same session
+## 4. Emenda — the first mentor, same session. THE conversation.
 
 Do NOT end the session and ask them to come back. Invoke the mentor rite (`/{prefix}-mentor`)
-over the insumo, right here. That session births **objective / Direction / leveling** — the
-two things only a human can give. This is the second human stop; everything before and
-after is yours.
+over the insumo, right here — and hold it to FIRST-MENTOR depth. **A conversa inicial é
+quem fideliza**: a shallow mission-and-voice form-fill here produces a mentor nobody
+returns to. The bar (operador 2026-07-25, after watching a 3-exchange "mentor" close an
+install):
+
+1. **SENTIR first** — open with what you READ in the insumo ("eu olhei teu trabalho e vi
+   X"), never with a blank question. The operator must feel seen before being asked.
+2. **Grill the person, not the form** — telos, driver, values, constraints, active
+   frontier. When they name a goal ("virar um SaaS"), do not record it and move on: grill
+   WHY, for WHOM, what breaks first, what they are afraid of, what they already tried.
+   Each answer sharpens the next question. This is the persona being born.
+3. **Direction is BORN and STAMPED** — out of the grill, name the direction the work
+   points (the decision-shaped thread, not a task list) and stamp it
+   (`direction.proposed`) so the install starts with a live Direction, not an empty one.
+4. **Trigger the internal wayfind and grill OVER it** — from the insumo + the grill, lay
+   out the map of known-unknowns (what the mentor knows it does not know about this
+   operator's terrain: the fog census). Show the map, then grill the operator ON it:
+   "these are the three holes I see — which one bleeds?" The wayfind is a conversation
+   piece here, not a background artifact.
+5. **Only then** distill mission and voice for the close. Never close after 1–2
+   exchanges; the mentor conducts until the operator has seen themselves mapped — that
+   moment is the product.
+
+This is the second human stop; everything before and after is yours.
 
 ## 5. Close — phenotype, heartbeat, local access
 
@@ -100,13 +131,15 @@ With mission and voice out of the mentor session:
 
 ```bash
 tools/edge-python tools/edge-bootstrap finish --home <home> \
-  --mission "<from mentor>" --voice "<from mentor>" --enable-heartbeat
+  --mission "<from mentor>" --voice "<from mentor>" \
+  --heartbeat-interval <from interview> --enable-heartbeat
 ```
 
 `finish` writes `agent.yaml` (the phenotype — now it may exist) and `--enable-heartbeat`
-ignites the autonomous pulse (`systemctl --user enable --now edge-heartbeat.timer` +
-linger, so it survives logout). Confirm the timer with the operator before igniting — an
-operator who wants to drive by hand first says no, and that is a fine close.
+renders the timer at the interviewed cadence and ignites the autonomous pulse
+(`edge-heartbeat.timer` + linger, so it survives logout). Confirm the ignition with the
+operator before flipping it — an operator who wants to drive by hand first says no, and
+that is a fine close (the interval still lands in the phenotype for later).
 
 Then show the local surface:
 

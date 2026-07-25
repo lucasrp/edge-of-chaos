@@ -137,20 +137,56 @@ def container_exists(container, run=subprocess.run) -> bool:
     return bool(out.strip())
 
 
-def provision_neo4j(home, env_dir, run=subprocess.run, _password=None):
+READY_TIMEOUT_S = 120   # 1º boot do neo4j aplica a senha inicial — ~1min típico
+READY_POLL_S = 3
+
+
+def _wait_neo4j_ready(password, run, _sleep, container=NEO4J_CONTAINER):
+    """Bloqueia até um RETURN 1 AUTENTICADO responder (docker exec cypher-shell).
+
+    Sem isso, os primeiros cheques do install chegam antes da senha inicial ser aplicada,
+    acumulam falhas de auth e disparam AuthenticationRateLimit — envenenando os primeiros
+    minutos da instalação (caso edgesandbox 2026-07-25). Fail-loud no timeout."""
+    waited = 0
+    while waited <= READY_TIMEOUT_S:
+        res = run(["docker", "exec", container, "cypher-shell",
+                   "-u", "neo4j", "-p", password, "RETURN 1"],
+                  capture_output=True, text=True)
+        if getattr(res, "returncode", 1) == 0:
+            return
+        _sleep(READY_POLL_S)
+        waited += READY_POLL_S
+    raise RuntimeError(
+        f"neo4j não ficou pronto em {READY_TIMEOUT_S}s (container {container}) — "
+        "veja `docker logs edge-neo4j`; não siga o install com o grafo surdo")
+
+
+def provision_neo4j(home, env_dir, run=subprocess.run, _password=None, _sleep=None):
     """Provision the per-host Neo4j (#18). Fail loud if Docker is absent. Idempotent: if the
-    container already exists, do not re-run it (and reuse the existing secret). Otherwise generate a
-    password, write the secret, and `docker run` the pinned 5.x image. Returns the secret path."""
+    container already exists AND this install's secret exists, no-op. Container existente
+    SEM secret neste home = este install co-habita um neo4j de outro (hosts compartilhados,
+    ex. petertosh+roberto) — fail loud com instrução, nunca devolver caminho de arquivo
+    inexistente. Otherwise generate a password, write the secret, `docker run` the pinned
+    5.x image and WAIT until an authenticated ping succeeds. Returns the secret path."""
     home = Path(home)
+    _sleep = _sleep or __import__("time").sleep
     if not docker_present(run=run):
         raise RuntimeError(
             "Docker is absent — the graph is mandatory on every host (ADR-0011); "
             "install Docker before edge-apply (no Tier-0 install target)")
+    secret_path = Path(env_dir) / "neo4j.env"
     if container_exists(NEO4J_CONTAINER, run=run):
-        return Path(env_dir) / "neo4j.env"          # already provisioned — idempotent no-op
+        if secret_path.is_file():
+            return secret_path                       # already provisioned — idempotent no-op
+        raise RuntimeError(
+            f"container {NEO4J_CONTAINER} já existe mas {secret_path} não — este install "
+            "co-habita o neo4j de outro install neste host. Copie o neo4j.env do install "
+            "dono do container para os secrets deste home (separação por graph_group), ou "
+            "remova o container (`docker rm -fv edge-neo4j` — DESTRÓI o grafo existente)")
     password = _password or generate_neo4j_password()
     secret_path = write_neo4j_secret(env_dir, password)
     _run(run, neo4j_run_command(home, password), "docker run neo4j")
+    _wait_neo4j_ready(password, run, _sleep)
     return secret_path
 
 

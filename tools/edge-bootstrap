@@ -106,6 +106,7 @@ def cmd_finish(args) -> int:
             voice=args.voice or "",
             mentee=args.mentee,
             enable_heartbeat=bool(args.enable_heartbeat),
+            heartbeat_interval=args.heartbeat_interval,
         )
     except (ValueError, RuntimeError) as e:
         print(f"edge-bootstrap finish: {e}", file=sys.stderr)
@@ -153,6 +154,8 @@ def main(argv=None) -> int:
     f.add_argument("--voice", default="")
     f.add_argument("--mentee", default=None)
     f.add_argument("--enable-heartbeat", action="store_true")
+    f.add_argument("--heartbeat-interval", default=None,
+                   help="cadência do pulso autônomo (ex. 8h, 3h) — da entrevista")
 
     args = ap.parse_args(argv)
     if args.cmd == "finish":

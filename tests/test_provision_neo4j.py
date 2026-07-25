@@ -116,8 +116,13 @@ class ProvisionNeo4j(unittest.TestCase):
             _sh.which = lambda name: "/usr/bin/docker"
             try:
                 # docker info rc 0; docker ps -aq → "abc123" (container already there)
+                # o secret DESTE install existe — sem ele, container-existente é o caso
+                # co-habitação e falha alto (test_provision_neo4j_readiness.py)
+                env = Path(tmp) / "secrets"
+                env.mkdir()
+                (env / "neo4j.env").write_text("EDGE_NEO4J_PASSWORD=x\n")
                 rec = _Recorder(rcs=[0, 0], stdouts=["", "abc123\n"])
-                _provision.provision_neo4j(tmp, Path(tmp) / "secrets", run=rec)
+                _provision.provision_neo4j(tmp, env, run=rec)
                 # NO docker run when the container already exists (idempotent)
                 run_calls = [c for c in rec.calls if "run" in c and "docker" in c]
                 self.assertEqual(run_calls, [], "must not re-run an existing Neo4j container")

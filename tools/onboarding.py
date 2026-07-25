@@ -371,6 +371,7 @@ def bootstrap_cfg(
     embedding: Optional[dict],
     inventory: Optional[dict] = None,
     primary: str = "claude",
+    heartbeat_interval: str = "8h",
 ) -> dict:
     """Minimal phenotype-shaped cfg for bootstrap (pre–agent.yaml).
 
@@ -424,7 +425,7 @@ def bootstrap_cfg(
         "routers": routers,
         "sources": sources,
         "surfaces": surfaces_block,
-        "heartbeat_interval": "8h",
+        "heartbeat_interval": heartbeat_interval or "8h",
     }
     if inventory is not None:
         # durable inventory of *names* present at emit (not values)
@@ -641,6 +642,7 @@ def emit_phenotype(
     mission: str = "",
     voice: str = "",
     mentee: Optional[str] = None,
+    heartbeat_interval: Optional[str] = None,
 ) -> Path:
     """Write agent.yaml as onboarding output (atomic)."""
     import yaml
@@ -662,6 +664,7 @@ def emit_phenotype(
         backfill_days=int(boot["backfill_days"]),
         adversarials=cast,
         embedding=emb,
+        heartbeat_interval=heartbeat_interval or boot.get("heartbeat_interval") or "8h",
         inventory=inv,
         primary=cast.get("primary") or "claude",
     )
@@ -759,9 +762,13 @@ def finish_onboarding(
     voice: str = "",
     mentee: Optional[str] = None,
     enable_heartbeat: bool = False,
+    heartbeat_interval: Optional[str] = None,
     run=None,
 ) -> Path:
-    """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable."""
+    """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable.
+
+    O intervalo vem da ENTREVISTA do onboarding (operador 2026-07-25) — entra no fenótipo e
+    no render do .timer (install_heartbeat), nunca só no systemctl enable."""
     home = Path(home).expanduser()
     import grill_gate
     import eventlog as _eventlog
@@ -769,14 +776,17 @@ def finish_onboarding(
     log_path = log if log is not None else _eventlog.LOG
     grill_gate.assert_grill_complete(log=log_path)
     path = emit_phenotype(
-        home, mission=mission, voice=voice, mentee=mentee
+        home, mission=mission, voice=voice, mentee=mentee,
+        heartbeat_interval=heartbeat_interval,
     )
     if enable_heartbeat:
+        import yaml
         import _provision
         kwargs = {}
         if run is not None:
             kwargs["run"] = run
-        _provision.enable_heartbeat(**kwargs)
+        cfg = yaml.safe_load(path.read_text()) or {}
+        _provision.install_heartbeat(cfg, home, **kwargs)   # renderiza timer com o intervalo + enable
     return path
 
 
