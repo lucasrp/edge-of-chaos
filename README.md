@@ -31,6 +31,46 @@ The whole daily surface is two skills, on whichever CLI you're in:
 
 `/edge-wake` to activate. `/edge-mentor` to reflect and calibrate. Everything else (reports, research, maps) hangs off those two.
 
+### What waking looks like
+
+```text
+~ $ claude → /edge-wake
+
+# waking: reading every CLI surface on this host…
+claude   47 sessions · codex   12 sessions · grok   9 sessions
+# consolidating one state from all of them
+
+where you left off   the auth refactor — you said "ship by Friday", it's Tuesday
+the open bet         you bet the flaky test was the queue, not the DB.
+                     evidence landed: it was the DB
+the drift            3 sessions on a new side-quest this week. your stated
+                     goal didn't change — your behavior did
+
+one memory · one direction · your move
+```
+
+### What mentoring looks like
+
+```text
+~ $ claude → /edge-mentor
+
+edge  I read this week's sessions. You spent four of them building a
+      cache layer for a service that has eleven users. Before we talk
+      about the cache — why this, why now?
+
+you   performance was bothering me
+
+edge  Nothing in your sessions shows a user complaining or a slow
+      endpoint measured. What I do see: the launch task you named as
+      the goal on Monday, untouched since Tuesday. I think the cache
+      is comfortable and the launch is scary. Tell me I'm wrong.
+
+you   ...you're not wrong
+
+edge  Then let's write the bet down: ship the launch task by Friday,
+      cache stays parked. I'll bring this back if it slips — that's my job.
+```
+
 ---
 
 ## What you get
