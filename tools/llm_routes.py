@@ -15,8 +15,11 @@ import shutil
 from pathlib import Path
 
 import _llm
+import _identity as _id_state
 
-REPO = Path(__file__).resolve().parent.parent
+# Config root (agent.yaml + secrets/): EDGE_HOME-first num install geno/home separado
+# (finding do sandbox 2026-07-25); legado home==repo inalterado.
+REPO = _id_state.identity_path("agent.yaml").parent
 
 # A rota que exige endpoint de embedding — fora do alcance dos providers de assinatura.
 EMBEDDING_ROUTE = "embedding"

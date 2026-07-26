@@ -130,7 +130,8 @@ def _adoption_event(slug, skill, spec, visual_flags):
     return payload
 
 REPO = Path(__file__).resolve().parent.parent
-BLOG_DIR = REPO / "blog" / "entries"
+import _identity as _id_state
+BLOG_DIR = _id_state.state_root() / "blog" / "entries"   # fenotipo: home do install, nunca o genotipo
 BASE_CSS = Path(__file__).resolve().parent / "assets" / "base.css"
 BASE_JS = Path(__file__).resolve().parent / "assets" / "page.js"
 
@@ -1982,6 +1983,9 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
     fully re-derivable from the log via `_render_page`'s markdown branch) → THEN the exact
     page bytes via temp+rename. C3 (intent kernel) and the ADR-0016 wake gate ride the same
     atomic call. Returns the publication receipt the rite seals as its terminal stage."""
+    if blog_dir is None:
+        blog_dir = BLOG_DIR    # None de caller (rito blog_dir default) nunca vira crash no estagio 11
+
     import rito  # lazy: rito ↔ publisher may not import each other at module scope
     run_dir = Path(run_dir)
     manifest_path = run_dir / rito.MANIFEST_NAME
