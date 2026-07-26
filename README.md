@@ -18,6 +18,21 @@ one memory  ·  one direction  ·  real mentor, not assistant cosplay
 
 ---
 
+## Daily use — two commands
+
+The whole daily surface is two skills, on whichever CLI you're in:
+
+```text
+> /edge-wake     # switch the mentor on — it reads every CLI surface and renders
+                 # where you actually are; unfinished work goes back on the table
+> /edge-mentor   # reflect and calibrate — sharpen direction, place the bets,
+                 # get pushed back when your behavior drifts from your goal
+```
+
+`/edge-wake` to activate. `/edge-mentor` to reflect and calibrate. Everything else (reports, research, maps) hangs off those two.
+
+---
+
 ## What you get
 
 - **Multi-CLI continuity** — skills and session film on every harness present on the host (Claude / Codex / Grok / Hermes).
