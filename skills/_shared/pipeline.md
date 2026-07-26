@@ -212,7 +212,11 @@ pointers** and hands off to the publisher (via the Agent tool) with a **brief + 
 intent_kernel, slug, spec_path, cites_path, proposes_path, distills_path, lineage_path}`. The publisher
 runs the **whole close** in a clean process — the genus contract, the two blind reviewers, the
 **mechanical** improve loop, the mint, the render, the atomic publish — and returns a typed **pull-channel**
-`{status, slug, url, cost, residuals, rationales, bounce_reason}`. Moving the heavy publish machine off the
+`{status, slug, url, cost, residuals, rationales, bounce_reason}`. **The handoff is a BLOCKING Agent
+call in the same turn — nunca `run_in_background`, nunca terminar o turno com o close em voo**: em
+headless (`claude -p`, o beat) o fim do turno mata o processo e o close morre não-logado (lei do
+turno, skills/beat). Esperar os ~6 min do close em foreground é o custo correto; a janela do MAIN
+continua poupada porque o close roda no processo do subagente, não no contexto. Moving the heavy publish machine off the
 MAIN is the point: it **stalled the producer >4min inline**, and it never needed the rich context (the
 close's rungs 4-5 are already context-denied).
 
