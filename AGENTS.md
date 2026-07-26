@@ -1,24 +1,27 @@
-# edge — leia antes de instalar
+# edge — read this before you install
 
-(Guarda de clone-fresco para harnesses que leem `AGENTS.md` — Codex, Hermes e afins.
-Conteúdo espelha o `CLAUDE.md` da raiz; em divergência, os dois devem ser editados juntos.)
+(Fresh-clone guard for harnesses that read `AGENTS.md` — Codex, Hermes, and similar.
+Mirrors root `CLAUDE.md`; if they diverge, edit both together.)
 
-## Se este é um clone fresco (você ainda não é um install)
+## If this is a fresh clone (you are not an install yet)
 
-Este repositório é **genótipo sem identidade**: não existe `agent.yaml` aqui — cada host
-escreve o seu como SAÍDA do onboarding (o arquivo é untracked/gitignored de propósito).
+This repository is **genotype without identity**: there is no `agent.yaml` here — each host
+writes its own as the **output** of onboarding (the file is untracked / gitignored on purpose).
 
-- **NÃO** fabrique um `agent.yaml` nem rode `edge-apply` — essa é a estrada legada para
-  um fenótipo que JÁ pertence a um host vivo.
-- **SIM**: siga o rito guiado em `skills/onboard/SKILL.md` — entreviste o operador
-  (nome, pasta, CLIs, adversarial, segredos/embeddings, dias de backfill com cheque de
-  custo), conduza a instalação inteira explicando cada passo e emende no primeiro mentor.
-  `agent.yaml` é a SAÍDA do onboarding, nunca a semente.
+- **Do not** invent an `agent.yaml` or run `edge-apply` — that path is for a phenotype that
+  **already** belongs to a live host.
+- **Do** follow the guided rite in `skills/onboard/SKILL.md` — interview the operator
+  (name, home folder, CLIs, adversarials, secrets/embeddings, backfill days with a **cost
+  check**), run the full install while explaining each step, and hand off into the first mentor.
+  `agent.yaml` is the **output** of onboarding, never the seed.
 
-Como saber: se `state/bootstrap.json` não existe e ninguém te disse que este diretório é
-um install vivo, trate como clone fresco e pergunte primeiro.
+How to tell: if `state/bootstrap.json` does not exist and nobody told you this directory is a
+live install, treat it as a fresh clone and ask first.
 
-## Se este é um install vivo
+**House language:** documentation and install defaults are **en-US**. Operator session language
+can still follow phenotype `agent.yaml` `language:` after install.
 
-Operação normal — `CONTEXT.md` é o mapa, `CONTRACT.md` o contrato, `docs/adr/` as
-decisões.
+## If this is a live install
+
+Normal operation — `CONTEXT.md` is the map, `CONTRACT.md` the contract, `docs/adr/` the
+decisions.
