@@ -16,6 +16,9 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from functools import wraps
+
+import runtime_policy
 
 # Operator-facing chat surfaces the edge films. Rationalization plans over all three.
 SURFACES = ("claude", "codex", "grok")
@@ -732,3 +735,27 @@ def delta(path, since_line: int, surface="claude"):
             watermark -= 1          # leave the half-flushed tail for the next sweep
             new = new[:-1]
     return _turns_from_lines(new, surface=surface), watermark
+
+# Public ingestion choke point. Legacy parsers remain private for migration/unit evidence,
+# but every operational name fails before resolving paths or opening transcript files.
+def _dark_session_reader(fn):
+    @wraps(fn)
+    def blocked(*args, **kwargs):
+        runtime_policy.require_session_ingestion_ready()
+        return fn(*args, **kwargs)
+    return blocked
+
+
+_legacy_list_sessions = list_sessions
+_legacy_list_codex_sessions = list_codex_sessions
+_legacy_list_grok_sessions = list_grok_sessions
+_legacy_dialogue_turns = dialogue_turns
+_legacy_read_turns = read_turns
+_legacy_current_session_anchor = current_session_anchor
+
+list_sessions = _dark_session_reader(_legacy_list_sessions)
+list_codex_sessions = _dark_session_reader(_legacy_list_codex_sessions)
+list_grok_sessions = _dark_session_reader(_legacy_list_grok_sessions)
+dialogue_turns = _dark_session_reader(_legacy_dialogue_turns)
+read_turns = _dark_session_reader(_legacy_read_turns)
+current_session_anchor = _dark_session_reader(_legacy_current_session_anchor)

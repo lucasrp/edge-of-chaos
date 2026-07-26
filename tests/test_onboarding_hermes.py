@@ -51,12 +51,12 @@ class HermesEstimate(unittest.TestCase):
 
 class HermesAdversarialAndRouters(unittest.TestCase):
     def test_hermes_member_maps_to_review_hermes_route_without_model(self):
-        cast = onboarding.resolve_adversarial_cast(["hermes"], primary="claude")
-        adv = onboarding._adversarials_for_cfg(cast, "claude")
+        cast = onboarding.resolve_adversarial_cast(["hermes"], primary="hermes")
+        adv = onboarding._adversarials_for_cfg(cast, "hermes")
         self.assertEqual(adv["hermes"]["route"], "review_hermes")
         self.assertEqual(adv["hermes"]["auth"], "subscription")
         self.assertNotIn("model", {k: v for k, v in adv["hermes"].items() if v})
-        routers = onboarding._routers_for_cfg(cast, "claude", None)
+        routers = onboarding._routers_for_cfg(cast, "hermes", None)
         self.assertEqual(routers["review_hermes"]["provider"], "hermes")
         self.assertIsNone(routers["review_hermes"].get("model"))
 

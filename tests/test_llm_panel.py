@@ -17,13 +17,11 @@ AGENT_YAML = """\
 name: tester
 routers:
   chat:
-    provider: openai
-    secret_ref: openai.env:OPENAI_API_KEY
-    model: gpt-5.4
+    provider: hermes
+    model: default
   review:
-    provider: xai
-    secret_ref: xai.env:XAI_API_KEY
-    model: grok-4.3
+    provider: hermes
+    model: default
   embedding:
     provider: openai
     secret_ref: openai.env:OPENAI_API_KEY
@@ -67,8 +65,11 @@ class TestLLMPanel(unittest.TestCase):
         r = self.client.get("/llm")
         self.assertEqual(r.status_code, 200)
         body = r.data.decode()
-        for needle in ("chat", "review", "embedding", "gpt-5.4", "grok-4.3", "openai", "xai"):
+        for needle in ("chat", "review", "embedding", "default", "hermes", "openai"):
             self.assertIn(needle, body)
+        self.assertNotIn('<option value="codex"', body)
+        self.assertNotIn('<option value="grok"', body)
+        self.assertNotIn('<option value="claude"', body)
 
     def test_embedding_route_is_separated_with_subscription_warning(self):
         body = self.client.get("/llm").data.decode()
@@ -79,13 +80,14 @@ class TestLLMPanel(unittest.TestCase):
         self.assertIn("insufficient_quota", body)
         self.assertIn("429", body)
 
-    def test_switch_provider_rewrites_agent_yaml(self):
+    def test_external_completion_provider_is_refused_without_write(self):
+        before = (self.root / "agent.yaml").read_bytes()
         r = self.client.post("/llm/provider", data={"route": "review", "provider": "codex"})
-        self.assertIn(r.status_code, (302, 303))
-        self.assertIn("provider: codex", (self.root / "agent.yaml").read_text())
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual((self.root / "agent.yaml").read_bytes(), before)
 
-    def test_codex_on_embedding_is_refused_with_400(self):
-        r = self.client.post("/llm/provider", data={"route": "embedding", "provider": "codex"})
+    def test_external_embedding_provider_is_refused_with_400(self):
+        r = self.client.post("/llm/provider", data={"route": "embedding", "provider": "xai"})
         self.assertEqual(r.status_code, 400)
         self.assertIn("provider: openai", (self.root / "agent.yaml").read_text())
 
@@ -99,7 +101,7 @@ class TestLLMPanel(unittest.TestCase):
     def test_writes_require_authorization(self):
         os.environ["EDGE_DASH_AUTH"] = "on"
         try:
-            r = self.client.post("/llm/provider", data={"route": "review", "provider": "codex"},
+            r = self.client.post("/llm/provider", data={"route": "review", "provider": "hermes"},
                                  environ_base={"REMOTE_ADDR": "10.9.9.9"})
             self.assertin_403_family(r.status_code)
         finally:

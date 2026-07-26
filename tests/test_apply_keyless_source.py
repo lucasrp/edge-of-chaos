@@ -9,6 +9,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -31,6 +32,21 @@ class KeylessSource(unittest.TestCase):
 
     def tearDown(self):
         self._tmp.cleanup()
+
+    def test_hermes_router_is_keyless_and_probed_without_secret(self):
+        router = {"provider": "hermes", "model": "default"}
+        cfg = {"routers": {"chat": router}}
+        client = object()
+        with mock.patch.object(edge_apply._llm, "make_client", return_value=client) as make_client,              mock.patch.object(
+                 edge_apply._llm, "probe",
+                 return_value={"ok": True, "status": 200, "detail": "synthetic ok"},
+             ) as probe:
+            rows = edge_apply.verify_credentials(self.home, cfg)
+        row = next(r for r in rows if "router:chat" in r[0])
+        self.assertTrue(row[2], row)
+        self.assertNotIn("FALTA", row[1])
+        make_client.assert_called_once_with(router, None)
+        probe.assert_called_once_with(client, "default", "chat")
 
     def test_keyless_api_source_does_not_crash(self):
         cfg = {"sources": [{"name": "hn", "kind": "api", "via": "GET ..."}]}

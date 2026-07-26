@@ -77,8 +77,9 @@ import _envconf                     # noqa: E402  # EDGE_GROUNDING_FLOOR knob (S
 # never rewritten, the interpretation is versioned.
 RECOGNIZER_REV = 1
 
-STORE_ROOT = Path.home() / ".claude" / "projects"
+STORE_ROOT = None
 import _identity as _id_state
+import runtime_policy
 CURSORS = _id_state.state_root() / "state" / "harvest-cursors.json"
 
 # Opaque-script recognition (B2) is a CATEGORY, not a source registry: a script is opaque
@@ -1670,6 +1671,7 @@ def harvest(log=eventlog.LOG, cursors_path=CURSORS, project_dirs=None, store_roo
     whose per-file VALUE is corrupt (non-int, bool, negative) clamps THAT entry to 0 — either
     way flagged + printed, and the ranked/brute dedup makes the re-read a no-op. Everything
     else is fail-dark per row, counted and printed."""
+    runtime_policy.require_session_ingestion_ready()
     if project_dirs is not None:
         dirs = [Path(p) for p in project_dirs]
         if not any(d.is_dir() for d in dirs):
@@ -1819,6 +1821,7 @@ def session_floor(session_id, recognizers=None, store_root=None):
     read). Returns {"reads", "recognized", "dark", "reason"} and NEVER raises: a floor that
     cannot see is a counted `grounding.floor_dark` (S6), not a crash in the close."""
     try:
+        runtime_policy.require_session_ingestion_ready()
         surface, _raw_id = sessions_mod.split_session_anchor(session_id)
         if surface == "codex":
             session = sessions_mod.find_codex_session(session_id)

@@ -43,8 +43,8 @@ The scaffold names three role-defined slots; map maps each to its connections-di
 - **`gather-grounding`** (loop1) — **recall first, then DIRECT reads by the main agent** (`scaffold.md`,
   #61): **recall** (`skills/_shared/memory.md`) pulls the connections you already mapped on this theme from
   the edge's own graph, so you extend the web rather than redraw it; then **you** cross **both** the
-  internal context pool (Claude sessions, GitHub, the projects' CONTEXT.md, the Knowledge clusters) **and
-  the world** (exa, the field, adjacent industries) — internal edges AND the **outward bridge**: the named
+  internal context pool (Hermes sessions when the native reader is available, GitHub, the projects'
+  CONTEXT.md, the Knowledge clusters) **and the world** (exa, the field, adjacent industries)
   concept/pattern/practice out there that each entity rhymes with — the **rich context stays in you** to
   see the relations. Explorers are an **optional fan-out for breadth** — fan a subagent per candidate
   relation or per entity's world-connection when the web is wide enough to warrant parallelism, **not the

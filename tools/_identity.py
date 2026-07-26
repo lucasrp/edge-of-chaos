@@ -16,6 +16,8 @@ secret; no literal default (CONTRACT C4)."""
 import os
 from pathlib import Path
 
+import runtime_policy
+
 REPO = Path(__file__).resolve().parent.parent
 
 
@@ -78,7 +80,8 @@ def require_group(agent_yaml=AGENT_YAML):
 
 
 def project_dir():
-    """The mentee's Claude transcript store for THIS install (ADR-0015). EDGE_PROJECT_DIR env →
+    runtime_policy.require_session_ingestion_ready()
+    """Legacy transcript locator, unreachable until a Hermes-native reader exists. EDGE_PROJECT_DIR →
     derived from the running $HOME per the Claude store convention (/home/x →
     ~/.claude/projects/-home-x). FAIL-LOUD: a store directory that does not exist raises —
     "nothing new" is reserved for a real store with nothing new, never for scanning a foreign or

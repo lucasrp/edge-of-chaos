@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import runtime_policy
+
 PROVIDER_BASE_URLS = {
     "openai": "https://api.openai.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
@@ -218,14 +220,25 @@ _SUBSCRIPTION_CLIENTS = {"codex": CodexClient, "claude": ClaudeClient, "grok": G
                          "hermes": HermesClient}
 
 
-def make_client(router: dict, api_key: str):
-    provider = router.get("provider")
+def make_client(router: dict, api_key: str = None, *, exec_fn=None):
+    """Build a completion client. Hermes is the only public completion harness."""
+    provider = runtime_policy.require_allowed_harness(router.get("provider"))
     if provider in SUBSCRIPTION_PROVIDERS:
-        return _SUBSCRIPTION_CLIENTS[provider]()
+        return _SUBSCRIPTION_CLIENTS[provider](exec_fn=exec_fn)
     from openai import OpenAI
     base = resolve_base_url(router)
     if not base:
         raise ValueError(f"provider sem base_url no registry: {router.get('provider')!r}")
+    return OpenAI(base_url=base, api_key=api_key)
+
+
+def make_embedding_client(router: dict, api_key: str):
+    """Build the API-only embedding client after closed-policy validation."""
+    runtime_policy.require_allowed_embedding_router(router)
+    from openai import OpenAI
+    base = resolve_base_url(router)
+    if not base:
+        raise ValueError(f"embedding provider sem base_url: {router.get('provider')!r}")
     return OpenAI(base_url=base, api_key=api_key)
 
 

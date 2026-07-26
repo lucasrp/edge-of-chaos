@@ -15,6 +15,7 @@ import shutil
 from pathlib import Path
 
 import _llm
+import runtime_policy
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -22,6 +23,13 @@ REPO = Path(__file__).resolve().parent.parent
 EMBEDDING_ROUTE = "embedding"
 
 KNOWN_PROVIDERS = tuple(_llm.PROVIDER_BASE_URLS) + _llm.SUBSCRIPTION_PROVIDERS
+
+
+def allowed_providers_for_route(route: str) -> tuple[str, ...]:
+    """Options exposed by public route mutation surfaces."""
+    if route == EMBEDDING_ROUTE:
+        return tuple(sorted(runtime_policy.ALLOWED_EMBEDDING_PROVIDERS))
+    return ("hermes",)
 
 
 def _load_routers(repo):
@@ -92,7 +100,7 @@ def embed_fn(repo=REPO):
     key = _secret_value(repo, r.get("secret_ref"))
     if not key:
         return None
-    client = _llm_mod().make_client(r, key)
+    client = _llm_mod().make_embedding_client(r, key)
     model = r.get("model") or "text-embedding-3-small"
     return lambda text: client.embeddings.create(
         model=model, input=text).data[0].embedding
@@ -105,7 +113,10 @@ def probe_route(route, repo=REPO):
         return {"ok": False, "status": None, "detail": f"rota desconhecida: {route!r}"}
     r = routers[route]
     try:
-        client = _llm.make_client(r, _secret_value(repo, r.get("secret_ref")))
+        if route == EMBEDDING_ROUTE:
+            client = _llm.make_embedding_client(r, _secret_value(repo, r.get("secret_ref")))
+        else:
+            client = _llm.make_client(r, _secret_value(repo, r.get("secret_ref")))
     except Exception as e:  # noqa: BLE001 — provider fora do registry etc.
         return {"ok": False, "status": None, "detail": str(e)[:140]}
     kind = "embedding" if route == EMBEDDING_ROUTE else "chat"
@@ -116,14 +127,17 @@ def set_provider(route, provider, repo=REPO, model=None):
     """Troca o provider (e opcionalmente o modelo) de UMA rota no agent.yaml do host,
     por cirurgia de linha — todo o resto do arquivo (comentários inclusos) intacto.
     Recusa rota/provider desconhecidos e provider de assinatura na rota embedding."""
-    if provider not in KNOWN_PROVIDERS:
-        raise ValueError(f"provider desconhecido: {provider!r} (conheço {KNOWN_PROVIDERS})")
     routers = _load_routers(repo)
     if route not in routers:
         raise ValueError(f"rota desconhecida: {route!r} (agent.yaml tem {tuple(routers)})")
-    if route == EMBEDDING_ROUTE and provider in _llm.SUBSCRIPTION_PROVIDERS:
-        raise ValueError("a rota embedding não roteia via assinatura (sem endpoint de "
-                         "embedding) — precisa de chave de API ou modelo local")
+    if route == EMBEDDING_ROUTE:
+        candidate = dict(routers[route])
+        candidate["provider"] = provider
+        if model is not None:
+            candidate["model"] = model
+        runtime_policy.require_allowed_embedding_router(candidate)
+    else:
+        runtime_policy.require_allowed_harness(provider)
 
     path = Path(repo) / "agent.yaml"
     lines = path.read_text().splitlines(keepends=True)
@@ -157,14 +171,7 @@ def completer_for(route, repo=REPO, max_tokens=4000, exec_fn=None):
     if route not in routers:
         raise ValueError(f"rota desconhecida: {route!r}")
     r = routers[route]
-    if r.get("provider") in _llm.SUBSCRIPTION_PROVIDERS:
-        client = _llm._SUBSCRIPTION_CLIENTS[r["provider"]](exec_fn=exec_fn)
-    else:
-        key = _secret_value(repo, r.get("secret_ref"))
-        if not key:
-            raise _llm.LLMTransportError(
-                f"rota {route!r} ({r.get('provider')}): credencial ausente "
-                f"({r.get('secret_ref')})")
-        client = _llm.make_client(r, key)
+    runtime_policy.require_allowed_harness(r.get("provider"))
+    client = _llm.make_client(r, exec_fn=exec_fn)
     model = r.get("model")
     return lambda prompt: _llm.complete(client, model, prompt, max_tokens=max_tokens)

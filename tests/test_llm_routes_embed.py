@@ -1,5 +1,5 @@
 """llm_routes.embed_fn — o adapter de embeddings em RUNTIME: routers.embedding do
-agent.yaml → callable text→vector via _llm.make_client (base_url explícito vence o
+agent.yaml → callable text→vector via _llm.make_embedding_client (base_url explícito vence o
 registry — azure/custom entram por aí). Rota ausente ou sem chave = None (caller escurece).
 """
 import sys
@@ -57,7 +57,7 @@ class EmbedFn(unittest.TestCase):
                 "    model: text-embedding-3-large\n"),
                 secret=("azure.env", "AZURE_OPENAI_API_KEY=k1\n"))
             fake = _FakeClient()
-            with mock.patch.object(llm_routes._llm_mod(), "make_client",
+            with mock.patch.object(llm_routes._llm_mod(), "make_embedding_client",
                                    return_value=fake) as mk:
                 fn = llm_routes.embed_fn(repo=root)
                 vec = fn("hello")

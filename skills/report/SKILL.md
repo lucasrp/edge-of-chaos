@@ -41,7 +41,8 @@ The scaffold names three role-defined slots; report maps each to its prose-synth
 - **`gather-grounding`** (loop1) — **recall first, then DIRECT reads by the main agent** (`scaffold.md`,
   #61): **recall** (`skills/_shared/memory.md`) pulls what you already wrote on this theme from the edge's
   own graph, so you build on prior depth rather than restate it; then **you** read the pool the synthesis
-  stands on (Claude sessions, GitHub, exa, the projects' CONTEXT.md) — the **rich context stays in you**,
+  stands on (Hermes sessions when the native reader is available, GitHub, exa, the projects'
+  CONTEXT.md) — the **rich context stays in you**,
   which is what gives the synthesis its **real cases and depth** (a thin `{source, ref}` handed back loses
   the founding context). Explorers are an **optional fan-out per facet for breadth** — when the theme has
   independent facets worth parallelism — **not the default grounding path**. Depth comes from evidence

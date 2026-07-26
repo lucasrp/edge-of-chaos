@@ -16,12 +16,11 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/ para importar _llm
 import _llm
-import _claude_provision
-import _codex_provision
-import _grok_provision
 import _hermes_provision
 import _provision
 import _validate
+import runtime_policy
+
 
 
 def render_caddyfile(home: Path, yaml_path: str) -> None:
@@ -94,14 +93,20 @@ def verify_credentials(home: Path, cfg: dict, env_dir: Path = None) -> list:
     contra env_dir (agent.yaml → <home>/secrets/, C4)."""
     rows = []
     for name, r in (cfg.get("routers") or {}).items():
-        key = _read_secret(home, r.get("secret_ref", ""), env_dir) if r.get("secret_ref") else None
-        if not key:
-            rows.append((f"router:{name} ({r.get('provider')})", "FALTA (sem key)", False))
-            continue
         try:
             model = r.get("model", "")
             kind = "embedding" if ("embed" in name.lower() or "embed" in model.lower()) else "chat"
-            res = _llm.probe(_llm.make_client(r, key), model, kind)
+            if kind == "embedding":
+                runtime_policy.require_allowed_embedding_router(r)
+                key = _read_secret(home, r.get("secret_ref", ""), env_dir) if r.get("secret_ref") else None
+                if not key:
+                    rows.append((f"router:{name} ({r.get('provider')})", "FALTA (sem key)", False))
+                    continue
+                client = _llm.make_embedding_client(r, key)
+            else:
+                runtime_policy.require_allowed_harness(r.get("provider"))
+                client = _llm.make_client(r, None)
+            res = _llm.probe(client, model, kind)
             tag = f"router:{name} ({r.get('provider')}/{r.get('model')})"
             rows.append((tag, f"OK — {res['detail']}", True) if res["ok"]
                         else (tag, f"FALHA {res['status']} — {res['detail']}", False))
@@ -124,52 +129,48 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--yaml", required=True)
     ap.add_argument("--home")
-    ap.add_argument("--claude-home",
-                    help="target ~/.claude dir (default: real ~/.claude). "
-                         "Tests/smoke-runs MUST point this at a tmp dir.")
-    ap.add_argument("--codex-home",
-                    help="target Codex home dir (default: CODEX_HOME or real ~/.codex). "
-                         "Tests/smoke-runs MUST point this at a tmp dir.")
-    ap.add_argument("--grok-home",
-                    help="target Grok home dir (default: GROK_HOME or real ~/.grok). "
-                         "Tests/smoke-runs MUST point this at a tmp dir.")
-    ap.add_argument("--hermes-home",
-                    help="target Hermes home dir (default: HERMES_HOME or real ~/.hermes). "
-                         "Tests/smoke-runs MUST point this at a tmp dir.")
-    ap.add_argument("--provision-runtime", action="store_true",
-                    help="provision the mandatory graph runtime: venv (#20), per-host Neo4j via "
-                         "Docker (#18), and the systemd heartbeat timer (#19). Fails loud on a "
-                         "missing prerequisite (ADR-0011). Off by default (files-only apply).")
+    ap.add_argument(
+        "--hermes-home",
+        default=os.environ.get("HERMES_HOME"),
+        help="dedicated Hermes profile home; must not be the global ~/.hermes",
+    )
+    ap.add_argument(
+        "--provision-runtime",
+        action="store_true",
+        help="reserved; currently rejected until Hermes heartbeat parity is implemented",
+    )
     ap.add_argument("--validate", action="store_true",
                     help="validate the install only: report each substrate check and exit nonzero "
                          "if broken (no provisioning, no file placement).")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.yaml).read_text()) or {}
+    try:
+        runtime_policy.require_hermes_only_runtime_config(cfg)
+        if args.provision_runtime:
+            raise runtime_policy.RuntimePolicyError(
+                "runtime provisioning is blocked until Hermes heartbeat parity is implemented"
+            )
+    except runtime_policy.RuntimePolicyError as exc:
+        print(f"edge-apply: {exc}", file=sys.stderr)
+        sys.exit(2)
     home = Path(os.path.expanduser(args.home or cfg.get("edge_home") or "~/edge/"))
     env_dir = resolve_env_dir(home, cfg)               # agent.yaml env_dir → <home>/secrets/ (C4)
     import surfaces_cfg
-    claude_home = Path(os.path.expanduser(args.claude_home)) if args.claude_home \
-        else Path.home() / ".claude"
-    if args.codex_home:
-        codex_home = Path(os.path.expanduser(args.codex_home))
-    else:
-        codex_home = surfaces_cfg.surface_home("codex", cfg=cfg) or Path.home() / ".codex"
-    if args.grok_home:
-        grok_home = Path(os.path.expanduser(args.grok_home))
-    else:
-        grok_home = surfaces_cfg.surface_home("grok", cfg=cfg) or Path.home() / ".grok"
-    if args.hermes_home:
-        hermes_home = Path(os.path.expanduser(args.hermes_home))
-    else:
-        hermes_home = surfaces_cfg.surface_home("hermes", cfg=cfg) or Path.home() / ".hermes"
 
     if args.validate:
         report, healthy = _validate.format_report(_validate.validate_install(
             home, cfg, env_dir, provisioned=True, repo_tools=REPO / "tools",
-            agent_yaml=Path(args.yaml)))      # identity validates the APPLIED config, not the default
+            agent_yaml=Path(args.yaml), memory=home / "memory",
+            log=home / "state" / "events.jsonl"))
         print(report)
         sys.exit(0 if healthy else 1)
+
+    try:
+        hermes_home = runtime_policy.require_dedicated_hermes_home(args.hermes_home)
+    except runtime_policy.RuntimePolicyError as exc:
+        print(f"edge-apply: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     for d in ("blog/entries", "state", "memory", "threads", "secrets"):
         (home / d).mkdir(parents=True, exist_ok=True)
@@ -186,50 +187,16 @@ def main() -> None:
         mem.write_text("# MEMORY\n")
 
     print(f"apply: instalado em {home}")
-    # Multi-CLI: provision every harness installed on this host (claude + codex + grok).
-    # Assemble later films every surface that is installed + enabled (see surfaces_cfg).
     installed = surfaces_cfg.detect_installed_surfaces()
-    print(f"apply: surfaces installed on host → {installed}")
-    # Ensure phenotype carries surfaces for everything installed (first-run / thin yaml)
+    print(f"apply: surfaces detected for audit → {installed}")
     if not (cfg.get("surfaces") or {}):
-        cfg["surfaces"] = surfaces_cfg.surfaces_block_for_installed()
-        print(f"apply: surfaces block defaulted to installed harnesses → {list(cfg['surfaces'])}")
+        cfg["surfaces"] = {"hermes": {"enabled": True, "home": str(hermes_home)}}
+        print("apply: surfaces block defaulted to Hermes-only")
 
-    print(f"apply: provisionando Claude skills em {claude_home}")
-    for row in _claude_provision.provision_claude(cfg, REPO, claude_home):
+    print(f"apply: provisionando Hermes skills em {hermes_home}")
+    for row in _hermes_provision.provision_hermes(cfg, REPO, home, hermes_home):
         print(f"  - {row}")
-    if surfaces_cfg.provision_surface("codex", cfg=cfg) or installed.get("codex"):
-        print(f"apply: provisionando Codex skills em {codex_home}")
-        for row in _codex_provision.provision_codex(cfg, REPO, home, codex_home):
-            print(f"  - {row}")
-    else:
-        print("apply: Codex not installed / disabled — skip provision")
-    if surfaces_cfg.provision_surface("grok", cfg=cfg) or installed.get("grok"):
-        print(f"apply: provisionando Grok skills em {grok_home}")
-        for row in _grok_provision.provision_grok(cfg, REPO, home, grok_home):
-            print(f"  - {row}")
-    else:
-        print("apply: Grok not installed / disabled — skip provision")
-    if surfaces_cfg.provision_surface("hermes", cfg=cfg) or installed.get("hermes"):
-        print(f"apply: provisionando Hermes skills em {hermes_home}")
-        for row in _hermes_provision.provision_hermes(cfg, REPO, home, hermes_home):
-            print(f"  - {row}")
-    else:
-        print("apply: Hermes not installed / disabled — skip provision")
 
-    if args.provision_runtime:
-        print("apply: provisionando o runtime (graph obrigatório — ADR-0011)")
-        verify_required_secrets(home, cfg, env_dir)    # C4: fail loud per missing required key
-        print(f"  - secrets verificados em {env_dir}")
-        _provision.build_venv(home, REPO / "requirements.txt")
-        print(f"  - venv → {home / '.venv'} (deps de requirements.txt)")
-        secret = _provision.provision_neo4j(home, env_dir)
-        print(f"  - neo4j (docker, {_provision.NEO4J_IMAGE}) → senha em {secret}")
-        _provision.install_heartbeat(cfg, home)
-        print(f"  - heartbeat timer (systemd --user, OnUnitActiveSec="
-              f"{cfg.get('heartbeat_interval', '3h')}) instalado + enable --now")
-        _provision.check_headless_auth()
-        print("  - headless-auth: claude -p autentica sem TTY")
 
     print("credenciais (adapter testado no apply):")
     missing = False
@@ -238,25 +205,13 @@ def main() -> None:
         if ok is False:
             missing = True
     if missing:
-        print("aviso: há credenciais ausentes/com falha — corrija antes do heartbeat real")
+        print("aviso: há credenciais ausentes/com falha — corrija antes do runtime real")
 
-    report, healthy = _validate.format_report(_validate.validate_install(
-        home, cfg, env_dir, provisioned=args.provision_runtime, repo_tools=REPO / "tools",
-        agent_yaml=Path(args.yaml)))           # identity validates the APPLIED config, not the default
+    report, _healthy = _validate.format_report(_validate.validate_install(
+        home, cfg, env_dir, provisioned=False, repo_tools=REPO / "tools",
+        agent_yaml=Path(args.yaml), memory=home / "memory",
+        log=home / "state" / "events.jsonl"))
     print(report)
-    if args.provision_runtime and not healthy:
-        # AUTHORITATIVE: a PROVISIONED install that comes up unhealthy must NOT finish claiming
-        # success (today it exits 0 regardless). Best-effort: don't leave the heartbeat timer enabled
-        # on a broken install (it would dispatch a lobotomized beat); at minimum exit nonzero so the
-        # operator/automation sees the failure. (Files-only apply keeps its "report, don't block"
-        # contract — it legitimately runs before secrets are delivered.)
-        try:
-            subprocess.run(["systemctl", "--user", "disable", "--now", "edge-heartbeat.timer"],
-                           check=False)
-        except Exception:
-            pass
-        print("apply: install UNHEALTHY — heartbeat timer disabled (best-effort), see [XX] above")
-        sys.exit(1)
     sys.exit(0)
 
 

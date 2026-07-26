@@ -201,11 +201,14 @@ def require_backfill_days(cli_value: Optional[int | str], env: Optional[dict] = 
 def resolve_adversarial_cast(
     members: Optional[list[str]],
     *,
-    primary: str = "claude",
+    primary: str = "hermes",
     available: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    """Who runs blind review. Empty/unavailable → self (primary model)."""
-    primary = (primary or "claude").strip() or "claude"
+    """Who runs blind review. Empty/unavailable → self (primary Hermes model)."""
+    import runtime_policy
+
+    runtime_policy.require_allowed_harness(primary)
+    runtime_policy.require_allowed_adversarials(members)
     requested = [m.strip().lower() for m in (members or []) if m and str(m).strip()]
     # de-dupe preserve order
     seen = set()
@@ -436,14 +439,24 @@ def bootstrap_cfg(
     adversarials: dict,
     embedding: Optional[dict],
     inventory: Optional[dict] = None,
-    primary: str = "claude",
+    primary: str = "hermes",
     heartbeat_interval: str = "8h",
+    hermes_home: Optional[Path | str] = None,
 ) -> dict:
     """Minimal phenotype-shaped cfg for bootstrap (pre–agent.yaml).
 
     Always declares ``env_dir`` as the install secrets folder (CONTRACT C4): the operator
     delivers keys there; apply/onboarding only read. Values never enter this cfg.
     """
+    import runtime_policy
+
+    runtime_policy.require_allowed_harness(primary)
+    runtime_policy.require_allowed_adversarials(adversarials.get("members") if adversarials else None)
+    if adversarials and adversarials.get("primary"):
+        runtime_policy.require_allowed_harness(adversarials["primary"])
+    dedicated_hermes_home = None
+    if hermes_home is not None:
+        dedicated_hermes_home = runtime_policy.require_dedicated_hermes_home(hermes_home)
     home_p = Path(home).expanduser()
     home_s = str(home_p)
     if home_s.startswith(str(Path.home())):
@@ -464,16 +477,11 @@ def bootstrap_cfg(
     routers = _routers_for_cfg(cast, cast.get("primary") or primary, embedding)
     # neo4j is not a router — graph password lives in secrets/neo4j.env (EDGE_NEO4J_PASSWORD)
     sources = _sources_from_inventory(inventory)
-    # Multi-CLI: declare every surface installed on this host (claude + codex + grok)
-    try:
-        import surfaces_cfg as _surfaces
-        surfaces_block = _surfaces.surfaces_block_for_installed()
-    except Exception:
-        surfaces_block = {
-            "claude": {"enabled": True},
-            "codex": {"enabled": True, "home": "~/.codex"},
-            "grok": {"enabled": True, "home": "~/.grok"},
-        }
+    # Authorization is deterministic and never depends on host autodetection.
+    hermes_surface: dict[str, Any] = {"enabled": True}
+    if dedicated_hermes_home is not None:
+        hermes_surface["home"] = str(dedicated_hermes_home)
+    surfaces_block = {"hermes": hermes_surface}
     cfg: dict[str, Any] = {
         "name": name,
         "codename": name,
@@ -723,7 +731,7 @@ def emit_phenotype(
     emb = boot.get("embedding")
     if emb is None:
         emb = embedding_from_inventory(inv)
-    cast = boot.get("adversarials") or resolve_adversarial_cast([], primary="claude")
+    cast = boot.get("adversarials") or resolve_adversarial_cast([], primary="hermes")
     cfg = bootstrap_cfg(
         home=home,
         name=boot["name"],
@@ -732,7 +740,8 @@ def emit_phenotype(
         embedding=emb,
         heartbeat_interval=heartbeat_interval or boot.get("heartbeat_interval") or "8h",
         inventory=inv,
-        primary=cast.get("primary") or "claude",
+        primary=cast.get("primary") or "hermes",
+        hermes_home=boot.get("hermes_home"),
     )
     if mission:
         cfg["mission"] = mission
@@ -831,10 +840,15 @@ def finish_onboarding(
     heartbeat_interval: Optional[str] = None,
     run=None,
 ) -> Path:
-    """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable.
+    """Mentor close seam: grill_gate must pass, then emit phenotype.
 
-    O intervalo vem da ENTREVISTA do onboarding (operador 2026-07-25) — entra no fenótipo e
-    no render do .timer (install_heartbeat), nunca só no systemctl enable."""
+    Autonomous heartbeat is intentionally fail-closed until Hermes-native parity exists.
+    """
+    if enable_heartbeat:
+        import runtime_policy
+        raise runtime_policy.RuntimePolicyError(
+            "heartbeat enablement is blocked until Hermes-native parity is implemented"
+        )
     home = Path(home).expanduser()
     import grill_gate
     import eventlog as _eventlog
@@ -845,14 +859,6 @@ def finish_onboarding(
         home, mission=mission, voice=voice, mentee=mentee,
         heartbeat_interval=heartbeat_interval,
     )
-    if enable_heartbeat:
-        import yaml
-        import _provision
-        kwargs = {}
-        if run is not None:
-            kwargs["run"] = run
-        cfg = yaml.safe_load(path.read_text()) or {}
-        _provision.install_heartbeat(cfg, home, **kwargs)   # renderiza timer com o intervalo + enable
     return path
 
 
@@ -862,11 +868,18 @@ def run_bootstrap(
     name: str,
     backfill_days: int,
     adversarials: Optional[list[str]] = None,
-    primary: str = "claude",
+    primary: str = "hermes",
     provision_skills: bool = True,
+    hermes_home: Optional[Path | str] = None,
     embedding_choice: Optional[dict] = None,
 ) -> dict:
     """Layout + secrets inventory + bootstrap.json. Never enables heartbeat."""
+    import runtime_policy
+
+    runtime_policy.require_allowed_harness(primary)
+    runtime_policy.require_allowed_adversarials(adversarials)
+    if provision_skills:
+        hermes_home = runtime_policy.require_dedicated_hermes_home(hermes_home)
     home = Path(home).expanduser()
     name = require_name(name)
     # #154: home que já pertence a OUTRO install = recusa (instalar por cima clobbera —
@@ -902,6 +915,8 @@ def run_bootstrap(
         "embedding": emb,
         "edge_home": str(home),
     }
+    if hermes_home is not None:
+        payload["hermes_home"] = str(hermes_home)
     persist_bootstrap(home, **payload)
     stamp_secrets_cursor(home, inv)
     cfg = bootstrap_cfg(
@@ -912,6 +927,7 @@ def run_bootstrap(
         embedding=emb,
         inventory=inv,
         primary=primary,
+        hermes_home=hermes_home,
     )
     # Doctrine seeds → install memory (o purge 2026-07-25 tirou memory/ do genótipo e
     # levou a doutrina junto — method/personality/canone são CORE, o wake exige space-0).
@@ -952,36 +968,23 @@ def run_bootstrap(
     if provision_skills:
         try:
             import surfaces_cfg
-            import _claude_provision
-            import _grok_provision
-            import _codex_provision
             import _hermes_provision
 
             repo = Path(__file__).resolve().parent.parent
             installed = surfaces_cfg.detect_installed_surfaces()
             provisioned = []
-            # Always try all installed harnesses (operator: install on claude + codex + grok)
-            if installed.get("claude", True):
-                claude_home = Path.home() / ".claude"
-                for row in _claude_provision.provision_claude(cfg, repo, claude_home):
-                    provisioned.append(f"claude: {row}")
-            if installed.get("codex", False) or surfaces_cfg.provision_surface("codex", cfg=cfg):
-                codex_home = Path.home() / ".codex"
-                for row in _codex_provision.provision_codex(cfg, repo, home, codex_home):
-                    provisioned.append(f"codex: {row}")
-            if installed.get("grok", False) or surfaces_cfg.provision_surface("grok", cfg=cfg):
-                grok_home = Path.home() / ".grok"
-                for row in _grok_provision.provision_grok(cfg, repo, home, grok_home):
-                    provisioned.append(f"grok: {row}")
-            if installed.get("hermes", False) or surfaces_cfg.provision_surface("hermes", cfg=cfg):
-                hermes_home = Path.home() / ".hermes"
-                for row in _hermes_provision.provision_hermes(cfg, repo, home, hermes_home):
-                    provisioned.append(f"hermes: {row}")
+            for row in _hermes_provision.provision_hermes(
+                cfg,
+                repo,
+                home,
+                Path(hermes_home),
+            ):
+                provisioned.append(f"hermes: {row}")
             payload["provisioned_surfaces"] = provisioned
             payload["installed_surfaces"] = installed
         except Exception as e:  # noqa: BLE001 — bootstrap still succeeds; report
             payload["provision_warning"] = f"{type(e).__name__}: {e}"
-    # never call install_heartbeat here
+
     payload["secrets_inventory"] = {"files": inv["files"], "vars": inv["vars"]}
     payload["heartbeat"] = "off"
     return payload

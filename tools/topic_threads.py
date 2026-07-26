@@ -17,6 +17,7 @@ from typing import Any
 
 import eventlog
 import sessions
+import runtime_policy
 
 
 WINDOW_DAYS = 7
@@ -189,6 +190,7 @@ def _iter_session_files(
     claude_root: str | Path | None = None,
     all_stores: bool | None = None,
 ) -> list[tuple[str, Path]]:
+    runtime_policy.require_session_ingestion_ready()
     if all_stores is None:
         all_stores = project_dir is None and os.environ.get("EDGE_TOPIC_DIRECTION_ALL_STORES", "1") != "0"
     found: list[tuple[str, Path]] = []

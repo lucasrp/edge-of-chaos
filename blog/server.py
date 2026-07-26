@@ -2616,8 +2616,8 @@ def _llm_route_row(r, probe_result=None):
                          if probe_result.get("status") else "") + "</div>")
     options = "".join(
         f'<option value="{p}"{" selected" if p == r["provider"] else ""}>{p}</option>'
-        for p in llm_routes.KNOWN_PROVIDERS
-        if not (r["embedding_route"] and p in llm_routes._llm.SUBSCRIPTION_PROVIDERS))
+        for p in llm_routes.allowed_providers_for_route(r["route"])
+    )
     return f"""<div class="llm-route" id="route-{_esc(r['route'])}">
   <h3>{_esc(r['route'])}</h3>
   <p class="meta">provider <strong>{_esc(r['provider'])}</strong> · modelo

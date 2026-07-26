@@ -4,35 +4,26 @@ The edge digests operator sessions from one or more harness stores. Which stores
 phenotype config (agent.yaml `surfaces`), not a code fork. Env overrides still win for hermetic
 tests and host paths (EDGE_*_SESSIONS_DIR, CODEX_HOME, GROK_HOME).
 
-Shape (all keys optional; missing `surfaces` block preserves historical defaults):
+Hermes-only policy:
 
   surfaces:
-    claude:
+    hermes:
       enabled: true
-    codex:
-      enabled: true
-      home: "~/.codex"          # sessions under <home>/sessions
-    grok:
-      enabled: true
-      home: "~/.grok"
-      # active_sessions: optional path; default <home>/active_sessions.json
+      home: "~/.hermes"
 
-Defaults when `surfaces` is absent:
-  claude enabled, codex enabled, grok enabled (parity after the third surface landed).
-When `surfaces` IS present, each surface defaults to enabled=false unless listed with
-enabled:true — so installs opt in by declaration.
+Detection may inventory legacy CLI homes, but configuration cannot authorize them.
+When `surfaces` is absent, only Hermes is enabled.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-# Historical defaults when agent.yaml has no `surfaces` block at all.
+import runtime_policy
+
+# Hermes-only defaults when agent.yaml has no `surfaces` block.
 _ABSENT_BLOCK_DEFAULTS = {
-    "claude": {"enabled": True},
-    "codex": {"enabled": True, "home": "~/.codex"},
-    "grok": {"enabled": True, "home": "~/.grok"},
-    "hermes": {"enabled": True, "home": "~/.hermes"},
+    "hermes": {"enabled": True},
 }
 
 # CLI harness homes (relative to $HOME). Presence of the home dir = surface is installed.
@@ -68,21 +59,16 @@ def detect_installed_surfaces(env=None, home=None) -> dict[str, bool]:
 
 
 def surfaces_block_for_installed(env=None, home=None) -> dict:
-    """Phenotype `surfaces:` block enabling every installed harness."""
+    """Declare Hermes only when a dedicated HERMES_HOME is explicitly installed."""
+    env = os.environ if env is None else env
     installed = detect_installed_surfaces(env=env, home=home)
-    block = {}
-    for name, ok in installed.items():
-        if not ok:
-            continue
-        if name == "claude":
-            block[name] = {"enabled": True}
-        elif name == "codex":
-            block[name] = {"enabled": True, "home": "~/.codex"}
-        elif name == "grok":
-            block[name] = {"enabled": True, "home": "~/.grok"}
-        elif name == "hermes":
-            block[name] = {"enabled": True, "home": "~/.hermes"}
-    return block
+    if not installed.get("hermes"):
+        return {}
+    raw = env.get("HERMES_HOME")
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    dedicated = runtime_policy.require_dedicated_hermes_home(raw.strip())
+    return {"hermes": {"enabled": True, "home": str(dedicated)}}
 
 
 def load_agent_cfg(agent_yaml=None) -> dict:
@@ -123,69 +109,41 @@ def surface_entry(name: str, cfg: dict | None = None, agent_yaml=None) -> dict:
 
 
 def surface_enabled(name: str, cfg: dict | None = None, agent_yaml=None) -> bool:
-    """Whether agent.yaml enables this surface for real (non-hermetic) sweeps."""
+    """Whether Hermes-only policy enables this surface for real sweeps."""
+    if name not in runtime_policy.ALLOWED_HARNESSES:
+        return False
     entry = surface_entry(name, cfg=cfg, agent_yaml=agent_yaml)
     val = entry.get("enabled", False)
     return bool(val)
 
 
 def surface_home(name: str, cfg: dict | None = None, agent_yaml=None, env=None) -> Path | None:
-    """Resolved home dir for an optional surface (codex/grok), or None if unset.
-
-    Precedence for codex: CODEX_HOME env → agent.yaml surfaces.codex.home → ~/.codex
-    Precedence for grok:  GROK_HOME env  → agent.yaml surfaces.grok.home  → ~/.grok
-    """
+    """Resolve only an explicitly dedicated Hermes home; external surfaces stay opaque."""
+    if name not in runtime_policy.ALLOWED_HARNESSES:
+        return None
     env = os.environ if env is None else env
-    env_key = {"codex": "CODEX_HOME", "grok": "GROK_HOME"}.get(name)
-    if env_key:
-        raw = env.get(env_key)
-        if isinstance(raw, str) and raw.strip():
-            return Path(os.path.expanduser(raw.strip()))
-    entry = surface_entry(name, cfg=cfg, agent_yaml=agent_yaml)
-    home = entry.get("home")
-    if isinstance(home, str) and home.strip():
-        return Path(os.path.expanduser(home.strip()))
-    if name == "codex":
-        return Path.home() / ".codex"
-    if name == "grok":
-        return Path.home() / ".grok"
-    return None
+    raw = env.get("HERMES_HOME")
+    if not isinstance(raw, str) or not raw.strip():
+        raw = surface_entry(name, cfg=cfg, agent_yaml=agent_yaml).get("home")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    return runtime_policy.require_dedicated_hermes_home(raw.strip())
 
 
 def surface_sessions_dir(name: str, cfg: dict | None = None, agent_yaml=None, env=None) -> Path | None:
-    """Sessions root for codex/grok. Env EDGE_*_SESSIONS_DIR wins when set."""
-    env = os.environ if env is None else env
-    env_key = {"codex": "EDGE_CODEX_SESSIONS_DIR", "grok": "EDGE_GROK_SESSIONS_DIR"}.get(name)
-    if env_key:
-        raw = env.get(env_key)
-        if isinstance(raw, str) and raw.strip():
-            return Path(os.path.expanduser(raw.strip()))
-    entry = surface_entry(name, cfg=cfg, agent_yaml=agent_yaml)
-    sessions = entry.get("sessions")
-    if isinstance(sessions, str) and sessions.strip():
-        return Path(os.path.expanduser(sessions.strip()))
-    home = surface_home(name, cfg=cfg, agent_yaml=agent_yaml, env=env)
-    if home is None:
+    """Return the dedicated Hermes sessions directory, with no external overrides."""
+    if name not in runtime_policy.ALLOWED_HARNESSES:
         return None
-    return home / "sessions"
+    home = surface_home(name, cfg=cfg, agent_yaml=agent_yaml, env=env)
+    return None if home is None else home / "sessions"
 
 
 def surface_active_sessions_path(name: str, cfg: dict | None = None, agent_yaml=None, env=None) -> Path | None:
-    """Grok (and future) live-session index path."""
-    env = os.environ if env is None else env
-    if name == "grok":
-        raw = env.get("EDGE_GROK_ACTIVE_SESSIONS")
-        if isinstance(raw, str) and raw.strip():
-            return Path(os.path.expanduser(raw.strip()))
-    entry = surface_entry(name, cfg=cfg, agent_yaml=agent_yaml)
-    raw = entry.get("active_sessions")
-    if isinstance(raw, str) and raw.strip():
-        return Path(os.path.expanduser(raw.strip()))
-    home = surface_home(name, cfg=cfg, agent_yaml=agent_yaml, env=env)
-    if home is None:
+    """Return the dedicated Hermes active-session index path, if configured."""
+    if name not in runtime_policy.ALLOWED_HARNESSES:
         return None
-    return home / "active_sessions.json"
-
+    home = surface_home(name, cfg=cfg, agent_yaml=agent_yaml, env=env)
+    return None if home is None else home / "active_sessions.json"
 
 def include_optional_surface(name: str, project_or_store_dir, explicit_dir,
                              cfg: dict | None = None, agent_yaml=None) -> bool:
@@ -199,9 +157,11 @@ def include_optional_surface(name: str, project_or_store_dir, explicit_dir,
       - explicit_dir is None and project_or_store_dir is set → hermetic Claude-only unless
         tests pass explicit_dir
 
-    Assemble rule (operator): pick up **everything installed** — if the harness home exists
-    and agent.yaml enables the surface (or no surfaces block → all enabled by default), include it.
+    Hermes-only rule: external surfaces stay off even when an explicit directory is supplied.
+    Hermes itself may still use the generic override semantics below.
     """
+    if name not in runtime_policy.ALLOWED_HARNESSES:
+        return False
     if explicit_dir is False:
         return False
     if explicit_dir is not None:
@@ -216,14 +176,8 @@ def include_optional_surface(name: str, project_or_store_dir, explicit_dir,
 
 
 def provision_surface(name: str, cfg: dict | None = None, agent_yaml=None) -> bool:
-    """Whether edge-apply / bootstrap should provision skills into this surface's home.
-
-    Claude is always provisioned when its home will be written. Codex/Grok: enabled in yaml
-    **or** installed on the host (first-run / multi-CLI default — provision everything installed).
-    """
-    if name == "claude":
-        return True
-    if surface_enabled(name, cfg=cfg, agent_yaml=agent_yaml):
-        return True
-    # No yaml / first-run: still provision every installed CLI
-    return bool(detect_installed_surfaces().get(name, False))
+    """Whether the Hermes-only derivative may provision this surface."""
+    runtime_policy.require_allowed_harness(name)
+    effective_cfg = load_agent_cfg(agent_yaml) if cfg is None else cfg
+    runtime_policy.require_hermes_only_surfaces(effective_cfg)
+    return surface_enabled(name, cfg=effective_cfg)

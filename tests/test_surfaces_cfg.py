@@ -7,29 +7,28 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import surfaces_cfg  # noqa: E402
-import sweep  # noqa: E402
 
 
 class SurfacesCfg(unittest.TestCase):
-    def test_absent_block_defaults_enable_optional_surfaces(self):
+    def test_absent_block_defaults_enable_only_hermes(self):
         cfg = {"name": "ed"}  # no surfaces key
-        self.assertTrue(surfaces_cfg.surface_enabled("claude", cfg=cfg))
-        self.assertTrue(surfaces_cfg.surface_enabled("codex", cfg=cfg))
-        self.assertTrue(surfaces_cfg.surface_enabled("grok", cfg=cfg))
-
-    def test_present_block_requires_explicit_enabled(self):
-        cfg = {"surfaces": {"claude": {"enabled": True}, "codex": {"enabled": False}}}
-        self.assertTrue(surfaces_cfg.surface_enabled("claude", cfg=cfg))
+        self.assertTrue(surfaces_cfg.surface_enabled("hermes", cfg=cfg))
+        self.assertFalse(surfaces_cfg.surface_enabled("claude", cfg=cfg))
         self.assertFalse(surfaces_cfg.surface_enabled("codex", cfg=cfg))
-        self.assertFalse(surfaces_cfg.surface_enabled("grok", cfg=cfg))  # not listed
+        self.assertFalse(surfaces_cfg.surface_enabled("grok", cfg=cfg))
 
-    def test_home_from_yaml(self):
+    def test_present_block_cannot_enable_external_surfaces(self):
+        cfg = {"surfaces": {"claude": {"enabled": True}, "codex": {"enabled": True}}}
+        self.assertFalse(surfaces_cfg.surface_enabled("claude", cfg=cfg))
+        self.assertFalse(surfaces_cfg.surface_enabled("codex", cfg=cfg))
+        self.assertFalse(surfaces_cfg.surface_enabled("grok", cfg=cfg))
+
+    def test_external_home_from_yaml_remains_unreachable(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp) / "my-grok"
+            home = Path(tmp) / "external-home"
             cfg = {"surfaces": {"grok": {"enabled": True, "home": str(home)}}}
-            self.assertEqual(
-                surfaces_cfg.surface_sessions_dir("grok", cfg=cfg, env={}),
-                home / "sessions",
+            self.assertIsNone(
+                surfaces_cfg.surface_sessions_dir("grok", cfg=cfg, env={})
             )
 
     def test_include_hermetic_requires_explicit_dir(self):
@@ -37,7 +36,7 @@ class SurfacesCfg(unittest.TestCase):
         self.assertFalse(
             surfaces_cfg.include_optional_surface("grok", "/tmp/proj", None, cfg=cfg)
         )
-        self.assertTrue(
+        self.assertFalse(
             surfaces_cfg.include_optional_surface("grok", "/tmp/proj", "/tmp/grok", cfg=cfg)
         )
         self.assertFalse(
@@ -68,9 +67,10 @@ class SurfacesCfgYamlRoundTrip(unittest.TestCase):
                 "    enabled: true\n"
                 "    home: ~/custom-grok\n"
             )
-            self.assertTrue(surfaces_cfg.surface_enabled("grok", agent_yaml=y))
-            home = surfaces_cfg.surface_home("grok", agent_yaml=y, env={})
-            self.assertTrue(str(home).endswith("custom-grok"))
+            self.assertFalse(surfaces_cfg.surface_enabled("grok", agent_yaml=y))
+            self.assertIsNone(
+                surfaces_cfg.surface_home("grok", agent_yaml=y, env={})
+            )
 
 
 if __name__ == "__main__":

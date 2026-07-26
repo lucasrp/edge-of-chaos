@@ -37,14 +37,14 @@ stop early.
    operator's intent priors: exploração→x, científico→arxiv, deep-research→exa), ordered
    by the yield table. Write each query **in that source's declared idiom** — an off-idiom
    query that returns empty is a FALSE dry you manufactured.
-3. **Sweep agentically** (ADR-0001 — the key + the `via` line, no primitive ever). Fan
-   `{prefix}-explorer` subagents for parallel legs; explorers are world-readers, DENIED the
-   cortex door. The **default execution subagent is a GROK agent** (`execution_subagents.default`)
-   — and the **X leg runs on the grok CLI's NATIVE X** (`grok --always-approve -p "<query>"`,
-   subject-blind), not the raw xAI API: one call, no wiring. Every dispatched grok agent carries
-   the standing directives (agent.yaml `execution_subagents`): after the task, return an **X report**
-   of what the field is saying that bears on the dispatch, and it has the **freedom to abort** if X
-   surfaces something that justifies stopping (moot, already done, about to break) — with citations.
+3. **Sweep agentically with Hermes** (ADR-0001 — the key + the `via` line, no primitive ever).
+   Fan fresh `{prefix}-explorer` Hermes subagents for independent parallel legs; explorers are
+   world-readers, DENIED the cortex door. For an X leg, use Hermes's `x_search` tool when it is
+   available in the active profile, with the literal query and a subject-blind brief. If
+   `x_search` is absent, the leg is declared-dark with that exact reason — never replaced by an
+   external CLI, a raw provider call, or an improvised transport. Each subagent returns an **X
+   report** only for evidence actually read and may recommend aborting when cited evidence makes
+   the dispatch moot, already done, or unsafe to continue.
    House rule (harvester blind spot): any script of yours that reads a source **logs the literal
    query to stdout**.
 4. **Paid modalities are first-class legs**: a modality with per-call cost (exa `deep`,

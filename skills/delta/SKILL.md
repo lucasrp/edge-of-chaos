@@ -15,9 +15,10 @@ cognition's job.) The delta is **over the world, never over the wiki**.
 
 List the configured **source keys**: source-agnostic locators for the mentee's
 Mundo / Atividade / Voz, from the **Source-roadmap** (`state/source-roadmap.md`) plus the declared
-sources in `agent.yaml`. The roadmap names the **native** key (Claude sessions, every instance has it)
-and the declared keys (GitHub, exa, …). A key is just a locator — a folder of transcripts, a gh repo,
-an API.
+sources in `agent.yaml`. A Hermes session key exists only when a Hermes-native reader is declared
+available; otherwise that rail is dark and cannot fall back to another transcript store. The other
+declared keys may include GitHub, exa, and operator-approved APIs. A key is just a locator — a
+Hermes-readable session source, a repository, or an API.
 
 ## Judgment — figure out what's new (agentic)
 

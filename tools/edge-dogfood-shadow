@@ -1,208 +1,40 @@
 #!/usr/bin/env python3
-"""edge-dogfood-shadow — harvest natural production into the gate-policy dogfood exp.
+"""Fail-closed dogfood launcher for the Hermes-only derivative.
 
-Subcommands:
-  sweep              Harvest new artefatos → production B + gate arms + model queue + Downloads
-  harvest-slug       Backfill one slug + mirror to Downloads
-  export-downloads   Mirror all runs → ~/Downloads/exp003-gate-dogfood-shadow (lado a lado)
-  next-blind         Issue ONE blind model slot (model under test = producer CLI)
-  mark-blind         Mark blind model evaluated + re-export Downloads
-  live               Refresh live board path
-  seed               Ensure experiment workspace + projeto.md
+The upstream experiment emits executable assignments for unsupported model runners. The
+private data adapters remain for migration analysis, but the public launcher is disabled
+until a Hermes-native producer path is implemented and reviewed.
 """
 from __future__ import annotations
 
 import argparse
-import json
-import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import dogfood_shadow
+import runtime_policy
 
 
-def _home(args) -> Path:
-    return Path(os.path.expanduser(args.home or os.environ.get("EDGE_HOME") or "~/edge")).resolve()
-
-
-def _cfg_and_exp(home: Path, args):
-    cfg = dogfood_shadow.load_cfg(home)
-    if args.experiment_id:
-        cfg = {**cfg, "experiment_id": args.experiment_id}
-    if not cfg.get("experiment_id"):
-        cfg["experiment_id"] = "exp003"
-    cfg.setdefault("enabled", True)
-    cfg.setdefault("slug", "gate-dogfood-shadow")
-    exp_dir = dogfood_shadow.resolve_exp_dir(home, cfg)
-    return cfg, exp_dir
-
-
-def _rebuild_index(exp_dir: Path) -> None:
-    """Ensure runs/index.json lists every run dir (after consolidations / pulls)."""
-    runs_dir = exp_dir / "runs"
-    if not runs_dir.is_dir():
-        return
-    index = dogfood_shadow.load_index(exp_dir)
-    for run in runs_dir.iterdir():
-        if not run.is_dir() or not (run / "meta.json").is_file():
-            continue
-        meta = json.loads((run / "meta.json").read_text(encoding="utf-8"))
-        slug = meta.get("slug")
-        if slug:
-            index["by_slug"][slug] = run.name
-    dogfood_shadow.save_index(exp_dir, index)
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="edge-dogfood-shadow")
+    parser.add_argument("--home", default=None)
+    parser.add_argument("--experiment-id", default=None)
+    parser.add_argument("--downloads", default=None)
+    parser.add_argument("cmd", nargs="?", help="legacy command; currently disabled")
+    parser.add_argument("rest", nargs=argparse.REMAINDER)
+    return parser
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="edge-dogfood-shadow")
-    ap.add_argument("--home", default=None)
-    ap.add_argument("--experiment-id", default=None)
-    ap.add_argument(
-        "--downloads", default=None,
-        help="Override Downloads root (default ~/Downloads/exp003-gate-dogfood-shadow)",
-    )
-    sub = ap.add_subparsers(dest="cmd", required=True)
-
-    sub.add_parser("sweep", help="Harvest new artefatos into the experiment")
-    p_nb = sub.add_parser("next-blind", help="Issue one blind model slot")
-    p_nb.add_argument("--run-id", default=None)
-    p_mb = sub.add_parser("mark-blind", help="Mark blind model evaluated")
-    p_mb.add_argument("--run-id", required=True)
-    p_mb.add_argument("--model", required=True)
-    sub.add_parser("live", help="Refresh and show live board path")
-    p_seed = sub.add_parser("seed", help="Seed experiment workspace")
-    p_seed.add_argument("--title", default="Gate-policy dogfood on live production seeds")
-    p_seed.add_argument(
-        "--hypothesis",
-        default=(
-            "On the same frozen production seed, gate-policy re-runs (visual-coverage, rich-rite, "
-            "R0, visual-grounding) and three.js operational arm change operator utility vs "
-            "baseline B; model under test produces the report via its own CLI (blind 1×1)."
-        ),
-    )
-    p_h = sub.add_parser("harvest-slug", help="Harvest one slug (sanity / backfill)")
-    p_h.add_argument("slug")
-    p_ex = sub.add_parser(
-        "export-downloads",
-        help="Mirror originais + versões lado a lado em Downloads",
-    )
-
-    args = ap.parse_args(argv)
-    home = _home(args)
-    cfg, exp_dir = _cfg_and_exp(home, args)
-    downloads = (
-        Path(os.path.expanduser(args.downloads)).resolve()
-        if args.downloads
-        else dogfood_shadow.default_downloads_dir()
-    )
-
-    if args.cmd == "seed":
-        dogfood_shadow.seed_experiment_workspace(
-            exp_dir,
-            experiment_id=cfg["experiment_id"],
-            title=args.title,
-            hypothesis=args.hypothesis,
+    _parser().parse_args(argv)
+    try:
+        raise runtime_policy.RuntimePolicyError(
+            "edge-dogfood-shadow is blocked until Hermes-native producer parity is implemented"
         )
-        print(exp_dir)
-        return 0
-
-    if args.cmd == "sweep":
-        if not exp_dir.is_dir():
-            dogfood_shadow.seed_experiment_workspace(
-                exp_dir,
-                experiment_id=cfg["experiment_id"],
-                title="Gate-policy dogfood on live production seeds",
-                hypothesis=cfg.get("hypothesis") or "see projeto.md",
-            )
-        result = dogfood_shadow.sweep(home, exp_dir, cfg)
-        result["downloads"] = str(downloads)
-        # re-export with optional override
-        dogfood_shadow.export_all_to_downloads(exp_dir, downloads)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
-
-    if args.cmd == "harvest-slug":
-        import eventlog
-        log = home / "state" / "events" / "log.jsonl"
-        corpus = eventlog.corpus_at(log=log)
-        item = next((c for c in corpus if c.get("slug") == args.slug), None)
-        if item is None:
-            print(f"slug not in corpus: {args.slug}", file=sys.stderr)
-            return 1
-        dogfood_shadow.seed_experiment_workspace(
-            exp_dir,
-            experiment_id=cfg["experiment_id"],
-            title="Gate-policy dogfood on live production seeds",
-            hypothesis="see projeto.md",
-        )
-        run = dogfood_shadow.harvest_production(
-            home, item, exp_dir, experiment_id=cfg["experiment_id"])
-        var = dogfood_shadow.assign_one_variation(run, exp_dir)
-        dogfood_shadow.enqueue_prototype(run, exp_dir=exp_dir)
-        dest = dogfood_shadow.mirror_run_to_downloads(run, downloads)
-        dogfood_shadow.refresh_live_index(exp_dir)
-        dogfood_shadow.export_all_to_downloads(exp_dir, downloads)
-        print(json.dumps({
-            "run_id": run.name,
-            "path": str(run),
-            "baseline": "production",
-            "variation": var,
-            "rule": "one_variation_per_artefato",
-            "downloads": str(dest),
-            "model_is_producer": var.get("kind") == "model",
-            "recovered": json.loads((run / "meta.json").read_text())["recovered"],
-        }, ensure_ascii=False, indent=2))
-        return 0
-
-    if args.cmd == "export-downloads":
-        _rebuild_index(exp_dir)
-        runs_dir = exp_dir / "runs"
-        if runs_dir.is_dir():
-            for run in runs_dir.iterdir():
-                if run.is_dir() and (run / "meta.json").is_file():
-                    # ensure exactly one variation (idempotent if already set)
-                    dogfood_shadow.assign_one_variation(run, exp_dir)
-        result = dogfood_shadow.export_all_to_downloads(exp_dir, downloads)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 0
-
-    if args.cmd == "next-blind":
-        slot = dogfood_shadow.next_blind_slot(exp_dir, run_id=args.run_id)
-        if slot is None:
-            print("no pending blind slot", file=sys.stderr)
-            return 1
-        safe = {
-            "run_id": slot["run_id"],
-            "blind_letter": slot["blind_letter"],
-            "status": slot["status"],
-            "reading": slot.get("reading") or slot.get("output"),
-            "arm_path": slot["path"],
-            "model_is_producer": True,
-            "rule": "model under test writes the report via its CLI",
-        }
-        print(json.dumps(safe, ensure_ascii=False, indent=2))
-        print(
-            f"edge-dogfood-shadow: issued model={slot['model']} "
-            f"(producer CLI; do not show operator)",
-            file=sys.stderr,
-        )
-        return 0
-
-    if args.cmd == "mark-blind":
-        st = dogfood_shadow.mark_blind_done(
-            exp_dir, run_id=args.run_id, model=args.model)
-        dogfood_shadow.export_all_to_downloads(exp_dir, downloads)
-        print(json.dumps(st, ensure_ascii=False, indent=2))
-        return 0
-
-    if args.cmd == "live":
-        path = dogfood_shadow.refresh_live_index(exp_dir)
-        print(path)
-        return 0
-
-    return 2
+    except runtime_policy.RuntimePolicyError as exc:
+        print(f"edge-dogfood-shadow: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

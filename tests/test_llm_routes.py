@@ -1,174 +1,160 @@
-"""llm_routes — o registry por-rota que o dashboard consome (issue #55).
-
-Pinam a metade PURA: leitura das rotas do agent.yaml + saúde da credencial, a troca de
-provider por cirurgia de linha (comentários do yaml preservados), as recusas (rota/provider
-desconhecidos, codex na rota embedding) e o completer_for resolvido do yaml — com um repo
-temporário, sem tocar API nem CLI. O probe live é exercitado no deploy/verify, não aqui.
-"""
-import os
+"""Public LLM routing surfaces are Hermes-only for completion."""
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
-import _llm        # noqa: E402
+import _llm  # noqa: E402
 import llm_routes  # noqa: E402
+import runtime_policy  # noqa: E402
 
-AGENT_YAML = """\
-name: tester
-# --- Routers (LLM) — comentário de bloco que a cirurgia de linha DEVE preservar.
+
+AGENT = """\
 routers:
-  chat:                                  # contextualization
+  chat:
+    provider: hermes
+    model: default
+  review:
+    provider: hermes
+    model: default
+  embedding:
     provider: openai
-    secret_ref: openai.env:OPENAI_API_KEY
-    model: gpt-5.4
-  review:                                # judge + adversarial
-    provider: xai
-    secret_ref: xai.env:XAI_API_KEY
-    model: grok-4.3
-  embedding:                             # RAG
-    provider: openai
-    secret_ref: openai.env:OPENAI_API_KEY
     model: text-embedding-3-small
-sources: []
+    secret_ref: openai.env:OPENAI_API_KEY
 """
 
 
-def temp_repo(openai_key="sk-live", xai_env=False):
+def temp_repo(openai_key="sk-test"):
     root = Path(tempfile.mkdtemp())
-    (root / "agent.yaml").write_text(AGENT_YAML)
-    secrets = root / "secrets"
-    secrets.mkdir()
+    (root / "agent.yaml").write_text(AGENT)
     if openai_key is not None:
-        (secrets / "openai.env").write_text(f"OPENAI_API_KEY={openai_key}\n")
-    if xai_env:
-        (secrets / "xai.env").write_text("XAI_API_KEY=xk\n")
+        (root / "secrets").mkdir()
+        (root / "secrets" / "openai.env").write_text("OPENAI_API_KEY=" + str(openai_key))
     return root
 
 
 class Routes(unittest.TestCase):
-    def test_lists_every_route_with_provider_and_model(self):
-        rs = {r["route"]: r for r in llm_routes.routes(repo=temp_repo())}
-        self.assertEqual(set(rs), {"chat", "review", "embedding"})
-        self.assertEqual(rs["chat"]["provider"], "openai")
-        self.assertEqual(rs["review"]["model"], "grok-4.3")
-
-    def test_credential_present_vs_absent(self):
-        # hermético: um XAI_API_KEY no env do host venceria o secrets/ (override explícito
-        # vence, como _secrets.load_env) — aqui interessa o caminho do arquivo ausente.
-        from unittest import mock
-        env = {k: v for k, v in os.environ.items() if k != "XAI_API_KEY"}
-        with mock.patch.dict(os.environ, env, clear=True):
-            rs = {r["route"]: r for r in llm_routes.routes(repo=temp_repo(xai_env=False))}
-        self.assertEqual(rs["chat"]["credential"], "ok")
-        self.assertEqual(rs["review"]["credential"], "ausente")
-
-    def test_embedding_route_is_flagged_not_subscription_capable(self):
-        rs = {r["route"]: r for r in llm_routes.routes(repo=temp_repo())}
-        self.assertTrue(rs["embedding"]["embedding_route"])
-        self.assertFalse(rs["chat"]["embedding_route"])
-
-    def test_codex_route_reports_subscription_not_secret(self):
+    def test_lists_routes_without_exposing_secret_values(self):
         repo = temp_repo()
-        llm_routes.set_provider("review", "codex", repo=repo)
-        rs = {r["route"]: r for r in llm_routes.routes(repo=repo)}
-        self.assertTrue(rs["review"]["subscription"])
-        self.assertIn(rs["review"]["credential"], ("assinatura", "codex CLI ausente"))
+        rows = {row["route"]: row for row in llm_routes.routes(repo=repo)}
+        self.assertEqual(rows["chat"]["provider"], "hermes")
+        self.assertTrue(rows["chat"]["subscription"])
+        self.assertEqual(rows["embedding"]["credential"], "ok")
+        self.assertNotIn("sk-test", repr(rows))
 
-
-    def test_claude_route_reports_subscription_not_secret(self):
-        repo = temp_repo()
-        llm_routes.set_provider("chat", "claude", repo=repo, model="opus")
-        rs = {r["route"]: r for r in llm_routes.routes(repo=repo)}
-        self.assertTrue(rs["chat"]["subscription"])
-        self.assertIn(rs["chat"]["credential"], ("assinatura", "claude CLI ausente"))
-
-    def test_grok_route_reports_subscription_not_secret(self):
-        repo = temp_repo()
-        llm_routes.set_provider("review", "grok", repo=repo, model="grok-4.5")
-        rs = {r["route"]: r for r in llm_routes.routes(repo=repo)}
-        self.assertTrue(rs["review"]["subscription"])
-        self.assertIn(rs["review"]["credential"], ("assinatura", "grok CLI ausente"))
+    def test_missing_embedding_secret_is_reported_without_value(self):
+        repo = temp_repo(openai_key=None)
+        rows = {row["route"]: row for row in llm_routes.routes(repo=repo)}
+        self.assertEqual(rows["embedding"]["credential"], "ausente")
 
 
 class SetProvider(unittest.TestCase):
-    def test_switch_review_to_codex_rewrites_only_that_line(self):
-        repo = temp_repo()
-        llm_routes.set_provider("review", "codex", repo=repo)
-        text = (repo / "agent.yaml").read_text()
-        self.assertIn("provider: codex", text)
-        self.assertIn("provider: openai", text)          # chat/embedding intactos
-        self.assertIn("comentário de bloco que a cirurgia", text)  # comentários preservados
-        self.assertIn("# judge + adversarial", text)
-        rs = {r["route"]: r for r in llm_routes.routes(repo=repo)}
-        self.assertEqual(rs["review"]["provider"], "codex")
-        self.assertEqual(rs["chat"]["provider"], "openai")
+    def test_allowed_provider_options_are_route_specific(self):
+        self.assertEqual(llm_routes.allowed_providers_for_route("chat"), ("hermes",))
+        self.assertEqual(
+            set(llm_routes.allowed_providers_for_route("embedding")),
+            set(runtime_policy.ALLOWED_EMBEDDING_PROVIDERS),
+        )
 
-    def test_switch_with_model_rewrites_model_too(self):
-        repo = temp_repo()
-        llm_routes.set_provider("chat", "codex", repo=repo, model="gpt-5.2-codex")
-        rs = {r["route"]: r for r in llm_routes.routes(repo=repo)}
-        self.assertEqual(rs["chat"]["model"], "gpt-5.2-codex")
+    def test_completion_rejects_every_external_provider_before_write(self):
+        for provider in ("claude", "codex", "grok", "xai", "openrouter", "openai"):
+            with self.subTest(provider=provider):
+                repo = temp_repo()
+                before = (repo / "agent.yaml").read_bytes()
+                with self.assertRaises(runtime_policy.RuntimePolicyError):
+                    llm_routes.set_provider("chat", provider, repo=repo)
+                self.assertEqual((repo / "agent.yaml").read_bytes(), before)
 
-    def test_codex_on_embedding_route_is_refused(self):
+    def test_hermes_completion_model_can_be_updated_without_touching_other_routes(self):
         repo = temp_repo()
-        with self.assertRaises(ValueError):
-            llm_routes.set_provider("embedding", "codex", repo=repo)
+        llm_routes.set_provider("review", "hermes", repo=repo, model="provider/model")
+        rows = {row["route"]: row for row in llm_routes.routes(repo=repo)}
+        self.assertEqual(rows["review"]["provider"], "hermes")
+        self.assertEqual(rows["review"]["model"], "provider/model")
+        self.assertEqual(rows["chat"]["provider"], "hermes")
+        self.assertEqual(rows["embedding"]["provider"], "openai")
 
-    def test_unknown_provider_and_route_are_refused(self):
+    def test_embedding_uses_closed_provider_policy(self):
         repo = temp_repo()
+        llm_routes.set_provider(
+            "embedding", "openrouter", repo=repo, model="text-embedding-safe"
+        )
+        rows = {row["route"]: row for row in llm_routes.routes(repo=repo)}
+        self.assertEqual(rows["embedding"]["provider"], "openrouter")
+        before = (repo / "agent.yaml").read_bytes()
+        for provider in ("claude", "codex", "grok", "xai"):
+            with self.subTest(provider=provider):
+                with self.assertRaises(runtime_policy.RuntimePolicyError):
+                    llm_routes.set_provider("embedding", provider, repo=repo)
+                self.assertEqual((repo / "agent.yaml").read_bytes(), before)
+
+    def test_unknown_route_is_rejected_before_write(self):
+        repo = temp_repo()
+        before = (repo / "agent.yaml").read_bytes()
         with self.assertRaises(ValueError):
-            llm_routes.set_provider("review", "nope", repo=repo)
-        with self.assertRaises(ValueError):
-            llm_routes.set_provider("nope", "openai", repo=repo)
+            llm_routes.set_provider("unknown", "hermes", repo=repo)
+        self.assertEqual((repo / "agent.yaml").read_bytes(), before)
 
 
 class CompleterFor(unittest.TestCase):
-    def test_codex_route_yields_codex_backed_completer(self):
-        repo = temp_repo(openai_key=None)   # SEM chave de API nenhuma
-        llm_routes.set_provider("review", "codex", repo=repo)
-        seen = {}
-
-        def fake_exec(prompt, model, max_tokens):
-            seen.update(prompt=prompt, model=model)
-            return '{"pass": true}'
-
-        fn = llm_routes.completer_for("review", repo=repo, exec_fn=fake_exec)
-        self.assertEqual(fn("judge"), '{"pass": true}')
-        self.assertEqual(seen["prompt"], "judge")
-
-    def test_claude_route_yields_claude_backed_completer(self):
-        repo = temp_repo(openai_key=None)   # SEM chave de API nenhuma
-        llm_routes.set_provider("chat", "claude", repo=repo, model="opus")
-        seen = {}
-
-        def fake_exec(prompt, model, max_tokens):
-            seen.update(prompt=prompt, model=model)
-            return "the completion"
-
-        fn = llm_routes.completer_for("chat", repo=repo, exec_fn=fake_exec)
-        self.assertEqual(fn("write"), "the completion")
-        self.assertEqual(seen["prompt"], "write")
-
-    def test_grok_route_yields_grok_backed_completer(self):
-        repo = temp_repo(openai_key=None)   # SEM chave de API nenhuma — assinatura pura
-        llm_routes.set_provider("review", "grok", repo=repo, model="grok-4.5")
-        seen = {}
-
-        def fake_exec(prompt, model, max_tokens):
-            seen.update(prompt=prompt, model=model)
-            return '{"verdict": "refuted", "x": ["@handle"]}'
-
-        fn = llm_routes.completer_for("review", repo=repo, exec_fn=fake_exec)
-        self.assertEqual(fn("judge this"), '{"verdict": "refuted", "x": ["@handle"]}')
-        self.assertEqual(seen["model"], "grok-4.5")
-
-    def test_api_route_without_key_raises_transport_error(self):
+    def test_hermes_route_uses_guarded_factory_and_exec_seam(self):
         repo = temp_repo(openai_key=None)
-        with self.assertRaises(_llm.LLMTransportError):
-            llm_routes.completer_for("chat", repo=repo)
+        seen = {}
+
+        def fake_exec(prompt, model, max_tokens):
+            seen.update(prompt=prompt, model=model, max_tokens=max_tokens)
+            return "ok"
+
+        fn = llm_routes.completer_for("review", repo=repo, exec_fn=fake_exec)
+        self.assertEqual(fn("judge"), "ok")
+        self.assertEqual(seen["prompt"], "judge")
+        self.assertEqual(seen["model"], "default")
+
+    def test_preexisting_external_route_is_rejected_before_exec_or_secret(self):
+        for provider in ("claude", "codex", "grok", "xai", "openrouter", "openai"):
+            with self.subTest(provider=provider):
+                repo = temp_repo(openai_key=None)
+                text = (repo / "agent.yaml").read_text()
+                text = text.replace("provider: hermes", f"provider: {provider}", 1)
+                (repo / "agent.yaml").write_text(text)
+                called = []
+
+                def forbidden_exec(*args, **kwargs):
+                    called.append((args, kwargs))
+                    return "BYPASS"
+
+                with self.assertRaises(runtime_policy.RuntimePolicyError):
+                    llm_routes.completer_for("chat", repo=repo, exec_fn=forbidden_exec)
+                self.assertEqual(called, [])
+
+    def test_unknown_route_is_rejected(self):
+        repo = temp_repo()
+        with self.assertRaises(ValueError):
+            llm_routes.completer_for("missing", repo=repo)
+
+
+class Probe(unittest.TestCase):
+    def test_external_completion_route_reports_policy_error_without_constructor(self):
+        repo = temp_repo(openai_key=None)
+        text = (repo / "agent.yaml").read_text().replace(
+            "provider: hermes", "provider: xai", 1
+        )
+        (repo / "agent.yaml").write_text(text)
+        out = llm_routes.probe_route("chat", repo=repo)
+        self.assertFalse(out["ok"])
+        self.assertIn("forbidden", out["detail"])
+
+    def test_embedding_probe_uses_embedding_factory(self):
+        repo = temp_repo()
+        fake_client = mock.Mock()
+        fake_client.embeddings.create.return_value.data = [mock.Mock(embedding=[0.1, 0.2])]
+        with mock.patch.object(_llm, "make_embedding_client", return_value=fake_client) as make:
+            out = llm_routes.probe_route("embedding", repo=repo)
+        self.assertTrue(out["ok"])
+        make.assert_called_once()
 
 
 if __name__ == "__main__":

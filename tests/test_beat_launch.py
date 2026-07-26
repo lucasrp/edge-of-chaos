@@ -133,23 +133,20 @@ class BeatPromptLoadsSkillBody(unittest.TestCase):
             self.assertIn("one Artefato", prompt)
 
 
-class HeartbeatDryRunShowsTheLaunch(unittest.TestCase):
-    """`edge-heartbeat --dry-run` shows the exact single-shot command and the piped prompt
-    without invoking claude — so the autonomous launch is inspectable and tests never bill."""
+class HeartbeatPublicLauncherIsDark(unittest.TestCase):
+    """The public launcher must fail before reading a skill or constructing a command."""
 
-    def test_dry_run_prints_command_and_prompt(self):
+    def test_dry_run_is_still_blocked_before_home_access(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = _skill_home(tmp, "RUN-THE-BEAT-MARKER")
-            # Pin claude: without agent.yaml home falls through to the repo phenotype (often grok).
+            home = Path(tmp) / "not-created"
             res = subprocess.run(
-                [sys.executable, str(HEARTBEAT), "--home", str(home),
-                 "--cli", "claude", "--dry-run"],
+                [sys.executable, str(HEARTBEAT), "--home", str(home), "--dry-run"],
                 capture_output=True, text=True,
             )
-            self.assertEqual(res.returncode, 0, res.stderr)
-            self.assertIn("-p", res.stdout)
-            self.assertIn("--dangerously-skip-permissions", res.stdout)
-            self.assertIn("RUN-THE-BEAT-MARKER", res.stdout)
+            self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+            self.assertEqual(res.stdout, "")
+            self.assertIn("blocked until Hermes-native parity", res.stderr)
+            self.assertFalse(home.exists())
 
 
 class BeatEnvCarriesInstallSecrets(unittest.TestCase):

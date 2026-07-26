@@ -4,8 +4,8 @@ description: >
   Onboarding + ongoing tooling autonomy. First activation understands how the operator
   works and persists the phenotype (agent.yaml / frontier). Later activations converse
   and dig for tools, skills, sources, keys, and concepts — discovery biased to tooling.
-  Zero-key first-class (FTS nodes + CLI adversarial). Keys optional. Propositions only
-  in v0 (no silent install). Invoked as /{prefix}-setup or /{prefix}-autonomia.
+  Zero-key first-class (FTS nodes + independent Hermes review). Keys optional.
+  Propositions only in v0 (no silent install). Invoked as /{prefix}-setup or /{prefix}-autonomia.
 ---
 
 # Setup (= onboarding = autonomia de tooling)
@@ -27,7 +27,7 @@ The edge must work with **no cloud API keys**:
 | Need | Zero-key path |
 |------|----------------|
 | Graph / nodes | **FTS** (full-text on nodes) — no embeddings required |
-| Adversarial / review | **CLI** already in use (Claude / Codex / Grok CLI signature) — not a paid API gate |
+| Adversarial / review | Fresh, context-denied **Hermes subagent** — not a paid API gate |
 | Memory / assemble | Read what exists; declare hunger when thin |
 
 Keys are **optional multi-mode**:

@@ -1,6 +1,6 @@
 ---
 name: beat
-description: The beat — the 3-act production flow (ticket 05). Trunk: grounding inicial → an
+description: Manual-only Hermes beat — the 3-act production flow (ticket 05). Trunk: grounding inicial → an
   explicit PROPOSTA of which artefatos (1..N) and why; branches: one agent per artefato, each
   with its own grounding rounds, funneling through the shared close at its exit.
 ---
@@ -9,18 +9,27 @@ monolith (one grounding → one close): production is **3 acts** — escolher, p
 with **loops localizados**. The trunk chooses; the branches produce; every branch exits through
 the shared close (`skills/_shared/pipeline.md`).
 
+## Hermes-only execution gate — manual until native scheduling exists
+
+Run this skill only inside a live, operator-initiated Hermes session. Heartbeat and scheduled
+dispatch are **declared-dark** until a Hermes-native heartbeat owns launch, identity and completion
+receipts. If origin is autonomous or scheduled, stop before gate zero and report
+`DARK — Hermes-native heartbeat unavailable`. Never emulate scheduling with a shell loop, timer,
+background process or another execution surface.
+
 ## Gate zero — plano autoritativo ANTES de qualquer grounding
 
-Comece lendo `EDGE_DISPATCH_PLAN`. No heartbeat ele foi calculado mecanicamente e injetado no
-prompt + env **antes** deste processo existir — é o plano PRÉ-LANÇAMENTO: `decision.producer`
-vem `null` + `pauta: pendente`, porque a forma nasce na PROPOSTA da Pauta (ADR-0024; a rotação
-morreu). Tools/permissions desse plano são autoritativos desde já. Depois do Ato-1, re-derive o
-plano pelo mesmo seam — **este comando é o dente: sem `pauta.proposta` viva ele FALHA e Ato-2
+Comece lendo `EDGE_DISPATCH_PLAN`. Na invocação manual ele é calculado mecanicamente e
+injetado no prompt + env **antes** do funil: é o plano PRÉ-LANÇAMENTO,
+`decision.producer` vem `null` + `pauta: pendente`, porque a forma nasce na PROPOSTA da Pauta
+(ADR-0024; a rotação morreu). Tools/permissions desse plano são autoritativos desde já. Depois
+do Ato-1, re-derive o plano pelo mesmo seam — **este comando é o dente: sem `pauta.proposta`
+viva ele FALHA e Ato-2
 não abre**:
 
 `tools/edge-python tools/_beat.py dispatch-plan --home "$PWD" --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`
 
-(Invocação interativa sem plano: use `interactive-${CLAUDE_CODE_SESSION_ID:-$$}` como
+(Invocação interativa sem plano: use `interactive-${HERMES_SESSION_ID:-$$}` como
 dispatch-id nos dois atos.) O `{decision, tools, permissions}` re-derivado é autoritativo:
 `decision.producer` = a `forma` da PROPOSTA; grounding posterior escolhe ângulo/quantidade
 **dentro dessa forma**, nunca outro producer e nunca outras permissões. **Mapa descreve, nunca
@@ -34,9 +43,11 @@ A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
 1. **SORTEIO antes do wake** — `tools/edge-python tools/pauta.py sortear` (Voz trava campos:
    `--lock objeto=mentorado`). A célula `{objeto × abordagem}` sai ANTES de qualquer leitura — a
    leitura já sai mirada. Sem blocklist: célula inviável morre em silêncio logado.
-2. **Grounding INICIAL mirado** — run the mechanical entry-driver
-   (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
-   recall) ATRAVÉS do catálogo da célula (`tools/pauta.py catalogo --cell '<json>'`: mundo→
+2. **Grounding INICIAL mirado** — obey the wake's Hermes-native reader gate. Run the mechanical
+   entry-driver (`tools/edge-python tools/predispatch.py`) only when its session rail is confirmed
+   Hermes-native; otherwise stop with that rail declared-dark rather than read a fallback store.
+   When it runs, read its briefs (briefing + quente + delta + recall) ATRAVÉS do catálogo da
+   célula (`tools/pauta.py catalogo --cell '<json>'`: mundo→
    sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre). READ the latest
    `user_requested` artefatos (the quente's anchors carry them) — first-order sinal de pauta.
 3. **~12 SUGESTÕES** baratas, função do wake que você acabou de ler — NUNCA um pool fixo do
@@ -55,12 +66,10 @@ A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
 7. **O dente** — re-derive o plano (gate zero acima). Sem `pauta.proposta` viva, Ato-2 não
    abre — uniforme para autônomo e comandado.
 
-**Lei do turno (headless):** o beat roda em `claude -p` — o processo MORRE no fim do turno.
-NUNCA termine o turno esperando notificação de tarefa em background (a espera vira morte
-silenciosa: sem artefato, sem `pauta.silencio`). Todo comando lento do funil (shortlist,
-propose, dente) roda em FOREGROUND, por mais minutos que leve; subagentes (explorers,
-artefato-agents) são chamadas paralelas NO MESMO turno — o paralelismo vem das chamadas
-simultâneas, nunca de background + espera.
+**Lei do turno Hermes:** all work belongs to the current live turn. Never leave a dispatch
+waiting on a background notification. Slow funnel commands (shortlist, propose, dente) run in
+the foreground; Hermes subagents (explorers and artefato agents) are blocking calls in the same
+turn. Parallelism comes from simultaneous subagent delegation, never background + later polling.
 
 **Caminho comandado (Voz fast-path, §1 da tabela):** quando o dispatch nasce de uma ordem do
 operador (wake `--origin user_requested`, um `/ed-report sobre X`, um pedido direto na sessão),
@@ -81,7 +90,7 @@ inexistente ou célula fora da matriz FALHA alto (ordem quebrada), nunca silênc
 **A autoridade DERIVA do log, nunca do JSON:** `propose` só aceita `origem:"voz"` quando o
 log tem o `dispatch.open` comandado (`origin: user_requested`) para o MESMO `--dispatch-id`
 — o que a trilha comandada da predispatch (`--origin user_requested`) pena. `origem:"voz"`
-num dispatch de heartbeat é ordem FORJADA: `propose` levanta e o pós-gate marca gap. Prosa
+num dispatch não comandado é ordem FORJADA: `propose` levanta e o pós-gate marca gap. Prosa
 nunca confere autoridade (o log é a verdade, ADR-0006).
 
    **O gate pendura SÓ na abordagem (§2 da tabela):** o "porquê" da PROPOSTA é o `gate_trace`
@@ -122,7 +131,7 @@ the SAME turn — blocking; the lei do turno above rules here too):
 - Each branch-agent runs exactly `skills/<decision.producer>` on the shared scaffold
   (`skills/_shared/scaffold.md`) and produces **one Artefato** in its form.
 - **O slug do artefato começa com `decision.slug_prefix`** (`{abordagem}-{objeto}--`, §3 da
-  tabela: o nome carrega o setup — não é opção do producer). O post-gate do heartbeat verifica
+  tabela: o nome carrega o setup — não é opção do producer). O post-gate do dispatch verifica
   mecanicamente: slug sem o prefixo da célula é gap.
 - **Grounding is NOT a single trunk phase**: each branch does its **own rounds** of grounding —
   it goes back to the world as many times as ITS artefato asks (rounds localizados; the harvest

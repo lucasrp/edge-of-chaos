@@ -31,6 +31,7 @@ def cmd_bootstrap(args) -> int:
             adversarials=args.adversarials or None,
             primary=args.primary,
             provision_skills=not args.no_provision_skills,
+            hermes_home=args.hermes_home,
             embedding_choice=choice or None,
         )
     except ValueError as e:
@@ -133,9 +134,11 @@ def main(argv=None) -> int:
     b.add_argument("--name", default=None)
     b.add_argument("--backfill-days", type=int, default=None)
     b.add_argument("--adversarial", action="append", default=[], dest="adversarials")
-    b.add_argument("--primary", default="claude")
+    b.add_argument("--primary", choices=("hermes",), default="hermes")
+    b.add_argument("--hermes-home", default=os.environ.get("HERMES_HOME"),
+                   help="dedicated Hermes profile home; must not be the global ~/.hermes")
     b.add_argument("--no-provision-skills", action="store_true")
-    # o adapter de embeddings (entrevista): openai direto, openrouter, azure/base_url custom
+
     b.add_argument("--embedding-provider", default=None)
     b.add_argument("--embedding-var", default=None)
     b.add_argument("--embedding-model", default=None)

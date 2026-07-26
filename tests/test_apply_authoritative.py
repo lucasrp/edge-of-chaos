@@ -8,7 +8,8 @@ validation FAILED. The `--validate` path had the same missing agent_yaml arg.
 This guards the fix on the `--validate` path (offline — no venv/docker provisioned):
   • a THIN applied agent.yaml (no declared sources → briefing fail-closed) makes the IDENTITY check
     FAIL, and edge-apply exits NONZERO (today it would read the checkout default and pass);
-  • a COMPLETE applied agent.yaml keeps identity OK and the install HEALTHY → exit 0.
+  • a COMPLETE applied agent.yaml plus target-home doctrine keeps identity OK;
+  • the otherwise empty substrate remains unhealthy and exits nonzero.
 
 Invoked via subprocess (the test_beat_launch.py pattern). `--home` defaults to the real edge_home
 (genuinely healthy substrate); only `--claude-home` is pointed at a tmp dir so the run never touches
@@ -17,6 +18,7 @@ APPLIED config, not the checkout default.
 """
 import subprocess
 import sys
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -41,15 +43,23 @@ sources:
 
 
 def _run_validate(yaml_text):
-    """Run `edge-apply --yaml <tmp> --validate --claude-home <tmp>` and return the CompletedProcess.
-    --home is left default (the real edge_home, a genuinely healthy substrate); only the applied
-    agent.yaml and --claude-home vary, so the run stays offline and never touches the real ~/.claude."""
+    """Run read-only validation against a synthetic target with minimal doctrine."""
     with tempfile.TemporaryDirectory() as tmp:
-        y = Path(tmp) / "agent.yaml"
+        home = Path(tmp)
+        memory = home / "memory"
+        state = home / "state"
+        memory.mkdir()
+        state.mkdir()
+        (memory / "personality.md").write_text("# Personality — probe" + chr(10) * 2 + "Analytical.")
+        (memory / "method.md").write_text("# Feynman Method" + chr(10) * 2 + "Derive first.")
+        (memory / "canone.md").write_text("# O cânone" + chr(10) * 2 + "Evidence before claims.")
+        (state / "idiom.md").write_text("# Idiom" + chr(10) * 2 + "**beat** — work cycle.")
+        y = home / "agent.yaml"
         y.write_text(yaml_text)
+        env = {k: v for k, v in os.environ.items() if k != "HERMES_HOME"}
         return subprocess.run(
-            [sys.executable, str(APPLY), "--yaml", str(y), "--validate", "--claude-home", tmp],
-            capture_output=True, text=True,
+            [sys.executable, str(APPLY), "--yaml", str(y), "--home", str(home), "--validate"],
+            capture_output=True, text=True, env=env,
         )
 
 
@@ -62,11 +72,11 @@ class ValidateIsAuthoritativeOverAppliedConfig(unittest.TestCase):
         # AUTHORITATIVE: an unhealthy report exits NONZERO.
         self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
 
-    def test_complete_applied_yaml_is_healthy_and_exits_zero(self):
+    def test_complete_applied_yaml_passes_identity_on_target_home(self):
         res = _run_validate(COMPLETE_YAML)
         self.assertIn("[OK] identity:", res.stdout, res.stdout + res.stderr)
-        self.assertIn("INSTALL HEALTHY", res.stdout)
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertIn("INSTALL INCOMPLETE", res.stdout)
+        self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
 
 
 if __name__ == "__main__":

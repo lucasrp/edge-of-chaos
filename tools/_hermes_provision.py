@@ -8,6 +8,8 @@ nenhum nome de install hardcoded — qualquer usuário do hermes com o edge prov
 """
 from pathlib import Path
 
+import runtime_policy
+
 
 def _write_if_changed(path: Path, content: str) -> None:
     """Write only when content differs, keeping repeated apply runs idempotent."""
@@ -38,7 +40,7 @@ def hermes_prefixes(cfg: dict) -> list:
 def render_hermes_skill(*, slug: str, prefix: str, canonical_skill: Path) -> str:
     """Render a global Hermes wrapper for one canonical Edge skill."""
     name = f"{prefix}-{slug}"
-    canonical = str(Path(canonical_skill).expanduser())
+    canonical = Path(canonical_skill).expanduser().as_posix()
     return (
         "---\n"
         f"name: {name}\n"
@@ -55,14 +57,14 @@ def render_hermes_skill(*, slug: str, prefix: str, canonical_skill: Path) -> str
 
 def provision_hermes(cfg: dict, repo: Path, edge_home: Path, hermes_home: Path) -> list:
     """Idempotently provision HERMES_HOME/skills with prefixed Edge wrappers."""
+    hermes_home = runtime_policy.require_dedicated_hermes_home(hermes_home)
     repo = Path(repo)
     edge_home = Path(edge_home).expanduser()
-    hermes_home = Path(hermes_home).expanduser()
     prefixes = hermes_prefixes(cfg)
     rows = []
     installed = 0
 
-    skills_src = repo / "skills"
+    skills_src = runtime_policy.require_hermes_safe_skill_tree(repo / "skills")
     if skills_src.exists():
         for skill_dir in sorted(skills_src.iterdir()):
             if not skill_dir.is_dir() or skill_dir.name.startswith("."):

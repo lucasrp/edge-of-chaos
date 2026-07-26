@@ -120,7 +120,7 @@ The bounce-bound (`BOUNCE_MAX`) and the loop-2 brake (`LOOP2_MAX_REOPENS`) live 
 constants, never in the producer's discretion — that is what separates a gate from the
 retry-envelope ADR-0003 killed.
 
-## The improve-gates and cross-model help (codex)
+## The improve-gates and independent Hermes review
 
 The close is not only a gate — it **refines**. When the producer wires an `improve_fn`,
 `run_close` runs `IMPROVE_ROUNDS` (default 2) **review→improve** passes before the gating review:
@@ -141,13 +141,12 @@ wired, the `IMPROVE_ROUNDS` passes REVISE the draft from the named gaps BEFORE t
 shallow report is **re-produced richer** (the missing move added) rather than dead-ending. The floor
 is a depth-forcer because the re-production is wired; the gate alone would only reject.
 
-The review and improve subagents — the **adversarial** blind pass, the **feynman** rigor
-reviewer, the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — MAY
-reach for the **`/codex` skill** (the Codex CLI: a second, independent model) to pressure-test
-their analysis, when `agent.yaml`'s `subagents.codex_assist.<role>` is true (all on by default).
-Use it to challenge a claim, derive cross-model, or hunt the outside benchmark a frame-closed
-draft is missing — the score is noise; a cross-model second opinion sharpens the *feedback*, which
-is the signal.
+The review and improve roles — the **adversarial** blind pass, the **feynman** rigor reviewer,
+the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — run as fresh,
+independent Hermes subagents. Independence comes from separate contexts and the context-denial
+ladder, not from an external executable. Use them to challenge claims, derive a second reading,
+or hunt the outside benchmark a frame-closed draft is missing. If Hermes delegation is
+unavailable, declare the role dark and fail any gate that requires it; never substitute a CLI.
 
 ## Single file is the ONE hard rule — links, JS and imagem liberados (ticket 05)
 
@@ -203,11 +202,11 @@ carries the floor at 0 and nothing changes until the operator turns it up.
 
 ## The publisher subagent OWNS the close (Facet B, #61)
 
-**The default publish path is delegation to the `publisher` subagent** (`.claude/agents/publisher.md`) —
+**The default publish path is delegation to the provisioned Hermes `publisher` subagent** —
 this is not an optional form-only clerk anymore; the publisher owns the WHOLE `run_close`. Once the
 producer has **SETTLED** the artefato (every claim already made, the rich context still in the MAIN's
 window), it does **not** run `close.run_close` inline. It writes the settled spec + fields to **disk
-pointers** and hands off to the publisher (via the Agent tool) with a **brief + disk POINTERS** — the
+pointers** and hands off to the publisher (via Hermes subagent delegation) with a **brief + disk POINTERS** — the
 `conductor.py` node_briefs idiom, never a context dump: `{dispatch_id, main_session_id, skill,
 intent_kernel, slug, spec_path, cites_path, proposes_path, distills_path, lineage_path}`. The publisher
 runs the **whole close** in a clean process — the genus contract, the two blind reviewers, the
@@ -227,8 +226,8 @@ re-found it. The MAIN re-produces and re-hands the pointers under the **same `di
 the stamp is unconsumed, so re-publish under the same id still passes the identity-held gate).
 
 **The floor keeps its teeth across the split.** The publisher runs as a child
-(`CLAUDE_CODE_CHILD_SESSION` set) with a read-less transcript, so a naive `close_floor()` would go
-always-dark — the very S6 grounding floor would lose its teeth. The brief's `main_session_id` cures it:
+with a read-less child context, so a naive `close_floor()` would go always-dark — the very S6
+grounding floor would lose its teeth. The brief's `main_session_id` cures it:
 the publisher wires `floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session="")` —
 pointing the floor at the MAIN's transcript (where the reads live) and **clearing** the child guard.
 Without `child_session=""` the floor re-darkens under the split (pinned in

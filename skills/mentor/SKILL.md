@@ -4,7 +4,7 @@ description: Mentor posture first — know the mentee (leveling-state), residual
   Cadence: never stall waiting for «continue»; after an answer, land writeback/steers/synthesis in
   the same breath. Not always a closing question. Output = persona writeback + steers + optional
   inscription. Wayfind/ticket grill is the LEAST occupation. Accepts `motivo` when uninvited.
-  Invoked as /{prefix}-mentor or inside the beat (no claude -p).
+  Invoked as /{prefix}-mentor or inside a live Hermes beat.
 ---
 The mentor skill is where the mentor DEVELOPS the mentee actively — not the wake's passive absorption,
 but the edge ASKING. Feynman-interlocutor in real time: SENTIR (olhar-quente) → JULGAR (abate) →
@@ -129,8 +129,8 @@ timestamp ou leitura do log. Nunca chame `eventlog.open_map` diretamente e nunca
 `{uuid, display}` confiado pelo caller.
 
 **The evidence ladder of the stranger (onboarding):** (1) the **seed yaml** — sources, objetivos:
-an explosion of knowledge, you never start from 0; (2) empty yaml → there are **always the Claude
-sessions**; (3) the extreme case (fresh VPS, no source at all) → **ask for anything, honestly**:
+an explosion of knowledge, you never start from 0; (2) empty yaml + a verified Hermes-native
+session reader → admissible Hermes sessions; (3) reader dark or no source at all → **ask for anything, honestly**:
 "olha, isso foi feito pra funcionar assim — eu preciso de algo." The mentor declares its own
 hunger instead of pretending to know.
 
@@ -143,8 +143,10 @@ After steers + leveling land, **one close**:
 
 ```sh
 tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
-  --mission "…" --voice "…"   # optional --enable-heartbeat
+  --mission "…" --voice "…"
 ```
+
+Heartbeat remains off; this Hermes-only derivative is manual until native heartbeat support exists.
 
 (`finish_onboarding` = `grill_gate.assert_grill_complete` + `emit_phenotype`. See
 `docs/specs/onboarding-first-run.md`, README first-run.)
@@ -357,7 +359,7 @@ reason)` — a measurement never becomes an opinion.
 The first authorial draft stays sealed and blind-readable in the run dir; prove the rite ran with `tools/edge-python tools/rito.py verify state/rito/<slug>`. When the evidence yields **no** real insight, the report carries forward unchanged — do **not** manufacture insight or bloat the corpus. This is the ONLY leg of the mentor that changed: the **three-steers close** below (the `grill_gate` on Objective / Direction / Direcionamento) is untouched — it is not the artefato-publication path and it stays exactly as specified.
 
 ## The close gate — steers **and** leveling-state (MANDATORY, stage-(ii) + persona floor)
-The outward half above is conditional in its *wording* — set the objective "only when sharpened", propose Direction "additively", publish an Artefato "only when the insight is real". That wording is the trap the audit catches (`docs/briefing-lifecycle-audit.md`, Codex gate [high]): a mentor could read "only when…" as licence to land **nothing**, leaving the briefing's **Objective / Direction / Direcionamento** empty — and an **empty-post-mentor is a stage-(ii) failure, not acceptable** (empty-on-fresh is correct; empty-after-a-mentor is the bug, issue #26). The three feeders are not optional once a mentor runs; "only when sharpened" means *refine the standing one*, never *skip it*.
+The outward half above is conditional in its *wording* — set the objective "only when sharpened", propose Direction "additively", publish an Artefato "only when the insight is real". That wording is the trap the lifecycle audit catches: a mentor could read "only when…" as licence to land **nothing**, leaving the briefing's **Objective / Direction / Direcionamento** empty — and an **empty-post-mentor is a stage-(ii) failure, not acceptable** (empty-on-fresh is correct; empty-after-a-mentor is the bug, issue #26). The three feeders are not optional once a mentor runs; "only when sharpened" means *refine the standing one*, never *skip it*.
 
 **Persona-only session policy:** refine/confirm standing objective **without inventing** product wayfind/direction stamps. Prefer continuity ("continuidade: conhecer X") over ticket theatre. Objective-carimbo (treating log strings as telos without "does this still move you?") is a **posture failure**.
 

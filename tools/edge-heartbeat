@@ -1,174 +1,38 @@
 #!/usr/bin/env python3
-"""edge-heartbeat — autonomous beat launcher (ADR-0003).
+"""Fail-closed autonomous launcher for the Hermes-only derivative.
 
-Runs the beat as a single-shot headless CLI fed the /ed-beat skill body.
-
-Runtimes (``agent.yaml`` ``heartbeat.cli`` or ``EDGE_BEAT_CLI`` / ``--cli``):
-  - ``claude`` — ``claude -p -`` (default genotype)
-  - ``opus`` / ``fable`` — same claude CLI with ``--model opus|fable``
-  - ``grok`` — ``grok --always-approve --prompt-file …``
-  - ``codex`` — ``codex exec … -`` (prompt on stdin)
-  - ``random`` — weighted draw: 33% grok · 33% codex · 16.5% opus · 16.5% fable
-
-No cognition here, no envelope, no retry — cognition lives in the skill.
-Interactive dispatch does not use this: the live session runs /ed-beat in-place.
+The upstream heartbeat implementations target Claude, Codex, or Grok. They remain in
+history/adapters for the later parity phase, but no autonomous process may launch until a
+Hermes-native heartbeat has been implemented and verified.
 """
+from __future__ import annotations
+
 import argparse
-import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _beat
-
-
-# CLI tokens that run on the Anthropic claude binary (optional --model).
-_CLAUDE_FAMILY = frozenset({"claude", "opus", "fable"})
-_ALL_CLIS = tuple(sorted(_beat.FIXED_HEARTBEAT_CLIS | {"random"}))
+import runtime_policy
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--home", required=True)
-    ap.add_argument("--group", default=None,
-                    help="Override the graph group for the cortex door (else identity resolves it)")
-    ap.add_argument("--dispatch-id", default=None,
-                    help="Stable plan id for an idempotent retry (default: mint one invocation id)")
-    ap.add_argument("--cli", default=None, choices=_ALL_CLIS,
-                    help="Headless runtime override (default: agent.yaml heartbeat.cli or claude)")
-    ap.add_argument("--dry-run", action="store_true", help="Print the command and prompt; do not invoke")
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--home", required=True)
+    parser.add_argument("--group", default=None)
+    parser.add_argument("--dispatch-id", default=None)
+    parser.add_argument("--cli", default=None)
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args()
 
-    home = Path(os.path.expanduser(args.home)).resolve()
-    # Onboarding gate (bootstrap path only): refuse until phenotype + grill complete.
-    # Legacy installs (agent.yaml, no state/bootstrap.json) are unchanged.
     try:
-        import onboarding
-        boot = home / "state" / "bootstrap.json"
-        if boot.is_file() and not onboarding.is_onboarding_complete(home):
-            onboarding.assert_production_allowed(home)
-    except RuntimeError as e:
-        print(f"edge-heartbeat: {e}", file=sys.stderr)
-        sys.exit(2)
-    except ImportError:
-        pass
-    prompt = _beat.load_beat_prompt(home)
-
-    if args.cli == "random":
-        cli = _beat.pick_heartbeat_cli()
-    elif args.cli:
-        cli = args.cli.strip().lower()
-    else:
-        cli = _beat.heartbeat_cli(home)
-    if cli not in _beat.FIXED_HEARTBEAT_CLIS:
-        cli = "claude"
-
-    print(f"edge-heartbeat: cli={cli}", file=sys.stderr)
-
-    mcp_config_path = None
-    use_stdin = True
-    prompt_file = None
-    cmd = None
-
-    if cli in _CLAUDE_FAMILY:
-        try:
-            claude_bin = _beat.resolve_claude_bin()
-        except FileNotFoundError:
-            if not args.dry_run:
-                raise
-            claude_bin = "claude"
-        # Slice 6 (F1) — cortex door on lead beat (claude MCP only).
-        try:
-            mcp_config_path = _beat.ensure_cortex_config(home, group=args.group)
-        except Exception as e:  # noqa: BLE001
-            print(f"edge-heartbeat: cortex door not registered ({type(e).__name__}: {e}) — "
-                  f"the beat runs without mid-turn recall; recall still seeds at wake",
-                  file=sys.stderr)
-            mcp_config_path = None
-        model = cli if cli in ("opus", "fable") else None
-        cmd = _beat.build_beat_command(
-            claude_bin, mcp_config_path=mcp_config_path, model=model)
-        use_stdin = True
-    elif cli == "codex":
-        try:
-            codex_bin = _beat.resolve_codex_bin()
-        except FileNotFoundError:
-            if not args.dry_run:
-                raise
-            codex_bin = "codex"
-        cmd = _beat.build_codex_beat_command(codex_bin, home)
-        use_stdin = True
-    else:
-        # grok
-        try:
-            grok_bin = _beat.resolve_grok_bin()
-        except FileNotFoundError:
-            if not args.dry_run:
-                raise
-            grok_bin = "grok"
-        prompt_dir = home / "state" / "beat"
-        prompt_dir.mkdir(parents=True, exist_ok=True)
-        prompt_file = prompt_dir / "last-heartbeat-prompt.md"
-        use_stdin = False
-        cmd = _beat.build_grok_beat_command(grok_bin, prompt_file, home)
-
-    if args.dry_run and use_stdin:
-        print(" ".join(cmd))
-        print("--- prompt ---")
-        print(prompt)
-        return
-
-    dispatch_id = args.dispatch_id or _beat.mint_plan_dispatch_id()
-    # PRE-LAUNCH plan (ADR-0024): no proposta exists before the agent runs the Pauta
-    # funnel — producer is explicitly pendente; the trunk re-derives the plan through
-    # the same seam (dispatch-plan CLI, require_pauta) before opening Ato-2.
-    plan = _beat.dispatch_plan(
-        "lead", dispatch_id,
-        runtime_command=cmd,
-        log=home / "state" / "events" / "log.jsonl",
-        require_pauta=False,
-    )
-    prompt = _beat.bind_dispatch_plan(prompt, plan)
-    child_env = _beat.build_beat_env(home)
-    child_env["EDGE_DISPATCH_PLAN"] = json.dumps(plan, ensure_ascii=False, sort_keys=True)
-    child_env["EDGE_DISPATCH_PLAN_ID"] = dispatch_id
-    child_env["EDGE_BEAT_CLI"] = cli
-
-    if cli == "grok":
-        # Rebuild command after plan is bound; write full prompt to disk for --prompt-file.
-        prompt_file.write_text(prompt, encoding="utf-8")
-        cmd = _beat.build_grok_beat_command(
-            cmd[0] if cmd else _beat.resolve_grok_bin(), prompt_file, home)
-        plan = {**plan, "runtime_command": cmd}
-        if args.dry_run:
-            print(" ".join(cmd))
-            print("--- prompt-file ---", prompt_file)
-            print(prompt[:2000])
-            return
-
-    import eventlog
-    log = home / "state" / "events" / "log.jsonl"
-    with _beat.heartbeat_lock(home):
-        before_count = len(eventlog.corpus_at(log=log))
-
-        if use_stdin:
-            rc = subprocess.run(cmd, cwd=str(home), input=prompt, text=True,
-                                env=child_env).returncode
-        else:
-            rc = subprocess.run(cmd, cwd=str(home), text=True, env=child_env).returncode
-        if rc != 0:
-            sys.exit(rc)
-
-        # Post-gate carries the dente: artefatos require a live pauta.proposta whose
-        # forma matches; a logged pauta.silencio is the honest no-produce (never punished).
-        gaps = _beat.assert_beat_produced(log, before_count, dispatch_id=dispatch_id)
-    if gaps:
-        for gap in gaps:
-            print(f"edge-heartbeat: beat exited 0 but produced no corpus progress: {gap}",
-                  file=sys.stderr)
-        sys.exit(1)
+        if args.cli is not None:
+            runtime_policy.require_allowed_harness(args.cli)
+        raise runtime_policy.RuntimePolicyError(
+            "autonomous heartbeat is blocked until Hermes-native parity is implemented"
+        )
+    except runtime_policy.RuntimePolicyError as exc:
+        print(f"edge-heartbeat: {exc}", file=sys.stderr)
+        raise SystemExit(2) from None
 
 
 if __name__ == "__main__":

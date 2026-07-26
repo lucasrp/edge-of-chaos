@@ -91,15 +91,14 @@ class RequireKnobs(unittest.TestCase):
 
 class AdversarialCast(unittest.TestCase):
     def test_empty_cast_falls_back_to_self(self):
-        cast = onboarding.resolve_adversarial_cast([], primary="claude")
+        cast = onboarding.resolve_adversarial_cast([], primary="hermes")
         self.assertEqual(cast["mode"], "self")
         self.assertEqual(cast["members"], ["self"])
-        self.assertEqual(cast["primary"], "claude")
+        self.assertEqual(cast["primary"], "hermes")
 
-    def test_declared_members_kept(self):
-        cast = onboarding.resolve_adversarial_cast(["codex", "grok"], primary="claude")
-        self.assertEqual(cast["mode"], "declared")
-        self.assertEqual(cast["members"], ["codex", "grok"])
+    def test_external_members_are_rejected(self):
+        with self.assertRaises(ValueError):
+            onboarding.resolve_adversarial_cast(["codex", "grok"], primary="hermes")
 
 
 class EmbeddingOptional(unittest.TestCase):
@@ -127,7 +126,7 @@ class BootstrapPersist(unittest.TestCase):
             payload = {
                 "name": "ed",
                 "backfill_days": 14,
-                "adversarials": {"mode": "self", "members": ["self"], "primary": "claude"},
+                "adversarials": {"mode": "self", "members": ["self"], "primary": "hermes"},
                 "embedding": None,
             }
             path = onboarding.persist_bootstrap(home, **payload)
@@ -142,7 +141,7 @@ class BootstrapPersist(unittest.TestCase):
 class BootstrapCfg(unittest.TestCase):
     def test_cfg_carries_lentes_and_name(self):
         inv = {"files": [], "vars": [], "by_file": {}}
-        cast = onboarding.resolve_adversarial_cast([], primary="claude")
+        cast = onboarding.resolve_adversarial_cast([], primary="hermes")
         cfg = onboarding.bootstrap_cfg(
             home=Path("/tmp/h"),
             name="ed",
@@ -164,7 +163,7 @@ class BootstrapCfg(unittest.TestCase):
             "by_file": {"openai.env": ["OPENAI_API_KEY"]},
         }
         emb = onboarding.embedding_from_inventory(inv)
-        cast = onboarding.resolve_adversarial_cast(["codex"], primary="claude")
+        cast = onboarding.resolve_adversarial_cast([], primary="hermes")
         cfg = onboarding.bootstrap_cfg(
             home=Path("~/edge"),
             name="ed",
@@ -579,8 +578,8 @@ class PredispatchStampsInsumo(unittest.TestCase):
             self.assertTrue(stamped.get("ok"))
 
 
-class MultiCliInstall(unittest.TestCase):
-    """Install provisions Claude+Codex+Grok; phenotype lists installed surfaces."""
+class HarnessInventoryAndPolicy(unittest.TestCase):
+    """Detection inventories every CLI, while enablement remains Hermes-only."""
 
     def test_detect_installed_surfaces_sees_existing_homes(self):
         import surfaces_cfg
@@ -602,14 +601,16 @@ class MultiCliInstall(unittest.TestCase):
             (host / ".claude").mkdir()
             (host / ".codex").mkdir()
             (host / ".grok").mkdir()
+            (host / ".hermes").mkdir()
             block = surfaces_cfg.surfaces_block_for_installed(home=host)
-            self.assertTrue(block["claude"]["enabled"])
-            self.assertTrue(block["codex"]["enabled"])
-            self.assertTrue(block["grok"]["enabled"])
+            self.assertEqual(
+                block,
+                {"hermes": {"enabled": True, "home": "~/.hermes"}},
+            )
 
     def test_bootstrap_cfg_includes_surfaces_block(self):
         inv = {"files": [], "vars": [], "by_file": {}}
-        cast = onboarding.resolve_adversarial_cast([], primary="claude")
+        cast = onboarding.resolve_adversarial_cast([], primary="hermes")
         cfg = onboarding.bootstrap_cfg(
             home=Path("/tmp/h"),
             name="ed",
@@ -633,8 +634,8 @@ class MultiCliInstall(unittest.TestCase):
                 "claude": False, "codex": True, "grok": False
             }
             try:
-                # real host path: project_dir None, explicit None, surface enabled by default
-                self.assertTrue(
+                # Detection is inventory only; forbidden surfaces remain disabled.
+                self.assertFalse(
                     surfaces_cfg.include_optional_surface(
                         "codex", None, None, cfg={}
                     )
@@ -654,9 +655,9 @@ class MultiCliInstall(unittest.TestCase):
             "claude": True, "codex": True, "grok": True
         }
         try:
-            # cfg with surfaces block that disables nothing listed — empty surfaces means
-            # absent-block defaults when load_agent_cfg; pass cfg without surfaces:
-            self.assertTrue(surfaces_cfg.provision_surface("codex", cfg={}))
-            self.assertTrue(surfaces_cfg.provision_surface("grok", cfg={}))
+            import runtime_policy
+            for forbidden in ("codex", "grok"):
+                with self.assertRaises(runtime_policy.RuntimePolicyError):
+                    surfaces_cfg.provision_surface(forbidden, cfg={})
         finally:
             surfaces_cfg.detect_installed_surfaces = real

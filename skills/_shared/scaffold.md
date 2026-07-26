@@ -86,10 +86,11 @@ never what a particular report-form *is*:
   **The explorer is a WORLD-reading subject — DENY it the `cortex` self door (N5/R6, ADR-0014).** An
   explorer reads the *world* (a paper, a repo, a source key); the **self** (the edge's own memory) is
   the producer's own job, reached **directly at rung 1** (the recall pass below), never by an explorer.
-  Fan it through the **committed `{prefix}-explorer` subagent** (`.claude/agents/explorer.md`, deployed
-  to `~/.claude/agents/`) — that artifact's frontmatter declares `disallowedTools: mcp__cortex__*`, so
-  the harness **mechanically strips** the self door from the explorer BY CONSTRUCTION (not by prose you
-  must remember). A read-only door does NOT make this safe: ADR-0014's failure is one CONTEXT holding
+  Fan it through the **provisioned `{prefix}-explorer` Hermes subagent**. Its canonical skill
+  frontmatter declares `disallowed-tools: mcp__cortex__*`; Hermes must preserve that deny when
+  delegating, so the runtime mechanically strips the self door from the explorer BY CONSTRUCTION
+  (not by prose you must remember). If the deny cannot be enforced, do not fan the explorer and
+  declare that leg dark. A read-only door does NOT make this safe: ADR-0014's failure is one CONTEXT holding
   world-new evidence beside recalled-self, where one is read as the other — the contamination forms
   before any write, so the **scope deny** is the wall, not read-only-ness. The producer holds the door
   and recalls for itself; its world-reading fan does not. (A graph-reading recall is rung-1 producer
