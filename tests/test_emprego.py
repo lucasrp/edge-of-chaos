@@ -261,6 +261,39 @@ class ProjectIdempotent(unittest.TestCase):
         self.assertEqual(emprego.bypass_episodes(query_fn=lambda g: []), [])
 
 
+class ResetBypassRecording(unittest.TestCase):
+    def test_reset_bypass_runs_deletes_via_injected_tx(self):
+        recorded = []
+
+        class FakeResult:
+            def __init__(self, n):
+                self._n = n
+
+            def single(self):
+                return {"n": self._n}
+
+        class FakeTx:
+            def run(self, cypher, **params):
+                recorded.append(cypher)
+                if "RETURN count" in cypher:
+                    return FakeResult(2)
+                return FakeResult(0)
+
+        def run_tx(fn):
+            fn(FakeTx())
+
+        out = emprego.reset_bypass(group="g1", run_tx=run_tx)
+        self.assertEqual(out["communities"], 2)
+        self.assertEqual(out["entities"], 2)
+        self.assertEqual(out["episodics"], 2)
+        joined = "\n".join(recorded)
+        self.assertIn("Community", joined)
+        self.assertIn("Entity", joined)
+        self.assertIn("Episodic", joined)
+        self.assertIn("STARTS WITH", joined)
+        self.assertIn("parceiro IS NULL", joined)
+
+
 class ImportStaysBare(unittest.TestCase):
     def test_no_neo4j_at_import(self):
         import ast

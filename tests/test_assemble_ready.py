@@ -64,6 +64,31 @@ class ReadyReportIsTheInterface(unittest.TestCase):
         self.assertIn(assemble_ready.CODE_PENDING_DRAIN, msg)
         self.assertIn("pkg-block", msg)
 
+    def test_employment_pipe_miss_on_bypass_residue(self):
+        miss = assemble_ready.check_employment_pipe(
+            bypass_fn=lambda: ["session-abc"])
+        self.assertIsNotNone(miss)
+        self.assertEqual(miss.code, assemble_ready.CODE_EMPLOYMENT)
+        self.assertIn("migrate", miss.detail)
+
+    def test_employment_pipe_clear_on_empty_or_dark(self):
+        self.assertIsNone(assemble_ready.check_employment_pipe(bypass_fn=lambda: []))
+        self.assertIsNone(assemble_ready.check_employment_pipe(bypass_fn=lambda: None))
+
+    def test_default_checks_include_employment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            log.write_text("")
+            report = assemble_ready.ready(
+                log=log,
+                checks=[
+                    lambda: assemble_ready.check_employment_pipe(
+                        bypass_fn=lambda: ["session-x"]),
+                ],
+            )
+        self.assertFalse(report.ok)
+        self.assertEqual(report.misses[0].code, assemble_ready.CODE_EMPLOYMENT)
+
 
 class PredispatchHonorsAssembleReadyGate(unittest.TestCase):
     """Assemble readiness is a first-class wake gate (not a grounding annotation).

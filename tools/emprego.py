@@ -386,3 +386,128 @@ def _query_bypass_names(group):
     return [r["name"] for r in rows if r.get("name")]
 
 
+def reset_bypass(group=None, keep_curated=True, *, run_tx=None):
+    """Migration: wipe rebuildable bypass projections (Community, non-curated Entity,
+    session-* Episodic). Curated parceiro/curated_cluster entities preserved when
+    keep_curated=True. Returns counts or None if dark.
+
+    Tests inject run_tx(fn) that receives a recording session-like object.
+    """
+    try:
+        if group is None:
+            import _identity
+            group = _identity.require_group()
+    except Exception:
+        return None
+
+    counts = {"communities": 0, "entities": 0, "episodics": 0}
+
+    def _tx(tx):
+        n_c = tx.run(
+            "MATCH (c:Community {group_id:$g}) RETURN count(c) AS n", g=group
+        ).single()["n"]
+        tx.run("MATCH (c:Community {group_id:$g}) DETACH DELETE c", g=group)
+        if keep_curated:
+            n_e = tx.run(
+                "MATCH (e:Entity {group_id:$g}) "
+                "WHERE e.parceiro IS NULL AND e.curated_cluster IS NULL "
+                "RETURN count(e) AS n", g=group
+            ).single()["n"]
+            tx.run(
+                "MATCH (e:Entity {group_id:$g}) "
+                "WHERE e.parceiro IS NULL AND e.curated_cluster IS NULL "
+                "DETACH DELETE e", g=group)
+        else:
+            n_e = tx.run(
+                "MATCH (e:Entity {group_id:$g}) RETURN count(e) AS n", g=group
+            ).single()["n"]
+            tx.run("MATCH (e:Entity {group_id:$g}) DETACH DELETE e", g=group)
+        n_ep = tx.run(
+            "MATCH (ep:Episodic {group_id:$g}) "
+            "WHERE ep.name STARTS WITH $p RETURN count(ep) AS n",
+            g=group, p=BYPASS_EPISODE_PREFIX,
+        ).single()["n"]
+        tx.run(
+            "MATCH (ep:Episodic {group_id:$g}) "
+            "WHERE ep.name STARTS WITH $p DETACH DELETE ep",
+            g=group, p=BYPASS_EPISODE_PREFIX,
+        )
+        counts["communities"] = int(n_c or 0)
+        counts["entities"] = int(n_e or 0)
+        counts["episodics"] = int(n_ep or 0)
+
+    if run_tx is not None:
+        try:
+            run_tx(_tx)
+            return counts
+        except Exception:
+            return None
+    try:
+        import communities
+        drv = communities._driver()
+        if drv is None:
+            return None
+        with drv.session() as s:
+            s.execute_write(_tx)
+        return counts
+    except Exception as e:
+        print(f"emprego: reset_bypass dark ({type(e).__name__}: {e})")
+        return None
+
+
+def main(argv=None):
+    """CLI: --check (read-only) | --migrate (reset_bypass + project)."""
+    import argparse
+    import sys
+    p = argparse.ArgumentParser(description="emprego porteiro — check/migrate Cortex intake")
+    p.add_argument("--check", action="store_true", help="list bypass episodes + unprojected count")
+    p.add_argument("--migrate", action="store_true", help="wipe bypass projections + project digests")
+    p.add_argument("--group", default=None, help="graph group_id (default: install identity)")
+    args = p.parse_args(argv)
+    if not args.check and not args.migrate:
+        p.print_help()
+        return 2
+    log = eventlog.LOG
+    items = accepted_employment(log=log)
+    bypass = bypass_episodes(group=args.group)
+    if args.check:
+        print(f"accepted_employment: {len(items)}")
+        if bypass is None:
+            print("bypass_episodes: DARK (graph unreachable)")
+        else:
+            print(f"bypass_episodes: {len(bypass)}")
+            for name in bypass[:50]:
+                print(f"  - {name}")
+            if len(bypass) > 50:
+                print(f"  … +{len(bypass) - 50} more")
+        # unprojected: need graph existing names
+        try:
+            import _identity
+            g = args.group or _identity.require_group()
+            existing = _existing_emprego_names(g) or set()
+        except Exception:
+            existing = set()
+            print("existing emprego episodes: DARK")
+        missing = [it for it in items
+                   if episode_name(it["rationalization_id"]) not in existing]
+        print(f"unprojected accepted: {len(missing)}")
+        return 0
+    if args.migrate:
+        wiped = reset_bypass(group=args.group)
+        print(f"reset_bypass: {wiped}")
+        out = project(log=log, group=args.group)
+        print(f"project: {out}")
+        try:
+            import communities
+            if __import__("os").environ.get("EDGE_COMMUNITIES") == "1":
+                written = communities.consolidate(group=args.group)
+                print(f"communities: {len(written or [])} clusters")
+        except Exception as e:
+            print(f"communities skipped ({type(e).__name__}: {e})")
+        return 0 if wiped is not None else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
