@@ -240,8 +240,47 @@ def project(log=eventlog.LOG, group=None, *, existing_names=None, add_fn=None, g
     return {"added": added, "total": len(items)}
 
 
+def _load_openai_key():
+    import os
+    from pathlib import Path
+    if os.environ.get("OPENAI_API_KEY"):
+        return
+
+    def _from_file(f):
+        if not f.exists():
+            return False
+        for line in f.read_text().splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            if "OPENAI_API_KEY" in line and "=" in line:
+                os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
+                return True
+        return False
+
+    home = Path.home()
+    for root in filter(None, [
+        os.environ.get("EDGE_HOME"),
+        str(Path(__file__).resolve().parent.parent),
+        str(home / "edge"),
+    ]):
+        if _from_file(Path(root) / "secrets" / "openai.env"):
+            return
+    _from_file(home / ".edge-sandbox-kit" / "openai.env")
+
+
 def _project_graphiti(items, group):
-    """Real Graphiti write path — employment digests only."""
+    """Real Graphiti write path — employment digests only. Early-exit without Graphiti import."""
+    existing = _existing_emprego_names(group)
+    if existing is None:
+        return None
+    to_add = [it for it in items
+              if episode_name(it["rationalization_id"]) not in existing]
+    if not to_add:
+        return {"added": 0, "total": len(items)}
+    return _project_graphiti_add(to_add, items, group)
+
+
+def _project_graphiti_add(to_add, items, group):
     import asyncio
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
@@ -250,13 +289,6 @@ def _project_graphiti(items, group):
 
     _load_openai_key()
     neo = _identity.neo4j_conn()
-    existing = _existing_emprego_names(group)
-    if existing is None:
-        return None
-    to_add = [it for it in items
-              if episode_name(it["rationalization_id"]) not in existing]
-    if not to_add:
-        return {"added": 0, "total": len(items)}
 
     async def bounded_previous_uuids(g, ref):
         eps = await g.retrieve_episodes(
@@ -308,31 +340,6 @@ def _project_graphiti(items, group):
 
     added = asyncio.run(go())
     return {"added": added, "total": len(items)}
-
-
-def _load_openai_key():
-    import os
-    from pathlib import Path
-    if os.environ.get("OPENAI_API_KEY"):
-        return
-    home = Path.home()
-    for root in filter(None, [
-        os.environ.get("EDGE_HOME"),
-        str(Path(__file__).resolve().parent.parent),
-        str(home / "edge"),
-    ]):
-        f = Path(root) / "secrets" / "openai.env"
-        if f.exists():
-            for line in f.read_text().splitlines():
-                if "OPENAI_API_KEY" in line:
-                    os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
-                    return
-    kit = home / ".edge-sandbox-kit" / "openai.env"
-    if kit.exists():
-        for line in kit.read_text().splitlines():
-            if "OPENAI_API_KEY" in line:
-                os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
-                return
 
 
 def bypass_episodes(group=None, *, query_fn=None):
