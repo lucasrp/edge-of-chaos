@@ -19,6 +19,13 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import sweep      # noqa: E402
 import eventlog   # noqa: E402
+import emprego    # noqa: E402
+
+
+def setUpModule():
+    """Unbounded film window — phenotype backfill_days=0 empties every plan (mtime race)."""
+    sweep._film_window_start = lambda log=None: None
+
 
 BODY = "a substantive design decision about the edge-next architecture and its direction " * 4
 
@@ -161,7 +168,7 @@ class RunIsSerializedByTheCursorLock(unittest.TestCase):
             lock.parent.mkdir(parents=True, exist_ok=True)
             done = []
             def go():
-                sweep.run(proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
+                sweep.run(proj, cursors_path=cursors_path,
                           reproject_fn=False, log=log, graph_recover_fn=False,
                           group="test-group", cursors_lock_wait_s=2.0)
                 done.append(True)
@@ -194,7 +201,7 @@ class RunIsSerializedByTheCursorLock(unittest.TestCase):
                 t0 = time.monotonic()
                 with redirect_stdout(out):
                     n = sweep.run(
-                        proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
+                        proj, cursors_path=cursors_path,
                         reproject_fn=False, log=log, graph_recover_fn=False,
                         group="test-group", cursors_lock_wait_s=0.4)
                 elapsed = time.monotonic() - t0
@@ -255,7 +262,7 @@ class RunPreflightsIdentityBeforeAnyWrite(unittest.TestCase):
             log = Path(st) / "log.jsonl"
             with mock.patch.object(_identity, "group", return_value=None):
                 with self.assertRaises(RuntimeError):
-                    sweep.run(proj, ingest_fn=lambda items: set(), cursors_path=cursors_path,
+                    sweep.run(proj, cursors_path=cursors_path,
                               reproject_fn=False, log=log, graph_recover_fn=False)
             self.assertFalse(log.exists(), "no episode may land before identity resolves")
             self.assertEqual(sweep.load_cursors(cursors_path), {},
@@ -265,7 +272,7 @@ class RunPreflightsIdentityBeforeAnyWrite(unittest.TestCase):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             write_session(proj, "sessA")
             log = Path(st) / "log.jsonl"
-            n = sweep.run(proj, ingest_fn=lambda items: set(),
+            n = sweep.run(proj,
                           cursors_path=Path(st) / "cursors.json",
                           reproject_fn=False, log=log, graph_recover_fn=False,
                           group="test-group")
@@ -280,10 +287,8 @@ class ExecuteIngestsLogsAdvances(unittest.TestCase):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             write_session(proj, "sessA")
             log = Path(st) / "log.jsonl"
-            seen = []
-            cur, n = sweep.execute(sweep.plan_sweep(proj, {}),
-                                   lambda items: seen.extend(i["id"] for i in items), {}, log=log)
-            self.assertEqual((n, seen), (1, ["sessA"]))
+            cur, n = sweep.execute(sweep.plan_sweep(proj, {}), {}, log=log)
+            self.assertEqual(n, 1)
             self.assertIn("sessA", cur)
             eps = eventlog.read(types=["episode"], log=log)
             self.assertEqual(len(eps), 1)
@@ -299,18 +304,15 @@ class ExecuteIngestsLogsAdvances(unittest.TestCase):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             write_session(proj, "tiny", n_human=1, text="hi")
             log = Path(st) / "log.jsonl"
-            seen = []
-            cur, n = sweep.execute(sweep.plan_sweep(proj, {}),
-                                   lambda items: seen.extend(i["id"] for i in items), {}, log=log)
-            self.assertEqual((n, seen, cur), (0, [], {}))
+            cur, n = sweep.execute(sweep.plan_sweep(proj, {}), {}, log=log)
+            self.assertEqual((n, cur), (0, {}))
 
     def test_codex_episode_carries_surface_metadata(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as codex, \
              tempfile.TemporaryDirectory() as st:
             write_codex_session(codex, "codexA")
             log = Path(st) / "log.jsonl"
-            cur, n = sweep.execute(sweep.plan_sweep(proj, {}, codex_dir=codex),
-                                   lambda items: None, {}, log=log)
+            cur, n = sweep.execute(sweep.plan_sweep(proj, {}, codex_dir=codex), {}, log=log)
             self.assertEqual(n, 1)
             self.assertIn("codex:codexA", cur)
             eps = eventlog.read(types=["episode"], log=log)
@@ -323,9 +325,7 @@ class ExecuteIngestsLogsAdvances(unittest.TestCase):
              tempfile.TemporaryDirectory() as st:
             write_grok_session(grok, "grokA")
             log = Path(st) / "log.jsonl"
-            cur, n = sweep.execute(
-                sweep.plan_sweep(proj, {}, grok_dir=grok, codex_dir=False),
-                lambda items: None, {}, log=log)
+            cur, n = sweep.execute(sweep.plan_sweep(proj, {}, grok_dir=grok, codex_dir=False), {}, log=log)
             self.assertEqual(n, 1)
             self.assertIn("grok:grokA", cur)
             eps = eventlog.read(types=["episode"], log=log)
@@ -342,28 +342,24 @@ class RunIsIdempotent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             write_session(proj, "sessA")
             cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
-            calls = []
-            fake = lambda items: calls.append(len(items))
-            n1 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
-                          graph_recover_fn=False)
-            n2 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
-                          graph_recover_fn=False)
-            self.assertEqual((n1, n2, calls), (1, 0, [1]))
+            n1 = sweep.run(proj, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False, group="test-group")
+            n2 = sweep.run(proj, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False, group="test-group")
+            # Tier-0 only: first run logs 1 episode, second is no-op (no graph ingest calls)
+            self.assertEqual((n1, n2), (1, 0))
 
     def test_growing_session_digests_only_new_delta(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
             write_session(proj, "sessA")
-            ingested = []
-            fake = lambda items: ingested.append([i["id"] for i in items])
-            sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
-                          graph_recover_fn=False)
+            sweep.run(proj, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False, group="test-group")
             # the session grows; a second sweep sees only the new tail
             write_session(proj, "sessA", n_human=6)  # rewrites longer (append-only in spirit)
-            n2 = sweep.run(proj, ingest_fn=fake, cursors_path=cp, reproject_fn=False, log=log,
-                          graph_recover_fn=False)
+            n2 = sweep.run(proj, cursors_path=cp, reproject_fn=False, log=log,
+                          graph_recover_fn=False, group="test-group")
             self.assertEqual(n2, 1)  # the new delta re-qualified
-            self.assertEqual(ingested, [["sessA"], ["sessA"]])
 
     def test_graph_recovery_runs_even_on_a_no_delta_sweep(self):
         # Codex P2: graph recovery is NOT gated by new ingest — a no-delta sweep (n==0) after Neo4j
@@ -373,7 +369,7 @@ class RunIsIdempotent(unittest.TestCase):
             cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
             # no sessions → n == 0 (no delta)
             recovered = []
-            n = sweep.run(proj, ingest_fn=lambda items: None, cursors_path=cp,
+            n = sweep.run(proj, cursors_path=cp,
                           reproject_fn=False, log=log,
                           graph_recover_fn=lambda lg: recovered.append(lg))
             self.assertEqual(n, 0)             # no delta ingested
@@ -385,13 +381,13 @@ class RunIsIdempotent(unittest.TestCase):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
             called = []
-            original = sweep._maybe_consolidate
+            original = sweep._cortex_refresh
             try:
-                sweep._maybe_consolidate = lambda: called.append(True)
-                n = sweep.run(proj, ingest_fn=lambda items: None, cursors_path=cp,
+                sweep._cortex_refresh = lambda log=None: called.append(True)
+                n = sweep.run(proj, cursors_path=cp,
                               log=log, graph_recover_fn=False, group="test-group")
             finally:
-                sweep._maybe_consolidate = original
+                sweep._cortex_refresh = original
             self.assertEqual(n, 0)
             self.assertEqual(called, [True])
 
@@ -400,48 +396,46 @@ class RunIsIdempotent(unittest.TestCase):
              tempfile.TemporaryDirectory() as st:
             write_codex_session(codex, "codexA")
             cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
-            seen = []
-            n1 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+            n1 = sweep.run(proj,
                            cursors_path=cp, reproject_fn=False, log=log,
                            graph_recover_fn=False, group="test-group", codex_dir=codex)
             cursors = sweep.load_cursors(cp)
             self.assertEqual(n1, 0)
-            self.assertEqual(seen, [])
             self.assertTrue(cursors[sweep.CODEX_BASELINE_KEY])
             self.assertGreater(cursors["codex:codexA"], 0)
             self.assertEqual(eventlog.read(types=["episode"], log=log), [])
 
             write_codex_session(codex, "codexA", append=True)
-            n2 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+            n2 = sweep.run(proj,
                            cursors_path=cp, reproject_fn=False, log=log,
                            graph_recover_fn=False, group="test-group", codex_dir=codex)
             self.assertEqual(n2, 1)
-            self.assertEqual(seen, ["codex:codexA"])
+            eps = eventlog.read(types=["episode"], log=log)
+            self.assertEqual([e["payload"]["session"] for e in eps], ["codex:codexA"])
 
     def test_first_grok_run_baselines_existing_logs_without_ingesting(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as grok, \
              tempfile.TemporaryDirectory() as st:
             write_grok_session(grok, "grokA")
             cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
-            seen = []
-            n1 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+            n1 = sweep.run(proj,
                            cursors_path=cp, reproject_fn=False, log=log,
                            graph_recover_fn=False, group="test-group",
                            grok_dir=grok, codex_dir=False)
             cursors = sweep.load_cursors(cp)
             self.assertEqual(n1, 0)
-            self.assertEqual(seen, [])
             self.assertTrue(cursors[sweep.GROK_BASELINE_KEY])
             self.assertGreater(cursors["grok:grokA"], 0)
             self.assertEqual(eventlog.read(types=["episode"], log=log), [])
 
             write_grok_session(grok, "grokA", append=True)
-            n2 = sweep.run(proj, ingest_fn=lambda items: seen.extend(i["id"] for i in items),
+            n2 = sweep.run(proj,
                            cursors_path=cp, reproject_fn=False, log=log,
                            graph_recover_fn=False, group="test-group",
                            grok_dir=grok, codex_dir=False)
             self.assertEqual(n2, 1)
-            self.assertEqual(seen, ["grok:grokA"])
+            eps = eventlog.read(types=["episode"], log=log)
+            self.assertEqual([e["payload"]["session"] for e in eps], ["grok:grokA"])
 
 
 class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
@@ -527,27 +521,43 @@ class ReprojectFoldsCorpusAndReadsTheC3Gate(unittest.TestCase):
 
 
 class GraphIngestIsBestEffort(unittest.TestCase):
-    """ADR-0006: the Tier-0 log is the source of truth. A graph ingest failure (no graphiti_core /
-    Neo4j down on a fleet host like petertosh) is skipped, not fatal — episodes are still logged and
-    cursors still advance, so digestion is current and the graph stays rebuildable from the log."""
+    """employment-gate: raw graphiti_ingest deleted; execute is Tier-0 only."""
 
-    def test_ingest_failure_still_logs_and_advances(self):
-        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
-            write_session(proj, "sessA")
-            cp, log = Path(st) / "cursors.json", Path(st) / "log.jsonl"
+    def test_execute_is_tier0_only_no_ingest_arg(self):
+        import inspect
+        sig = inspect.signature(sweep.execute)
+        self.assertNotIn("ingest_fn", sig.parameters)
+        self.assertFalse(hasattr(sweep, "graphiti_ingest"))
 
-            def boom(items):
-                raise ModuleNotFoundError("No module named 'graphiti_core'")
+    def test_cortex_refresh_orders_project_before_consolidate(self):
+        order = []
+        original_p = sweep._maybe_project_emprego
+        original_c = sweep._maybe_consolidate
+        try:
+            sweep._maybe_project_emprego = lambda log=None: order.append("project")
+            sweep._maybe_consolidate = lambda: order.append("consolidate")
+            sweep._cortex_refresh()
+            self.assertEqual(order, ["project", "consolidate"])
+        finally:
+            sweep._maybe_project_emprego = original_p
+            sweep._maybe_consolidate = original_c
 
-            n = sweep.run(proj, ingest_fn=boom, cursors_path=cp, reproject_fn=False, log=log,
-                          graph_recover_fn=False)
-            self.assertEqual(n, 1)                                    # logged despite graph failure
-            self.assertEqual(len(eventlog.read(types=["episode"], log=log)), 1)
-            self.assertIn("sessA", sweep.load_cursors(cp))           # cursor advanced
+    def test_project_then_consolidate_both_invoked(self):
+        original_p = sweep._maybe_project_emprego
+        original_c = sweep._maybe_consolidate
+        called = []
+        try:
+            sweep._maybe_project_emprego = lambda log=None: called.append("project")
+            sweep._maybe_consolidate = lambda: called.append("consolidate")
+            sweep._cortex_refresh()
+            self.assertEqual(called, ["project", "consolidate"])
+        finally:
+            sweep._maybe_project_emprego = original_p
+            sweep._maybe_consolidate = original_c
 
 
 class ChunkEpisodeBodyKeepsLargeSessionsUnderContext(unittest.TestCase):
-    """#53 (ex edge-of-chaos #573) — graphiti_ingest shipped each session's ENTIRE body as one
+    """#53 (ex edge-of-chaos #573) — raw graphiti dialogue ingest shipped each session's ENTIRE body as one
     episode to gpt-4o-mini; an oversized session overflowed the context window, FAILED, and was
     silently dropped from the graph while the cursor advanced (no replay) — silent knowledge loss.
     The fix splits the body into context-sized sub-episodes at TURN ('\\n') boundaries. Tier-0 keeps
@@ -556,25 +566,25 @@ class ChunkEpisodeBodyKeepsLargeSessionsUnderContext(unittest.TestCase):
 
     def test_body_under_budget_is_a_single_chunk_unchanged(self):
         body = "human: hi\nassistant: hello"
-        self.assertEqual(sweep.chunk_episode_body(body, 1000), [body])
+        self.assertEqual(emprego.chunk_episode_body(body, 1000), [body])
 
     def test_large_body_splits_into_chunks_each_under_budget(self):
         body = "\n".join(f"human: turn {i} " + "x" * 200 for i in range(50))
-        chunks = sweep.chunk_episode_body(body, 1000)
+        chunks = emprego.chunk_episode_body(body, 1000)
         self.assertGreater(len(chunks), 1)
         for c in chunks:
             self.assertLessEqual(len(c), 1000)
 
     def test_split_is_lossless_and_at_turn_boundaries(self):
         body = "\n".join(f"human: turn {i} " + "x" * 200 for i in range(50))
-        chunks = sweep.chunk_episode_body(body, 1000)
+        chunks = emprego.chunk_episode_body(body, 1000)
         self.assertEqual("".join(chunks), body, "no character may be lost across the split")
         for c in chunks[:-1]:
             self.assertTrue(c.endswith("\n"), "a chunk boundary must fall between turns, not mid-turn")
 
     def test_a_single_oversized_turn_is_hard_split_never_over_budget(self):
         body = "human: " + "y" * 5000   # one turn far larger than a whole chunk (a giant paste)
-        chunks = sweep.chunk_episode_body(body, 1000)
+        chunks = emprego.chunk_episode_body(body, 1000)
         for c in chunks:
             self.assertLessEqual(len(c), 1000)
         self.assertEqual("".join(chunks), body, "every character of an oversized turn must still land")
@@ -626,56 +636,16 @@ class EmbedAndSignalDegradesWithoutEmbedder(unittest.TestCase):
 
 
 class GraphIngestIsBoundedAndNeverGatesTheSweep(unittest.TestCase):
-    """#62 (second front): Tier-0 (episode + cursor) is durable BEFORE the best-effort graph ingest,
-    and the ingest is time-bounded on a daemon thread — a HANG (add_episode on a network call with
-    no client timeout, the real sweep hang) degrades dark LOUD, never blocks the wake."""
+    """#62 budget now guards emprego.project via _maybe_project_emprego, not raw ingest."""
 
-    def test_a_hanging_ingest_degrades_dark_within_budget_tier0_intact(self):
-        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
-            write_session(proj, "sessA")
-            log = Path(st) / "log.jsonl"
+    def test_nonfinite_or_bad_project_budget_fails_loud(self):
+        for bad in ("nan", "inf", "-1", "soon"):
+            with self.subTest(budget=bad), mock.patch.dict(os.environ, {
+                    "EDGE_SWEEP_INGEST_BUDGET_S": bad}):
+                with self.assertRaises(ValueError):
+                    sweep._maybe_project_emprego()
 
-            def hang(items):
-                time.sleep(30)            # a network call with no timeout — the real hang
+    def test_execute_no_longer_takes_ingest_fn(self):
+        import inspect
+        self.assertNotIn("ingest_fn", inspect.signature(sweep.execute).parameters)
 
-            buf = io.StringIO()
-            t0 = time.monotonic()
-            with mock.patch.dict(os.environ, {"EDGE_SWEEP_INGEST_BUDGET_S": "1"}), \
-                 contextlib.redirect_stdout(buf):
-                cur, n = sweep.execute(sweep.plan_sweep(proj, {}), hang, {}, log=log)
-            dt = time.monotonic() - t0
-            self.assertLess(dt, 6.0, "a hung graph ingest must not block the sweep past the budget")
-            self.assertIn("EXCEEDED", buf.getvalue(), "the timeout degrades DARK and LOUD")
-            self.assertEqual(n, 1)
-            self.assertIn("sessA", cur, "Tier-0 cursor advanced despite the hung ingest")
-            self.assertEqual(len(eventlog.read(types=["episode"], log=log)), 1,
-                             "the episode is logged (Tier-0 truth) before the best-effort ingest")
-
-    def test_a_raising_ingest_still_logs_and_advances(self):
-        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
-            write_session(proj, "sessA")
-            log = Path(st) / "log.jsonl"
-
-            def boom(items):
-                raise RuntimeError("neo4j down")
-
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                cur, n = sweep.execute(sweep.plan_sweep(proj, {}), boom, {}, log=log)
-            self.assertIn("skipped", buf.getvalue())
-            self.assertIn("sessA", cur)
-            self.assertEqual(len(eventlog.read(types=["episode"], log=log)), 1)
-
-    def test_nonfinite_or_bad_ingest_budget_fails_loud(self):
-        with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
-            write_session(proj, "sessA")
-            log = Path(st) / "log.jsonl"
-            for bad in ("nan", "inf", "-1", "soon"):
-                with self.subTest(budget=bad), \
-                     mock.patch.dict(os.environ, {"EDGE_SWEEP_INGEST_BUDGET_S": bad}):
-                    with self.assertRaises(ValueError):
-                        sweep.execute(sweep.plan_sweep(proj, {}), lambda items: None, {}, log=log)
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

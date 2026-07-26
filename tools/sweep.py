@@ -7,8 +7,8 @@ delta only, never the whole store. **Keyed on the store, not on any skill** — 
 no ed skill is still digested at the next sweep. Re-running is a no-op (the cursor guards it).
 After ingest, the wiki and Direction **re-project** (sweep → extract → re-project → digest).
 
-The pure planning (`plan_sweep`, cursors) carries no graph/LLM; `execute` takes an injected
-`ingest_fn`, so the cursor/idempotency logic is testable without Neo4j or OpenAI.
+The pure planning (`plan_sweep`, cursors) carries no graph/LLM; `execute` is Tier-0 only
+(episode events + cursors). Cortex Tier-1 is emprego.project() on accepted employment digests.
 
 Run:  tools/edge-python tools/sweep.py          (sweep + re-project)
       python3 tools/sweep.py --plan             (re-execs into .venv when present)
@@ -38,19 +38,7 @@ GROK_BASELINE_KEY = "_grok_baselined"
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
 DISPATCH_MARKER = "Dispatch runtime context"   # strip the edge's own framing (exp-001)
 MIN_CHARS = 200                                 # a substantive delta, not a stray turn
-# Tier-1 ONLY: the body fed to ONE Graphiti episode. The extractor (gpt-4o-mini, 128k-token
-# context) also carries its system prompt + retrieved prior episodes + reserved output, so a whole
-# oversized session shipped as one episode overflowed and was dropped (#53). ~48k chars (~12k
-# tokens) leaves deep headroom and keeps the common case (deltas under budget) a single episode —
-# Tier-0 keeps the FULL body uncapped; only the add_episode boundary chunks.
-MAX_EPISODE_CHARS = 48_000
-# Tier-1 ONLY: the OTHER side of the same window. add_episode internally retrieves the last 10
-# previous episodes (RELEVANT_SCHEMA_LIMIT) as prompt context — 10 x 48k already flirts with the
-# 128k window, and legacy pre-#53 episodes (up to ~200k chars) made EVERY new ingest overflow
-# regardless of the new delta's size, wedging the group (nothing lands, so the window never rolls
-# past the giants). We pass previous_episode_uuids explicitly, greedy most-recent-first under this
-# deterministic char budget (~30k tokens), skipping any single episode over MAX_EPISODE_CHARS.
-PREV_CONTEXT_MAX_CHARS = 120_000
+# Tier-1 Graphiti intake moved to emprego (employment digests only).
 DEFAULT_MAX_SESSIONS_PER_SWEEP = 5
 DEFAULT_SWEEP_TOKEN_BUDGET = 20_000
 DEFAULT_SCENE_TURN_LIMIT = 40
@@ -116,19 +104,6 @@ def _cursor_id(session):
     return session.id
 
 
-def _source_description(item):
-    surface = item.get("surface")
-    if surface == "codex":
-        return "Codex work session (mentee<->edge)"
-    if surface == "grok":
-        return "Grok work session (mentee<->edge)"
-    return "Claude work session (mentee<->edge)"
-
-
-def _episode_name(item, chunk_index=None):
-    sid = item["id"].replace(":", "-")[:24]
-    base = f"session-{sid}"
-    return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
 
 
 def _codex_enabled(project_dir, codex_dir):
@@ -819,11 +794,11 @@ def rationalize_pending_sessions(
 
 
 # --- effectful execute: log + ingest + advance cursor ---
-def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
+def execute(plan, cursors, log=eventlog.LOG):
     """**Tier-0 is truth** (ADR-0006): write each qualifying delta as an `episode` event and advance
-    its cursor — **always, even with no graph**. The graph ingest (`ingest_fn`) is **best-effort**:
-    a missing runtime or a down Neo4j (e.g. a graph-less fleet host) is logged and skipped, never
-    fatal — the graph is a projection rebuildable from the log. Returns (cursors, n_logged)."""
+    its cursor — **always, even with no graph**. Cortex Tier-1 (Entity extraction) is NOT driven
+    from raw dialogue here — see emprego.project() on accepted employment digests.
+    Returns (cursors, n_logged)."""
     qualifying = [it for it in plan if not it.get("skip") and it.get("body", "").strip()]
     for it in qualifying:                              # Tier-0: the log + cursor, unconditionally
         # R8c part 1 (F9-dep, C5): STAMP the source Medium's tier on the episode at ingest. The native
@@ -837,40 +812,6 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
             payload["surface"] = it["surface"]
         eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
-    if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
-        # BOUNDED + degrade-dark (#62): Tier-0 (episode + cursor) is ALREADY durable above, so the
-        # graph ingest must never gate the wake. It runs on a daemon thread with a hard deadline —
-        # a HANG (add_episode on a network call with no client timeout) degrades dark LOUD exactly
-        # like a raise; the graph re-projects from the log. Fail loud on a bad budget, never un-cap.
-        # Default 600s (qualidade>latência, operador 2026-07-25): extração LLM honesta
-        # passa fácil de 30s e o grafo vivia truncando em silêncio; o cap segue existindo
-        # só para HANG de rede — nunca para apressar trabalho real.
-        budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
-        try:
-            budget = float(budget_raw)
-        except (TypeError, ValueError):
-            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number — fail loud (#62)")
-        if not math.isfinite(budget) or budget < 0:
-            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a finite non-negative "
-                             "number — nan/inf/negative would un-bound the graph ingest (#62); fail loud")
-        err = []
-        done = threading.Event()
-
-        def _ingest():
-            try:
-                ingest_fn(qualifying)
-            except Exception as e:  # noqa: BLE001 — captured, surfaced on the caller thread
-                err.append(e)
-            finally:
-                done.set()
-
-        threading.Thread(target=_ingest, daemon=True).start()
-        if not done.wait(timeout=budget):
-            print(f"sweep: graph ingest EXCEEDED {budget:g}s budget — degraded DARK (Tier-0 log is "
-                  f"current; the graph is rebuildable from the log)")
-        elif err:
-            print(f"sweep: graph ingest skipped ({type(err[0]).__name__}: {err[0]}) — "
-                  f"Tier-0 log is current; the graph is rebuildable from the log")
     return cursors, len(qualifying)
 
 
@@ -887,112 +828,8 @@ def _load_openai_key():
                     return
 
 
-def _first_ts(path):
-    for line in open(path):
-        try:
-            ts = json.loads(line).get("timestamp")
-            if ts:
-                return ts
-        except Exception:
-            pass
-    return None
-
-
-def _parse_ts(ts):
-    if not ts:
-        return datetime.now(timezone.utc)
-    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-
-
-def chunk_episode_body(body, max_chars=MAX_EPISODE_CHARS):
-    """Split an episode body into <= max_chars chunks at TURN ('\\n') boundaries, so a large
-    session-delta lands as several sub-episodes that each fit the extractor's context window
-    instead of overflowing as one episode and being dropped whole (#53, ex edge-of-chaos #573).
-    Lossless: ''.join(chunks) == body. A body already under budget is returned as one chunk
-    (the common case — name/behaviour unchanged). A single turn longer than max_chars is
-    hard-split, so a giant paste still lands rather than blocking its session."""
-    if len(body) <= max_chars:
-        return [body]
-    chunks, cur = [], ""
-    for line in body.splitlines(keepends=True):          # keepends → ''.join reconstructs body
-        while len(line) > max_chars:                     # one turn bigger than a whole chunk
-            if cur:
-                chunks.append(cur)
-                cur = ""
-            chunks.append(line[:max_chars])
-            line = line[max_chars:]
-        if cur and len(cur) + len(line) > max_chars:
-            chunks.append(cur)
-            cur = line
-        else:
-            cur += line
-    if cur:
-        chunks.append(cur)
-    return chunks
-
-
-def graphiti_ingest(items):
-    """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
-    own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
-    others still land). Returns the set of session ids that ingested — INFORMATIONAL: `execute`
-    advances cursors unconditionally (Tier-0 is truth; the episode event is already logged), so a
-    failed graph ingest does NOT retry via the cursor — its episode lives in the log awaiting an
-    episode-replay recovery (a known gap, mirror of publisher.reproject_graph for artefatos)."""
-    import asyncio
-    from graphiti_core import Graphiti
-    from graphiti_core.nodes import EpisodeType
-    from graphiti_core.llm_client import LLMConfig, OpenAIClient
-    _load_openai_key()
-    neo = _identity.neo4j_conn()
-    group = _identity.require_group()   # resolved ONCE, before any episode (codex gate)
-    ok = set()
-
-    async def bounded_previous_uuids(g, ref):
-        """The previous-episode context add_episode would retrieve, bounded: most-recent-first
-        under PREV_CONTEXT_MAX_CHARS, never an episode over MAX_EPISODE_CHARS (a legacy pre-#53
-        giant — one alone can blow the window). Deterministic seam: the tool disposes what the
-        extractor may see, instead of trusting the internal unbounded last-10 retrieval."""
-        eps = await g.retrieve_episodes(ref, last_n=10, group_ids=[group],
-                                        source=EpisodeType.message)
-        chosen, total = [], 0
-        for ep in reversed(eps):                     # chronological → most-recent-first
-            size = len(ep.content)
-            if size > MAX_EPISODE_CHARS:
-                continue
-            if total + size > PREV_CONTEXT_MAX_CHARS:
-                break
-            chosen.append(ep.uuid)
-            total += size
-        return chosen
-
-    async def go():
-        llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
-        g = Graphiti(*neo, llm_client=llm)
-        await g.build_indices_and_constraints()
-        for it in items:
-            ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
-            chunks = chunk_episode_body(it["body"])   # one big session → several context-fit episodes (#53)
-            failed = False
-            for k, chunk in enumerate(chunks):
-                name = _episode_name(it) if len(chunks) == 1 else _episode_name(it, k)
-                try:
-                    prev = await bounded_previous_uuids(g, ref)
-                    await g.add_episode(name=name, episode_body=chunk,
-                                        source=EpisodeType.message,
-                                        source_description=_source_description(it),
-                                        reference_time=ref, group_id=group,
-                                        previous_episode_uuids=prev)
-                    print(f"  + ingested {name} ({len(chunk)} chars)")
-                except Exception as e:
-                    failed = True
-                    print(f"  ! FAILED {name}: {type(e).__name__}: {e}")
-            if not failed:           # a session counts as ingested only if every sub-episode landed
-                ok.add(it["id"])
-        await g.close()
-
-    asyncio.run(go())
-    return ok
+# Graphiti raw-dialogue ingest (graphiti_ingest) DELETED — employment-gate.
+# Chunking + employment projection live in tools/emprego.py.
 
 
 def _openai_embed(text):
@@ -1037,10 +874,45 @@ def embed_and_signal(slug, body, cites, embed_fn=None, log=eventlog.LOG):
     return n
 
 
+def _maybe_project_emprego(log=eventlog.LOG):
+    """Project accepted employment digests into the graph (porteiro). Best-effort + budget-bounded
+    (#62 pattern relocated from raw graphiti_ingest). Never gates the wake."""
+    budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
+    try:
+        budget = float(budget_raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number — fail loud (#62)")
+    if not math.isfinite(budget) or budget < 0:
+        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a finite non-negative "
+                         "number — nan/inf/negative would un-bound the graph project (#62); fail loud")
+    err = []
+    done = threading.Event()
+
+    def _run():
+        try:
+            import emprego
+            out = emprego.project(log=log)
+            if out is not None:
+                print(f"sweep: emprego project — added {out.get('added', 0)}/"
+                      f"{out.get('total', 0)} accepted digests")
+        except Exception as e:  # noqa: BLE001
+            err.append(e)
+        finally:
+            done.set()
+
+    threading.Thread(target=_run, daemon=True).start()
+    if not done.wait(timeout=budget):
+        print(f"sweep: emprego project EXCEEDED {budget:g}s budget — degraded DARK "
+              f"(Tier-0 log is current; graph rebuildable via emprego.project)")
+    elif err:
+        print(f"sweep: emprego project skipped ({type(err[0]).__name__}: {err[0]}) — "
+              f"Tier-0 log is current")
+
+
 def _maybe_consolidate():
     """Communities consolidation behind EDGE_COMMUNITIES=1 (dark by default, padrão EDGE_CONDUCTOR).
     Vazão×confiança: a vazão é automática atrás do knob; a confiança fica no harm-bearing. Best-effort
-    como o graph-ingest — NUNCA derruba um sweep (grafo/LLM fora → skip logado)."""
+    — NUNCA derruba um sweep (grafo/LLM fora → skip logado)."""
     if os.environ.get("EDGE_COMMUNITIES") != "1":
         return
     try:
@@ -1049,6 +921,12 @@ def _maybe_consolidate():
         print(f"sweep: communities consolidadas — {len(written or [])} clusters")
     except Exception as e:
         print(f"sweep: communities skipped ({type(e).__name__}: {e}) — graph/LLM leg dark")
+
+
+def _cortex_refresh(log=eventlog.LOG):
+    """Employment projection THEN communities — order is load-bearing (plan slice 2)."""
+    _maybe_project_emprego(log=log)
+    _maybe_consolidate()
 
 
 def _topic_direction_window_days():
@@ -1099,7 +977,7 @@ def reproject():
     eventlog.consolidate_artefato_proposals()
     eventlog.project_direction()                       # pure fold — always
     eventlog.project_corpus()                          # pure fold — always (Tier-0, no graph)
-    _maybe_consolidate()                               # communities: vazão automática, knob-gated
+    _cortex_refresh()                                  # emprego project then communities
     missing = cortex.artefatos_without_kernel()        # the C3 gate finally gets a reader (ADR-0009)
     if missing:
         print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "
@@ -1161,7 +1039,7 @@ def _acquire_cursors_lock(lk, wait_s=CURSORS_LOCK_WAIT_S, poll_s=CURSORS_LOCK_PO
             time.sleep(poll_s)
 
 
-def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
+def run(project_dir=None, cursors_path=CURSORS, reproject_fn=None,
         log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None,
         grok_dir=None, cursors_lock_wait_s=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
@@ -1213,7 +1091,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
                 cursors = _grok_baseline(cursors, grok_dir, install_birth=birth)
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
                               grok_dir=grok_dir, install_birth=birth)
-            cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
+            cursors, n = execute(plan, cursors, log=log)
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
                                                        grok_dir=grok_dir, log=log)
@@ -1223,9 +1101,8 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     if (n or proposed or corrected) and reproject_fn is not False:
         (reproject_fn or reproject)()
     elif reproject_fn is None:
-        # Communities are the automatic consolidation leg of the wake. They must still refresh on a
-        # no-delta dispatch so the briefing can read the current graph before any skill reasoning.
-        _maybe_consolidate()
+        # Cortex refresh (emprego project + communities) on no-delta so briefing stays current.
+        _cortex_refresh(log=log)
     # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.
     # The run's `log` is threaded through (Codex P2): a custom-log dry-run never projects the real
     # corpus (publisher.reproject_graph default-skips a non-canonical log).
@@ -1325,6 +1202,7 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
             render_fn = portfolio.render
         return render_fn(log)
 
+    _best_effort("emprego", lambda: __import__("emprego").project(log=log))
     _best_effort("reconcile", _reconcile)
     _best_effort("project", _project)
     _best_effort("render", _render)

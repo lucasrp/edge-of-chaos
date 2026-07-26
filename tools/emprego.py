@@ -4,16 +4,22 @@ Contract (operator + turing 2026-07-26, PLAN-cortex-employment-gate):
   Nothing enters Cortex that mining did not accept as mentee employment material.
   The mining verdict is sessao.racionalizada.stitch.attribution.activity_relevant.
 
-Slice 1 ships the pure fold + injectable project/bypass (callers arrive in later slices).
 No session JSONL reopen. Module imports bare (no neo4j/graphiti at import time).
+Graph writes project accepted digests only — never raw dialogue.
 """
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 import eventlog
 
 # Episode name prefix for employment projections (bypass residue is session-*).
 EMPREGO_EPISODE_PREFIX = "emprego-"
 BYPASS_EPISODE_PREFIX = "session-"
+
+# Tier-1 ONLY: body chunking for the Graphiti extractor window (moved from sweep).
+MAX_EPISODE_CHARS = 48_000
+PREV_CONTEXT_MAX_CHARS = 120_000
 
 
 def _attribution(payload):
@@ -166,16 +172,44 @@ def episode_name(rationalization_id):
     return f"{EMPREGO_EPISODE_PREFIX}{rationalization_id[:16]}"
 
 
+def parse_ts(ts):
+    if not ts:
+        return datetime.now(timezone.utc)
+    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def chunk_episode_body(body, max_chars=MAX_EPISODE_CHARS):
+    """Split a body into <= max_chars chunks at newline boundaries (lossless)."""
+    if len(body) <= max_chars:
+        return [body]
+    chunks, cur = [], ""
+    for line in body.splitlines(keepends=True):
+        while len(line) > max_chars:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(line[:max_chars])
+            line = line[max_chars:]
+        if cur and len(cur) + len(line) > max_chars:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur += line
+    if cur:
+        chunks.append(cur)
+    return chunks
+
+
 def project(log=eventlog.LOG, group=None, *, existing_names=None, add_fn=None, group_fn=None):
     """Idempotent graph write of accepted employment digests.
 
-    Production: lazy Graphiti adapters (slice 2 wires real add). Dark → None.
-    Tests inject existing_names (set of episode names) + add_fn(name, body, ref_time).
+    Production: Graphiti add_episode on digests only. Dark → None.
+    Tests inject existing_names + add_fn(name, body, ref_time).
     Returns {"added": n, "total": m} or None when graph dark.
     """
     items = accepted_employment(log=log)
     if existing_names is None and add_fn is None:
-        # Production path: not fully wired until slice 2; degrade dark.
         try:
             if group_fn is not None:
                 group = group_fn()
@@ -185,16 +219,10 @@ def project(log=eventlog.LOG, group=None, *, existing_names=None, add_fn=None, g
         except Exception:
             return None
         try:
-            existing = _existing_emprego_names(group)
-            if existing is None:
-                return None
-            add = _make_graphiti_add(group)
-            if add is None:
-                return None
-        except Exception:
+            return _project_graphiti(items, group)
+        except Exception as e:
+            print(f"emprego: project dark ({type(e).__name__}: {e})")
             return None
-        existing_names = existing
-        add_fn = add
     if existing_names is None or add_fn is None:
         return None
     existing_names = set(existing_names)
@@ -208,9 +236,103 @@ def project(log=eventlog.LOG, group=None, *, existing_names=None, add_fn=None, g
             existing_names.add(name)
             added += 1
         except Exception:
-            # best-effort per item; continue others
             continue
     return {"added": added, "total": len(items)}
+
+
+def _project_graphiti(items, group):
+    """Real Graphiti write path — employment digests only."""
+    import asyncio
+    from graphiti_core import Graphiti
+    from graphiti_core.nodes import EpisodeType
+    from graphiti_core.llm_client import LLMConfig, OpenAIClient
+    import _identity
+
+    _load_openai_key()
+    neo = _identity.neo4j_conn()
+    existing = _existing_emprego_names(group)
+    if existing is None:
+        return None
+    to_add = [it for it in items
+              if episode_name(it["rationalization_id"]) not in existing]
+    if not to_add:
+        return {"added": 0, "total": len(items)}
+
+    async def bounded_previous_uuids(g, ref):
+        eps = await g.retrieve_episodes(
+            ref, last_n=10, group_ids=[group], source=EpisodeType.message)
+        chosen, total = [], 0
+        for ep in reversed(eps):
+            size = len(ep.content)
+            if size > MAX_EPISODE_CHARS:
+                continue
+            if total + size > PREV_CONTEXT_MAX_CHARS:
+                break
+            chosen.append(ep.uuid)
+            total += size
+        return chosen
+
+    async def go():
+        llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
+        g = Graphiti(*neo, llm_client=llm)
+        await g.build_indices_and_constraints()
+        added = 0
+        try:
+            for it in to_add:
+                name = episode_name(it["rationalization_id"])
+                ref = parse_ts(it.get("ref_time"))
+                chunks = chunk_episode_body(it["body"])
+                failed = False
+                for k, chunk in enumerate(chunks):
+                    ep_name = name if len(chunks) == 1 else f"{name}-{k}"
+                    try:
+                        prev = await bounded_previous_uuids(g, ref)
+                        await g.add_episode(
+                            name=ep_name,
+                            episode_body=chunk,
+                            source=EpisodeType.message,
+                            source_description="emprego digest (mentee employment)",
+                            reference_time=ref,
+                            group_id=group,
+                            previous_episode_uuids=prev,
+                        )
+                        print(f"  + emprego {ep_name} ({len(chunk)} chars)")
+                    except Exception as e:
+                        failed = True
+                        print(f"  ! emprego FAILED {ep_name}: {type(e).__name__}: {e}")
+                if not failed:
+                    added += 1
+        finally:
+            await g.close()
+        return added
+
+    added = asyncio.run(go())
+    return {"added": added, "total": len(items)}
+
+
+def _load_openai_key():
+    import os
+    from pathlib import Path
+    if os.environ.get("OPENAI_API_KEY"):
+        return
+    home = Path.home()
+    for root in filter(None, [
+        os.environ.get("EDGE_HOME"),
+        str(Path(__file__).resolve().parent.parent),
+        str(home / "edge"),
+    ]):
+        f = Path(root) / "secrets" / "openai.env"
+        if f.exists():
+            for line in f.read_text().splitlines():
+                if "OPENAI_API_KEY" in line:
+                    os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
+                    return
+    kit = home / ".edge-sandbox-kit" / "openai.env"
+    if kit.exists():
+        for line in kit.read_text().splitlines():
+            if "OPENAI_API_KEY" in line:
+                os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
+                return
 
 
 def bypass_episodes(group=None, *, query_fn=None):
@@ -264,6 +386,3 @@ def _query_bypass_names(group):
     return [r["name"] for r in rows if r.get("name")]
 
 
-def _make_graphiti_add(group):
-    """Real Graphiti add lands in slice 2; until then production project stays dark."""
-    return None
