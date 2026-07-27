@@ -144,5 +144,70 @@ class ProvisionNeo4j(unittest.TestCase):
         self.assertTrue(seen["capture"], "container_exists must call docker ps with capture_output=True")
 
 
+class SelectInstallMode(unittest.TestCase):
+    """The seam is the WHOLE edge's install mode — 'docker' or 'local' — chosen ONCE and read by
+    every containerizable step (today: Neo4j), not a per-component provider. Onboarding tests what's
+    possible and executes: docker reachable → 'docker'; otherwise the edge installs 'local'
+    (user-space, no docker permission needed) end to end, instead of the old docker-mandatory death."""
+
+    def test_local_when_docker_absent(self):
+        self.assertEqual(_provision.select_install_mode({"docker_present": False}), "local")
+
+
+class ProvisionNeo4jLocal(unittest.TestCase):
+    """The 'local' mode: user-space Neo4j (tarball + bundled JRE) under <home>/runtime — no docker,
+    no root. Runs AS THE USER, so data under <home> is user-owned: `rm -rf <home>` stays clean (the
+    inverse of bug #5, by construction). Heavy I/O (download, start, bolt readiness) is injected —
+    this proves the orchestration; a real boot needs a no-docker+java host (calibration)."""
+
+    def test_provisions_user_space_writes_secret_sets_password_and_starts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            env = home / "secrets"
+            downloaded = []
+            rec = _Recorder(rcs=[0, 0], stdouts=["", ""])
+            secret = _provision.provision_neo4j_local(
+                home, env, run=rec,
+                _download=lambda url, dest: downloaded.append((url, Path(dest))),
+                _ready=lambda pw: True, _sleep=lambda s: None, _password="pw123")
+            # secret written with the generated password (never a literal)
+            self.assertTrue(secret.exists())
+            self.assertIn("EDGE_NEO4J_PASSWORD=pw123", secret.read_text())
+            # JRE + neo4j fetched under <home>/runtime (user-space, under home — not root, not docker)
+            self.assertTrue(downloaded, "must fetch the bundled JRE + neo4j tarball")
+            self.assertTrue(all(str(home / "runtime") in str(d) for _, d in downloaded),
+                            "runtime lives user-space under <home>")
+            cmds = [" ".join(map(str, c)) for c in rec.calls]
+            self.assertTrue(any("set-initial-password" in c for c in cmds), "must set initial password")
+            self.assertTrue(any(c.rstrip().endswith(" start") for c in cmds), "must start neo4j")
+
+
+class EnsureNeo4jReadsMode(unittest.TestCase):
+    """Neo4j does not decide the mode — it READS it. Docker absent → the install is 'local' → Neo4j
+    is provisioned user-space, no raise. This seam proves Neo4j follows the edge-wide mode."""
+
+    def test_docker_absent_provisions_local_not_raise(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = Path(tmp) / "secrets"
+            called = {}
+
+            def fake_local(home, env_dir, **kw):
+                called["local"] = (Path(home), Path(env_dir))
+                return Path(env_dir) / "neo4j.env"
+
+            orig_docker = _provision.docker_present
+            orig_local = getattr(_provision, "provision_neo4j_local", None)
+            _provision.docker_present = lambda **k: False
+            _provision.provision_neo4j_local = fake_local
+            try:
+                secret = _provision.ensure_neo4j(tmp, env)          # must NOT raise
+                self.assertIn("local", called, "local mode must provision Neo4j user-space")
+                self.assertEqual(secret, env / "neo4j.env")
+            finally:
+                _provision.docker_present = orig_docker
+                if orig_local is not None:
+                    _provision.provision_neo4j_local = orig_local
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

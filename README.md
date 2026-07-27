@@ -160,7 +160,7 @@ Heartbeat stays **off** until onboarding completes.
 
 ### After bootstrap
 
-1. Runtime: `tools/edge-python tools/edge-bootstrap runtime --home "$EDGE_HOME"` — pinned Neo4j 5.x in Docker (`edge-neo4j`, password → `secrets/neo4j.env`). No Docker → declared-dark (FTS covers zero-key).  
+1. Runtime: `tools/edge-python tools/edge-bootstrap runtime --home "$EDGE_HOME"` — brings up the per-host Neo4j (password → `secrets/neo4j.env`). Picks the install mode automatically: **docker** (pinned Neo4j 5.x in `edge-neo4j`) when the host can run docker, else **local** (user-space Neo4j tarball + a bundled JRE under `<home>/runtime`, no root, no docker permission). No fail-loud without docker.  
 2. **Wake / predispatch** (lookback = install `backfill_days`) — stamps `state/onboarding-insumo.md` (wake package **without** Direction).  
 3. **`/ed-mentor`** with that package — objective / direction / leveling.  
 4. Close install:

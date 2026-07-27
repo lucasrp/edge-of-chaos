@@ -709,9 +709,11 @@ def emit_phenotype(
     voice: str = "",
     mentee: Optional[str] = None,
     heartbeat_interval: Optional[str] = None,
+    install_mode: Optional[str] = None,
 ) -> Path:
     """Write agent.yaml as onboarding output (atomic)."""
     import yaml
+    import _provision
 
     home = Path(home).expanduser()
     boot = bootstrap if bootstrap is not None else load_bootstrap(home)
@@ -740,6 +742,12 @@ def emit_phenotype(
         cfg["voice"] = voice
     if mentee:
         cfg["mentee"] = mentee
+    # install_mode — decided ONCE for the whole edge and read by every containerizable step
+    # (today: Neo4j). 'docker' when this host can run docker, else 'local' (user-space, no docker
+    # permission needed). Persisted so a locked-down install stays 'local' end to end.
+    cfg["install_mode"] = (
+        install_mode or boot.get("install_mode")
+        or _provision.select_install_mode({"docker_present": _provision.docker_present()}))
     # strip any non-yaml internal markers
     cfg.pop("_secrets_inventory", None)
     # re-assert secrets block from live inventory at emit time

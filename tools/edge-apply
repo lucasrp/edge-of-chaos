@@ -223,8 +223,9 @@ def main() -> None:
         print(f"  - secrets verificados em {env_dir}")
         _provision.build_venv(home, REPO / "requirements.txt")
         print(f"  - venv → {home / '.venv'} (deps de requirements.txt)")
-        secret = _provision.provision_neo4j(home, env_dir)
-        print(f"  - neo4j (docker, {_provision.NEO4J_IMAGE}) → senha em {secret}")
+        mode = cfg.get("install_mode")   # phenotype decides once (docker|local); None → detect fresh
+        secret = _provision.ensure_neo4j(home, env_dir, mode=mode)
+        print(f"  - neo4j (modo {mode or 'auto'}) → senha em {secret}")
         _provision.install_heartbeat(cfg, home)
         print(f"  - heartbeat timer (systemd --user, OnUnitActiveSec="
               f"{cfg.get('heartbeat_interval', '3h')}) instalado + enable --now")

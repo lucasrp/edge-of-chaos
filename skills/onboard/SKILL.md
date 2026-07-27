@@ -133,10 +133,11 @@ embedding route wired through the adapter chosen in the interview (or declared-d
 tools/edge-python tools/edge-bootstrap runtime --home <home>
 ```
 
-Neo4j 5.x pinned, docker container `edge-neo4j`, password generated into
-`secrets/neo4j.env` (mode 600), survives reboots (`restart unless-stopped`), idempotent.
-If it prints `DARK — Docker is absent`: stop, offer to help install docker, or continue
-with the graph declared-dark (FTS covers node search zero-key) — operator's call.
+Picks the install mode automatically (`ensure_neo4j`): **docker** (Neo4j 5.x pinned in the
+`edge-neo4j` container, `restart unless-stopped`) when the host can run docker, else **local**
+(user-space Neo4j tarball + a bundled JRE under `<home>/runtime` — no root, no docker permission).
+Password generated into `secrets/neo4j.env` (mode 600), idempotent. A host without docker no longer
+stops the install — it installs `local`. `DARK` prints only when no mode can bring the graph up.
 
 ## 3. First wake — the insumo, shown and explained
 

@@ -1,11 +1,13 @@
 """_provision — runtime provisioning logic for edge-apply (ADR-0011, #18/#19/#20).
 
-The graph is mandatory on every host. This module builds the runtime — the venv (#20), the
-per-host Neo4j via Docker (#18), and the systemd heartbeat timer (#19). It is pure boundary code:
-every effectful step goes through an injected ``run`` (defaults to subprocess.run), so the command
-construction, password generation, and idempotency are all testable WITHOUT building anything
-against the host. Each step **fails loud** — a missing Docker / failed pip / absent systemctl is an
-install failure, never a silent degrade.
+The graph is mandatory on every host, but Docker is NOT — the edge picks an install mode
+(``select_install_mode``): 'docker' when the host can run it, else 'local' (per-host Neo4j
+user-space via tarball + a bundled JRE, no root, no docker permission). The onboarding decides the
+mode once and persists it (agent.yaml ``install_mode``); ``ensure_neo4j`` reads it. This module also
+builds the venv (#20) and the systemd heartbeat timer (#19). Pure boundary code: every effectful
+step goes through an injected ``run`` (defaults to subprocess.run), so command construction,
+password generation, and idempotency are testable WITHOUT building anything against the host. Steps
+fail loud on real failure — but a missing Docker is no longer an install failure, it selects 'local'.
 """
 import os
 import re
@@ -19,9 +21,10 @@ REPO = Path(__file__).resolve().parent.parent
 TEMPLATES = REPO / "templates"
 
 
-def _run(run, cmd, what):
-    """Invoke `cmd` through the injected runner; raise loud on a non-zero exit."""
-    res = run(cmd)
+def _run(run, cmd, what, **kw):
+    """Invoke `cmd` through the injected runner; raise loud on a non-zero exit. Extra kwargs (e.g.
+    env=) are forwarded to the runner — the local Neo4j runtime points JAVA_HOME at the bundled JRE."""
+    res = run(cmd, **kw)
     rc = getattr(res, "returncode", 0)
     if rc != 0:
         raise RuntimeError(f"{what} failed (exit {rc}): {' '.join(map(str, cmd))}")
@@ -161,6 +164,26 @@ def _wait_neo4j_ready(password, run, _sleep, container=NEO4J_CONTAINER):
         "veja `docker logs edge-neo4j`; não siga o install com o grafo surdo")
 
 
+def select_install_mode(caps):
+    """The edge's install mode — chosen ONCE for the WHOLE install, not per component: 'docker' when
+    this host can run docker, else 'local' (user-space — no docker permission needed). Persisted so
+    every containerizable step reads the same mode. This is the seam that inverts the old
+    docker-mandatory install: a locked-down host installs 'local' end to end instead of failing."""
+    return "docker" if caps.get("docker_present") else "local"
+
+
+def ensure_neo4j(home, env_dir, run=subprocess.run, mode=None, _password=None, _sleep=None):
+    """Provision Neo4j according to the edge-wide install mode — Neo4j reads the mode, never decides
+    it. `mode` comes from the persisted phenotype (agent.yaml `install_mode`); when None it is
+    detected fresh (docker present → 'docker', else 'local'). 'docker' → the container path; 'local'
+    → the user-space runtime (tarball + bundled JRE). A host with no docker permission installs
+    'local' instead of the old fail-loud. Returns the secret path (the caller's contract)."""
+    mode = mode or select_install_mode({"docker_present": docker_present(run=run)})
+    if mode == "docker":
+        return provision_neo4j(home, env_dir, run=run, _password=_password, _sleep=_sleep)
+    return provision_neo4j_local(home, env_dir, run=run, _password=_password, _sleep=_sleep)
+
+
 def provision_neo4j(home, env_dir, run=subprocess.run, _password=None, _sleep=None):
     """Provision the per-host Neo4j (#18). Fail loud if Docker is absent. Idempotent: if the
     container already exists AND this install's secret exists, no-op. Container existente
@@ -187,6 +210,115 @@ def provision_neo4j(home, env_dir, run=subprocess.run, _password=None, _sleep=No
     secret_path = write_neo4j_secret(env_dir, password)
     _run(run, neo4j_run_command(home, password), "docker run neo4j")
     _wait_neo4j_ready(password, run, _sleep)
+    return secret_path
+
+
+# --- Neo4j local: user-space runtime, no docker (install_mode='local') --------------------------
+# The no-docker-permission path. Tarball Neo4j + a bundled JRE (fetch-at-provision) under
+# <home>/runtime — runs AS THE USER, so the store is user-owned and `rm -rf <home>` stays clean
+# (the inverse of bug #5, which came from a root-writing container). The JRE is bundled so 'local'
+# needs NO system Java; without it the barrier would just move from 'docker permission' to 'java'.
+NEO4J_LOCAL_VERSION = "5.26.0"          # match the pinned docker image (vector index, ADR-0011)
+JRE_VERSION = "21.0.5+11"               # Temurin 21 — bundled JRE for the local runtime
+
+
+def neo4j_local_home(home):
+    return Path(home) / "runtime" / "neo4j"
+
+
+def jre_local_home(home):
+    return Path(home) / "runtime" / "jre"
+
+
+def neo4j_tarball_url(version=NEO4J_LOCAL_VERSION):
+    # ponytail: pinned URL; the real fetch must checksum-verify against a known-good hash (calibration
+    # knob — confirm on the first real no-docker host, same as the docker image digest is trusted).
+    return f"https://dist.neo4j.org/neo4j-community-{version}-unix.tar.gz"
+
+
+def jre_tarball_url(version=JRE_VERSION, os_name="linux", arch="x64"):
+    v = version.replace("+", "_")
+    tag = version.replace("+", "%2B")
+    return ("https://github.com/adoptium/temurin21-binaries/releases/download/"
+            f"jdk-{tag}/OpenJDK21U-jre_{arch}_{os_name}_hotspot_{v}.tar.gz")
+
+
+def _fetch_and_extract(url, dest):
+    """Real default: stream a .tar.gz and extract it flattened into `dest` (the tarball's single top
+    dir is stripped). Injected in tests — nothing hits the network there."""
+    import tarfile
+    import tempfile as _tf
+    import urllib.request
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    with _tf.NamedTemporaryFile(suffix=".tar.gz") as tmp:
+        with urllib.request.urlopen(url) as r:      # noqa: S310 — pinned dist host
+            shutil.copyfileobj(r, tmp)
+        tmp.flush()
+        with tarfile.open(tmp.name) as tar:
+            top = os.path.commonprefix([m.name for m in tar.getmembers() if m.name]).split("/")[0]
+            for m in tar.getmembers():
+                if top and m.name.startswith(top + "/"):
+                    m.name = m.name[len(top) + 1:]
+                if m.name:
+                    tar.extract(m, dest)
+
+
+def _bolt_ready(password, uri="bolt://localhost:7687"):
+    """Readiness probe for the local runtime: an authenticated bolt connect (the driver is already a
+    dependency). Replaces the docker path's `docker exec cypher-shell` — same 'authenticated ping'."""
+    import neo4j
+    drv = neo4j.GraphDatabase.driver(uri, auth=("neo4j", password))
+    try:
+        drv.verify_connectivity()
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            drv.close()
+        except Exception:
+            pass
+
+
+def _wait_neo4j_ready_local(password, _ready=None, _sleep=None):
+    """Block until an authenticated bolt ping succeeds — same fail-loud-on-timeout contract as the
+    docker path (never follow the install with a deaf graph)."""
+    _ready = _ready or _bolt_ready
+    _sleep = _sleep or __import__("time").sleep
+    waited = 0
+    while waited <= READY_TIMEOUT_S:
+        if _ready(password):
+            return
+        _sleep(READY_POLL_S)
+        waited += READY_POLL_S
+    raise RuntimeError(
+        f"neo4j local não ficou pronto em {READY_TIMEOUT_S}s — veja <home>/runtime/neo4j/logs; "
+        "não siga o install com o grafo surdo")
+
+
+def provision_neo4j_local(home, env_dir, run=subprocess.run, _download=None, _ready=None,
+                          _sleep=None, _password=None):
+    """Provision Neo4j user-space (install_mode='local') — no docker, no root. Fetch the neo4j tarball
+    + a bundled JRE under <home>/runtime (idempotent — skip what's already extracted), write the
+    generated secret, set the initial password and start neo4j with JAVA_HOME pinned to the bundled
+    JRE. Waits until an authenticated bolt ping answers. Returns the secret path."""
+    home = Path(home)
+    _download = _download or _fetch_and_extract
+    nhome, jhome = neo4j_local_home(home), jre_local_home(home)
+    if not (jhome / "bin" / "java").exists():
+        _download(jre_tarball_url(), jhome)
+    if not (nhome / "bin" / "neo4j").exists():
+        _download(neo4j_tarball_url(), nhome)
+    password = _password or generate_neo4j_password()
+    secret_path = write_neo4j_secret(env_dir, password)
+    env = {**os.environ, "JAVA_HOME": str(jhome)}
+    _run(run, [str(nhome / "bin" / "neo4j-admin"), "dbms", "set-initial-password", password],
+         "neo4j set-initial-password", env=env)
+    _run(run, [str(nhome / "bin" / "neo4j"), "start"], "neo4j start", env=env)
+    # ponytail: `neo4j start` daemonizes but has no restart-on-logout; upgrade to a systemd --user
+    # unit with linger (like the heartbeat timer) if a launch user's graph must survive logout/reboot.
+    _wait_neo4j_ready_local(password, _ready=_ready, _sleep=_sleep)
     return secret_path
 
 

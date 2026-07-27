@@ -70,21 +70,21 @@ def cmd_estimate(args) -> int:
 
 
 def cmd_runtime(args) -> int:
-    """Sobe o runtime local (Neo4j pinado via docker) no caminho first-run — antes só
-    edge-apply --provision-runtime fazia isso. Idempotente; sem docker, falha explicada."""
+    """Sobe o runtime do grafo no first-run — Neo4j via docker OU user-space local, conforme o que
+    o host permite (ensure_neo4j detecta). Idempotente; sem docker não falha, instala local."""
     if not args.home:
         print("edge-bootstrap runtime: --home or EDGE_HOME required", file=sys.stderr)
         return 2
     import _provision
     home = Path(os.path.expanduser(args.home))
     env_dir = onboarding.secrets_dir(home)
+    mode = _provision.select_install_mode({"docker_present": _provision.docker_present()})
     try:
-        secret = _provision.provision_neo4j(home, env_dir)
+        secret = _provision.ensure_neo4j(home, env_dir, mode=mode)
     except RuntimeError as e:
         print(f"runtime: DARK — {e}", file=sys.stderr)
         return 3
-    print(f"runtime: neo4j up (container {_provision.NEO4J_CONTAINER}, "
-          f"image {_provision.NEO4J_IMAGE})")
+    print(f"runtime: neo4j up (modo {mode})")
     print(f"runtime: secret → {secret}")
     print(json.dumps({"ok": True, "secret": str(secret)}, indent=2))
     return 0

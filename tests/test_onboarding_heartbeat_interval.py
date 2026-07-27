@@ -36,6 +36,17 @@ class HeartbeatInterval(unittest.TestCase):
             cfg = yaml.safe_load(Path(path).read_text())
             self.assertEqual(cfg["heartbeat_interval"], "12h")
 
+    def test_emit_persists_install_mode_into_agent_yaml(self):
+        """The edge-wide install mode (docker|local) is decided once and persisted so every step
+        reads the same one — a locked-down install stays 'local' end to end."""
+        import yaml
+        with tempfile.TemporaryDirectory() as tmp:
+            onboarding.run_bootstrap(home=tmp, name="t", backfill_days=3,
+                                     provision_skills=False)
+            path = onboarding.emit_phenotype(tmp, install_mode="local")
+            cfg = yaml.safe_load(Path(path).read_text())
+            self.assertEqual(cfg["install_mode"], "local")
+
 
 if __name__ == "__main__":
     unittest.main()
