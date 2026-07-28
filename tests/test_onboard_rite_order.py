@@ -51,7 +51,17 @@ class RiteFloor(unittest.TestCase):
 
     def test_grill_object_is_the_phenotype_person_is_the_road(self):
         self.assertIn("mutual understanding about the AGENT.YAML", FLAT)
-        self.assertIn("The yaml is the destination; the person is the road.", FLAT)
+        self.assertIn("The yaml is the destination; the person is the road", FLAT)
+        # whole-person first; yaml authored WHOLE at the close — never field-by-field
+        self.assertIn("First know the person AS A WHOLE", FLAT)
+        self.assertIn("never fill the yaml field by field", FLAT)
+
+    def test_sources_arrive_with_the_keys(self):
+        self.assertIn("Sources land HERE, together with the keys.", FLAT)
+        self.assertIn("the dig refines the growth-personalized roster after Direction", FLAT)
+
+    def test_sections_are_anatomy_not_a_script(self):
+        self.assertIn("The sections below are ANATOMY, not a script.", FLAT)
 
 
 class HeartbeatShipsOff(unittest.TestCase):

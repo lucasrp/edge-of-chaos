@@ -65,6 +65,16 @@ the file is the conversation's certificate, never its precondition. No autonomou
    own life IS the demo. By `finish`, everything in the phenotype has already run at least
    once: the yaml is a birth certificate, not a boot plan.
 
+**The sections below are ANATOMY, not a script.** The rite is ONE organic conversation;
+the §§ name organs and their real dependencies, never a sequence to walk or announce.
+Procedural execution — walking sections in order, announcing steps, collecting fields —
+is the failure mode this file keeps warning against. Let the conversation flow by what
+it learns, honoring only the TRUE dependencies: bootstrap needs name and home; the film
+needs the keys (and sources arrive with them); "what do you want with this edge" needs
+the demo and some real mentoring; the growth dig needs Direction; the phenotype is
+authored WHOLE at the close, from knowing the person as a whole — never filled field by
+field along the way.
+
 Secrets are delivered by the operator — you never invent, fetch, or print key values.
 **And the rite never self-terminates**: every act of the close happens WITH the operator —
 the narrated discovery runs in front of them, the first artefato is read side by side — and
@@ -140,9 +150,11 @@ welcome — a mentor that notices something real and asks about it is the produc
 But whatever you bring spontaneously obeys the SAME two laws as everything else: (1) it
 arrives worked — derived from what you saw and proposed by name, never a blank category
 for the operator to fill ("which sources? whatever you name" is the lazy form of a good
-instinct); (2) it arrives in its moment — sources, in particular, are hunted and
-proposed AFTER Direction exists (§4b), because before knowing the person they are just
-plumbing — **and nothing enters the phenotype roster by inference: a source concluded
+instinct); (2) it arrives in its moment — sources, in particular, arrive WITH the keys
+(decision 5): each delivered key names a source, and the keyless hits and local-folder
+hunger are declared and CHECKED right there, so the day-to-day senses ignite before
+Direction; the dig refines the growth roster later (§4b) — **and nothing enters the
+phenotype roster by inference: a source concluded
 silently from the terrain, without being voiced and authorized, is fabrication.** The
 mentee should end the conversation understanding the six decisions because each one was
 a small exchange inside it — never because they reviewed a table.
@@ -187,6 +199,13 @@ the order, never this list as a script:
    - **any OpenAI-compatible endpoint** — `--embedding-base-url` + `--embedding-var`;
    - **none** — declared-dark, FTS covers search; can be added later by re-running bootstrap.
    Model override: `--embedding-model`. Never echo key values.
+   **Sources land HERE, together with the keys.** Each accepted key names the source it
+   feeds ("the xai key gives me X; exa gives me deep search"); the keyless hits from the
+   vasculhada (a logged `gh`, each rclone remote) and the one question no detector
+   reaches — the local folder — are proposed by name and CHECKED live (access tested,
+   one line of what each would feed). This inventory is what lets the first delta/mundo
+   sweep run during the conversation (law 3); the dig refines the growth-personalized
+   roster after Direction (§4b).
 6. **Backfill days** — how much session history the first wake reads. Before accepting,
    run the cost check:
 
@@ -294,12 +313,14 @@ skill brings the mentor's full machinery (leveling, writebacks, the close gate) 
 SAME conversation, which now goes deep.
 The grill's spirit: **interview incessantly until mutual understanding about the
 AGENT.YAML** — the object of this grill is the ROLE this edge will play in THIS
-installation: every field the phenotype will carry (mission, voice, Direction, sources —
-what it watches, hunts, publishes), walked branch by branch like the plan it is. **And a
-good agent.yaml requires KNOWING the mentee** — who they are, what they are building,
-what moves them: getting to know the person is not a detour from the plan, it is how the
-plan gets good. The yaml is the destination; the person is the road. A conversation that
-does not drop the bone, never a deep-looking form.
+installation (mission, voice, Direction, sources — what it watches, hunts, publishes).
+**And a good agent.yaml requires KNOWING the mentee** — who they are, what they are
+building, what moves them: getting to know the person is not a detour from the plan, it
+is how the plan gets good. The yaml is the destination; the person is the road — **and
+the road comes whole before the destination: never fill the yaml field by field as the
+conversation goes. First know the person AS A WHOLE; then, at the close, AUTHOR the
+whole phenotype from that understanding and read it back** (the read-back is what binds
+the stamps). A conversation that does not drop the bone, never a deep-looking form.
 
 **Work before the first word.** Before opening, the mentor WORKS everything the recon
 and the film put in reach — sessions, repos, communities, authenticated remotes —
@@ -371,12 +392,15 @@ unilaterally to satisfy the gate is the exact fraud the mother-rule forbids.
 
 This is the second human stop; everything before and after is yours.
 
-## 4b. Sources — AFTER the mentor, hunted by a dig
+## 4b. Sources — the growth roster, hunted by a dig
 
-Sources are chosen only NOW, with Direction and driver in hand — **they depend on what
-the person wants from life, and the objective is the person's growth, never executing
-the project**. A source list drawn from the repo alone serves the project; the right
-list serves where the mentor session said this person is going.
+The BASE roster already exists: it was declared and CHECKED with the keys (decision 5),
+and the day-to-day senses have already run on it. What happens NOW, with Direction and
+driver in hand, is the part that could not exist before: the **growth-personalized
+sources** — **they depend on what the person wants from life, and the objective is the
+person's growth, never executing the project**. A source list drawn from the repo alone
+serves the project; the right list serves where the mentor session said this person is
+going.
 
 Run the dig rite (`/{prefix}-dig` — the grounded-research organ the producers use) with
 the DIRECTION and the driver as the question: *live sources that feed this person's
