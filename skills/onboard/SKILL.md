@@ -37,18 +37,21 @@ the file is the conversation's certificate, never its precondition. No autonomou
 2. **Machine facts live in the ovo; identity is the conversation's output.** `bootstrap.json`
    carries what detection decided; `agent.yaml` carries what the person authorized.
 3. **Organs ignite incrementally — each answer turns on a sense, and the sense answers
-   DURING the interview.** CLIs + backfill named → the first wake/assemble runs NOW, and the
+   DURING the interview.** CLIs + backfill named AND the keys delivered (the film's
+   extraction quality needs them — a wake ingested dark to save one interview turn is the
+   opposite of qualidade sobre velocidade) → the first wake/assemble runs NOW, and the
    guide returns speaking of THEIR real past. Day-to-day sources named → the first delta/mundo
    sweep runs NOW ("varri teu mundo: isto é novo"). Direction born → the dig hunts their
    personalized sources. **Blocking, on purpose: deixa travar — qualidade sobre velocidade é
    valor da casa.** Narrate the wait ("estou lendo teus últimos N dias; leva uns minutos")
    instead of hiding it in background — the operator watching an organ do real work on their
    own life IS the demo. By `finish`, everything in the phenotype has already run at least
-   once: the yaml is a birth certificate, not a boot plan. Secrets are
-delivered by the operator — you never invent, fetch, or print key values. **And the rite
-never self-terminates**: every act of the close happens WITH the operator — the narrated
-discovery runs in front of them, the first artefato is read side by side — and the
-session ends when the OPERATOR ends it. A sign-off note ("está completo", next-steps
+   once: the yaml is a birth certificate, not a boot plan.
+
+Secrets are delivered by the operator — you never invent, fetch, or print key values.
+**And the rite never self-terminates**: every act of the close happens WITH the operator —
+the narrated discovery runs in front of them, the first artefato is read side by side — and
+the session ends when the OPERATOR ends it. A sign-off note ("está completo", next-steps
 shell block, farewell) is the consultant leaving the room; the edge lives here now, and
 its first day does not end with it walking out.
 
@@ -109,11 +112,12 @@ table.
 **The interview IS the boot sequence (law 3).** Do not collect all seven and only then
 install: as soon as a decision unlocks an organ, run that organ RIGHT THERE, blocking and
 narrated, and let its output feed the next turn of the conversation. Name + home + CLIs +
-backfill in hand → run §1 (bootstrap), §2 (runtime) and §3 (first wake) immediately — "vou
-ler teus últimos N dias agora; leva uns minutos, me espera" — and come back speaking of
-their real history, not of configuration. The remaining decisions (adversarial, secrets,
-heartbeat) then happen with a guide who has already read the person. The seven decisions,
-in order:
+secrets + backfill in hand → run §1 (bootstrap), §2 (runtime) and §3 (first wake)
+immediately — "vou ler teus últimos N dias agora; leva uns minutos, me espera" — and come
+back speaking of their real history, not of configuration. (Secrets before the first wake
+on purpose: the film's extraction wants the keys — quality over one saved turn.) The
+remaining decisions (adversarial, heartbeat) then happen with a guide who has already read
+the person. The seven decisions, in order:
 
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
@@ -152,21 +156,6 @@ in order:
 7. **Backfill days** — how much session history the first wake reads. Before accepting,
    run the cost check:
 
-**Modo avançado — corpus de projeto (only when the terrain shows it).** Corpus é do
-PROJETO; agente é da PESSOA×projeto (see `docs/specs/corpus-projeto-nxn.md`). Two
-situations turn this from theory into an interview decision, each proposed worked, never
-as a blank category: (a) the vasculhada found a REACHABLE corpus already populated (a
-bolt endpoint + group of an existing project KB) → the mentor proposes joining it:
-"existe um cérebro do projeto X; teu agente pode nascer DENTRO dele — você veria tudo
-que o time já sabe, e o time veria teu filme deste projeto" (consent said out loud:
-joining = publishing your project slice to the team); (b) the mentee wants a
-project-scoped agent (not whole-life) → the film filter is the project's directories
-("vi sessões em ~/edge e ~/landing — os dois são deste projeto?"). Both land in the
-phenotype `corpus:` block at finish (`emit_phenotype(corpus=...)`): {group, uri,
-role: host|member, film.stores}. Omitted entirely → the degenerate default (private
-whole-life corpus) — the simple mode IS the advanced mode with defaults; never present
-two products.
-
 ```bash
 tools/edge-python tools/edge-bootstrap estimate --days N
 ```
@@ -176,6 +165,19 @@ gate, #153) — agent-driven noise is not in the numbers and is NEVER mentioned;
 nothing to disclaim. Show the numbers (sessions, MB, ~minutes) and move on. This is a WARNING, not a
 negotiation: if it looks long, say so in one line ("30 dias = ~70 min de primeiro wake") —
 and if the operator wants to wait, they wait. Their call, never yours.
+
+**Modo avançado — corpus de projeto (only when the terrain shows it).** Corpus é do
+PROJETO; agente é da PESSOA×projeto (`docs/specs/corpus-projeto-nxn.md`). The interview
+only COLLECTS the machine facts (a reachable populated corpus found by the vasculhada; the
+project's session directories — "vi sessões em ~/edge e ~/landing, os dois são deste
+projeto?"). The JOIN proposal itself arrives in the MENTOR, its moment (same law as
+sources §4b — before knowing the person, a corpus is just plumbing): "existe um cérebro do
+projeto X; teu agente pode nascer DENTRO dele — você veria tudo que o time já sabe, e o
+time veria teu filme DESTE projeto" — consent said out loud (joining = publishing your
+project slice to the team), never implied. The authorized declaration lands in the
+phenotype at finish (`emit_phenotype(corpus=...)`: {group, uri, role, film.stores}).
+Omitted entirely → the degenerate default (private whole-life corpus) — the simple mode IS
+the advanced mode with defaults; never present two products.
 
 ## 1. Bootstrap — the skeleton
 
