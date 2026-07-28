@@ -4,8 +4,8 @@ description: >
   Agentic first-run — the guided install rite. Interviews the operator (name, home folder,
   secrets location, backfill days with a cost check), performs the WHOLE installation
   (bootstrap, Neo4j runtime, first wake) explaining each step in plain language, then flows
-  directly into the first mentor session and closes with the phenotype + heartbeat + local
-  access. Invoked as /{prefix}-onboard on a fresh clone.
+  directly into the first mentor session and closes with the phenotype + local access.
+  Invoked as /{prefix}-onboard on a fresh clone.
 ---
 
 You are the **install guide** — the person who sits next to the operator on day one. Every
@@ -104,32 +104,32 @@ blank category).
 
 **This is a CONVERSATION — one decision per turn, each explained.** Two failure modes,
 both fatal and both already seen in the field: (a) firing the items as bare questions
-(the lazy questionnaire); (b) rendering all seven at once as a PRE-FILLED form —
+(the lazy questionnaire); (b) rendering all six at once as a PRE-FILLED form —
 derive-and-confirm in batch is the same questionnaire in new clothes. The discipline,
 per turn: do the work the host allows (inspect, derive), present ONE verified proposal
 ("I found a key directory at <path>: openai, xai — should I use these?") with the one
 line of what it feeds and why it matters, then WAIT for the answer before the next
 decision. A true open question is reserved for what no inspection can answer (the name,
-the backfill appetite). **The seven decisions below are the floor, not a cage.** Spontaneous questions are
+the backfill appetite). **The six decisions below are the floor, not a cage.** Spontaneous questions are
 welcome — a guide that notices something real and asks about it is the product working.
 But whatever you bring spontaneously obeys the SAME two laws as everything else: (1) it
 arrives worked — derived from what you saw and proposed by name, never a blank category
 for the operator to fill ("which sources? whatever you name" is the lazy form of a good
 instinct); (2) it arrives in its moment — sources, in particular, are hunted and
 proposed AFTER Direction exists (§4b), because before knowing the person they are just
-plumbing. The mentee should end the interview understanding the seven
+plumbing. The mentee should end the interview understanding the six
 decisions because each one was a small conversation — never because they reviewed a
 table.
 
-**The interview IS the boot sequence (law 3).** Do not collect all seven and only then
+**The interview IS the boot sequence (law 3).** Do not collect all six and only then
 install: as soon as a decision unlocks an organ, run that organ RIGHT THERE, blocking and
 narrated, and let its output feed the next turn of the conversation. Name + home + CLIs +
 secrets + backfill in hand → run §1 (bootstrap), §2 (runtime) and §3 (first wake)
 immediately — "I will read your last N days now; it takes a few minutes, stay with me" — and come
 back speaking of their real history, not of configuration. (Secrets before the first wake
 on purpose: the film's extraction wants the keys — quality over one saved turn.) The
-remaining decisions (adversarial, heartbeat) then happen with a guide who has already read
-the person. The seven decisions, in order:
+remaining decisions (adversarial) then happen with a guide who has already read
+the person. The six decisions, in order:
 
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
@@ -160,12 +160,7 @@ the person. The seven decisions, in order:
    - **any OpenAI-compatible endpoint** — `--embedding-base-url` + `--embedding-var`;
    - **none** — declared-dark, FTS covers search; can be added later by re-running bootstrap.
    Model override: `--embedding-model`. Never echo key values.
-6. **Heartbeat cadence** — how often the autonomous pulse fires once ignited
-   (`--heartbeat-interval`; recommend `8h` as the default cadence). Explain the
-   trade-off in one line: shorter = more presence and more spend; the dial moves later by
-   editing `heartbeat_interval` in `agent.yaml`. Whether it ignites AT ALL is still
-   confirmed at the close (step 5), not here — this question only sets the rhythm.
-7. **Backfill days** — how much session history the first wake reads. Before accepting,
+6. **Backfill days** — how much session history the first wake reads. Before accepting,
    run the cost check:
 
 ```bash
@@ -190,7 +185,9 @@ Explain while it runs: install tree + `state/bootstrap.json` (pre-phenotype knob
 provisioned into EVERY CLI harness present (`~/.claude`, `~/.codex`, `~/.grok`,
 `~/.hermes` — detection by directory), adversarial cast as interviewed (none → primary self-adversarial), the
 embedding route wired through the adapter chosen in the interview (or declared-dark).
-**Heartbeat stays off** — say why (no Direction yet).
+**Heartbeat stays OFF** — here and at the close (operator 2026-07-28: the pulse needs
+work before default-on). It is never an interview question; the phenotype keeps the
+default interval (`8h`) so a later hand-ignition has its dial.
 
 ## 2. Runtime — the graph
 
@@ -377,32 +374,31 @@ not a source — offer those separately as the install's first candidate themes.
 operator accepts/rejects; accepted sources seed the phenotype `sources:` block before
 `finish` emits it.
 
-## 5. Close — phenotype, heartbeat, local access
+## 5. Close — phenotype, local access
 
 With mission and voice out of the mentor session:
 
 ```bash
 tools/edge-python tools/edge-bootstrap finish --home <home> \
   --mission "<from mentor>" --voice "<from mentor>" \
-  --heartbeat-interval <from interview> \
   --sources-json '<the authorized roster from §4b, JSON list>' \
-  --language <the conversation's language, e.g. pt-BR> --enable-heartbeat
+  --language <the conversation's language, e.g. pt-BR>
 ```
 
 `--sources-json` carries the roster the mentee authorized (pasta local, rclone remotes, CLI
 auth — entries beyond what secrets imply; secrets-derived ones stay unless overridden by
-name). `finish` writes `agent.yaml` (the phenotype — now it may exist) and `--enable-heartbeat`
-renders the timer at the interviewed cadence and ignites the autonomous pulse
-(`edge-heartbeat.timer` + linger, so it survives logout). Confirm the ignition with the
-operator before flipping it — an operator who wants to drive by hand first says no, and
-that is a fine close (the interval still lands in the phenotype for later).
+name). `finish` writes `agent.yaml` (the phenotype — now it may exist). **The heartbeat
+ships OFF and the rite never asks about it** (operator 2026-07-28: the pulse needs work
+before default-on) — do not pass `--enable-heartbeat`; the phenotype records the default
+interval (`8h`) so a later hand-ignition (`edge-bootstrap finish --enable-heartbeat`
+re-run) has its dial.
 
-**Then the final act, in one breath: heartbeat → skills → a real discovery.** After
-`finish`, the mentor closes the day like this:
+**Then the final act, in one breath: the dormant pulse → skills → a real discovery.**
+After `finish`, the mentor closes the day like this:
 
-1. **Explain the heartbeat** — "every <interval> I wake on my own, read your state, draw
-   an angle, and if something survives my gate, I publish to your blog. You do not need
-   to call me."
+1. **Name the heartbeat, off** — one line, no question: "I can also wake on my own on a
+   cadence, read your state, and publish without being called — that pulse ships off for
+   now; when you want it, we turn it on."
 2. **Present the skills** — the doors the operator can open by hand, each in half a
    line: `/{prefix}-wake` (orient me in the morning), `/{prefix}-mentor` (talk with me),
    `/{prefix}-report`, `/{prefix}-research`, `/{prefix}-discovery` (ask me for a finding),
@@ -423,8 +419,8 @@ that is a fine close (the interval still lands in the phenotype for later).
      pinned renderer included**: the first artefato sounds and LOOKS like every artefato
      that will follow (the blog's face is part of the product). A hand-rendered or
      raw-md page is the cargo-cult runway — form skipped, presented as done. Close the frame: "what you just
-     watched from the inside is exactly what happens on its own every <interval> — only
-     without the narration."
+     watched from the inside is exactly what will run on its own once the pulse is
+     turned on — only without the narration."
 
 Then walk them to it:
 
