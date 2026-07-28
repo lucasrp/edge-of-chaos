@@ -1028,11 +1028,14 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
 
     def test_backbone_ensures_every_artefato_serves_the_objective(self):
         # Codex P2: an Artefato published BEFORE the Objective existed had SERVES no-op; the backbone
-        # (every canonical sweep) guarantees the hub link so it is reachable from space-0.
+        # (every canonical sweep) guarantees the hub link so it is reachable from space-0. The cypher
+        # lives in the pinned constant (test_recall_brief idiom); the function must run it.
         import inspect
-        src = inspect.getsource(publisher._project_backbone)
-        self.assertIn("[:SERVES]->", src,
+        self.assertIn("[:SERVES]->", publisher.BACKBONE_SERVES_SWEEP,
                       "the backbone must ensure every Artefato SERVES the objective (reachability)")
+        src = inspect.getsource(publisher._project_backbone)
+        self.assertIn("BACKBONE_SERVES_SWEEP", src,
+                      "_project_backbone must run the pinned SERVES constant")
 
     def test_reproject_graph_rebuilds_the_backbone_even_when_all_slugs_present(self):
         # Codex P2: the spine backbone (ANCHORS rebuild) must run on EVERY canonical sweep so newly

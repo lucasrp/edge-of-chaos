@@ -236,6 +236,16 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
     group = group or GROUP
     if not group:
         return None
+    # corpus_role host|member: only the corpus HOST consolidates — the no-lock rule that keeps
+    # N agents on one shared KB from wipe-rebuilding Communities concurrently.
+    try:
+        import _identity
+        role = _identity.corpus().get("role")
+    except Exception:  # noqa: BLE001 — identity read is best-effort; default = host (today)
+        role = "host"
+    if role == "member":
+        print("communities: consolidate skipped — corpus_role=member (o host consolida)")
+        return None
     drv = _driver(**kw)
     if drv is None:
         return None

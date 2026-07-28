@@ -166,6 +166,19 @@ nothing to disclaim. Show the numbers (sessions, MB, ~minutes) and move on. This
 negotiation: if it looks long, say so in one line ("30 days = ~70 min of first wake") —
 and if the operator wants to wait, they wait. Their call, never yours.
 
+**Modo avançado — corpus de projeto (only when the terrain shows it).** Corpus é do
+PROJETO; agente é da PESSOA×projeto (`docs/specs/corpus-projeto-nxn.md`). The interview
+only COLLECTS the machine facts (a reachable populated corpus found by the vasculhada; the
+project's session directories — "vi sessões em ~/edge e ~/landing, os dois são deste
+projeto?"). The JOIN proposal itself arrives in the MENTOR, its moment (same law as
+sources §4b — before knowing the person, a corpus is just plumbing): "existe um cérebro do
+projeto X; teu agente pode nascer DENTRO dele — você veria tudo que o time já sabe, e o
+time veria teu filme DESTE projeto" — consent said out loud (joining = publishing your
+project slice to the team), never implied. The authorized declaration lands in the
+phenotype at finish (`emit_phenotype(corpus=...)`: {group, uri, role, film.stores}).
+Omitted entirely → the degenerate default (private whole-life corpus) — the simple mode IS
+the advanced mode with defaults; never present two products.
+
 ## 1. Bootstrap — the skeleton
 
 ```bash

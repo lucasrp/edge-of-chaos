@@ -1403,38 +1403,67 @@ def _project_parceiros(s, g, log):
               g=g, name=p["name"])
 
 
-def _project_backbone(s, g, log):
+# Regime nodes (Genesis/Objective/Direction) are keyed group×agent: corpus é do PROJETO, agente
+# é da PESSOA×projeto — N agents share one corpus group, each keeps its OWN spine. Pinned as
+# module constants (test_recall_brief idiom: the guards live in constants, testable as
+# interfaces). The CLAIM migrates legacy single-agent nodes (no `agent` prop) to the running
+# install — idempotent; only pre-upgrade nodes are ever affected.
+BACKBONE_CLAIM = (
+    "MATCH (n {group_id:$g}) WHERE (n:Genesis OR n:Objective OR n:Direction) "
+    "AND n.agent IS NULL SET n.agent=$a")
+BACKBONE_GENESIS = (
+    "MERGE (gen:Genesis {group_id:$g, agent:$a}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
+    "gen.method='memory/method.md', gen.personality='memory/personality.md'")
+BACKBONE_OBJECTIVE = "MERGE (o:Objective {group_id:$g, agent:$a}) SET o.body=$b"
+BACKBONE_GROUNDS = (
+    "MATCH (gen:Genesis {group_id:$g, agent:$a}),(o:Objective {group_id:$g, agent:$a}) "
+    "MERGE (gen)-[:GROUNDS]->(o)")
+# Artefatos are corpus-shared knowledge; the hub link goes to the AUTHOR's objective only
+# (own or legacy-unclaimed) — never every artefato to every agent's objective.
+BACKBONE_SERVES_SWEEP = (
+    "MATCH (a:Artefato {group_id:$g}) WHERE coalesce(a.agent,$a)=$a "
+    "MATCH (o:Objective {group_id:$g, agent:$a}) MERGE (a)-[:SERVES]->(o)")
+# DESTRUCTIVE clear scoped to the OWN regime — never deletes another agent's steers.
+BACKBONE_ANCHORS_CLEAR = (
+    "MATCH (o:Objective {group_id:$g, agent:$a})-[r:ANCHORS]->(:Direction) DELETE r")
+BACKBONE_DIRECTION = "MERGE (d:Direction {group_id:$g, agent:$a, body:$b})"
+BACKBONE_ANCHORS = (
+    "MATCH (o:Objective {group_id:$g, agent:$a}),(d:Direction {group_id:$g, agent:$a, body:$b}) "
+    "MERGE (o)-[:ANCHORS]->(d)")
+
+
+def _project_backbone(s, g, log, agent=None):
     """Project the canonical SPINE BACKBONE on an open session `s`: :Genesis (space-0) -GROUNDS->
     :Objective + the ANCHORS rebuild (the active steers, DESTRUCTIVE DELETE-then-readd from the
     canonical fold). Shared by project_artefato (per publish) and reproject_graph (per sweep) so the
-    ANCHORS stay current with the log every canonical sync, regardless of which artefatos exist."""
+    ANCHORS stay current with the log every canonical sync, regardless of which artefatos exist.
+    Regime writes are keyed group×agent (shared-corpus N×N); `agent` defaults to this install."""
     import yaml
+    import _identity
     try:
         cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
     except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
         cfg = {}
-    s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
-          "gen.method='memory/method.md', gen.personality='memory/personality.md'",
-          g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
+    a = agent or _identity.agent_id()
+    s.run(BACKBONE_CLAIM, g=g, a=a)
+    s.run(BACKBONE_GENESIS,
+          g=g, a=a, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
     obj = cortex.objective_at(log=log) or {}
     if obj.get("body"):
-        s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
-        s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
-              "MERGE (gen)-[:GROUNDS]->(o)", g=g)
+        s.run(BACKBONE_OBJECTIVE, g=g, a=a, b=obj["body"])
+        s.run(BACKBONE_GROUNDS, g=g, a=a)
         # ENSURE every Artefato SERVES the objective (Codex P2): an Artefato published BEFORE the
         # Objective existed had its SERVES no-op at projection time; the backbone (run every canonical
         # sweep, once an Objective exists) guarantees the hub link so it is reachable from space-0 —
         # cheap idempotent MERGEs, no embeddings, independent of the per-slug skip-present recovery.
-        s.run("MATCH (a:Artefato {group_id:$g}),(o:Objective {group_id:$g}) "
-              "MERGE (a)-[:SERVES]->(o)", g=g)
+        s.run(BACKBONE_SERVES_SWEEP, g=g, a=a)
     # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE) so a dropped/superseded
     # Direction stops being anchored (recall from space-0 must match the log).
     dirs = cortex.direction_at(log=log) or {}
-    s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
+    s.run(BACKBONE_ANCHORS_CLEAR, g=g, a=a)
     for it in dirs.get("set", []) + dirs.get("proposed", []):
-        s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
-        s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
-              "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+        s.run(BACKBONE_DIRECTION, g=g, a=a, b=it["body"])
+        s.run(BACKBONE_ANCHORS, g=g, a=a, b=it["body"])
     # Ticket A — the episteme spine rides the same canonical sync: :Hypothesis nodes fold from
     # hypothesis.declared/superseded; the §6 parceiro mark folds from parceiro.promoted.
     _project_hypotheses(s, g, log)
@@ -1606,12 +1635,15 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # coalesce PRESERVES (never clobbers an already-projected skill to NULL).
             # ticket 05: `origin` (user_requested|beat) coalesced like skill — the graph read
             # models weigh user_requested ≫ beat; a legacy call with no origin never clobbers.
+            # `agent` = provenance in a shared corpus (quem escreveu isto) — coalesced so a
+            # replay never re-claims another agent's artefato.
             s.run("MERGE (a:Artefato {group_id:$g, slug:$slug}) "
                   "SET a.kernel=$k, a.skill=coalesce($skill, a.skill), a.page=$page, "
                   "a.origin=coalesce($origin, a.origin), "
+                  "a.agent=coalesce(a.agent,$agent), "
                   "a.projected_at=$pat, a.projection_complete=false",
                   g=g, slug=slug, k=intent, skill=skill, page=f"blog/entries/{slug}.html",
-                  origin=origin,
+                  origin=origin, agent=_identity.agent_id(),
                   pat=_dt.now(_tz.utc).isoformat())
             # B.1 — o verdict do gate como FLAT props no nó (badge, MIR-2/3). `SET a +=` com o
             # dict sanitizado (_gate_props: só primitivos), nunca interpolação de chave no Cypher.
@@ -1621,9 +1653,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             if gate_props:
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a += $props",
                       g=g, slug=slug, props=gate_props)
-            # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
-            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
-                  "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
+            # every Artefato SERVES its AUTHOR's objective — the hub keeping it reachable from
+            # space-0; with N regimes in the corpus, never every objective.
+            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                  "MATCH (o:Objective {group_id:$g}) WHERE coalesce(o.agent,$agent)=$agent "
+                  "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug, agent=_identity.agent_id())
             # embed the CONTENT (Codex P2): a concept in the body but not the kernel must still be
             # semantically recallable over a.embedding. Re-embed only when the EMBED INPUT CHANGED
             # (Codex P2): store a hash of (slug+intent+spec_text); a republish with changed
