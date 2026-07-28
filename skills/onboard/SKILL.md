@@ -37,18 +37,21 @@ the file is the conversation's certificate, never its precondition. No autonomou
 2. **Machine facts live in the ovo; identity is the conversation's output.** `bootstrap.json`
    carries what detection decided; `agent.yaml` carries what the person authorized.
 3. **Organs ignite incrementally — each answer turns on a sense, and the sense answers
-   DURING the interview.** CLIs + backfill named → the first wake/assemble runs NOW, and the
+   DURING the interview.** CLIs + backfill named AND the keys delivered (the film's
+   extraction quality needs them — a wake ingested dark to save one interview turn is the
+   opposite of qualidade sobre velocidade) → the first wake/assemble runs NOW, and the
    guide returns speaking of THEIR real past. Day-to-day sources named → the first delta/mundo
    sweep runs NOW ("varri teu mundo: isto é novo"). Direction born → the dig hunts their
    personalized sources. **Blocking, on purpose: deixa travar — qualidade sobre velocidade é
    valor da casa.** Narrate the wait ("estou lendo teus últimos N dias; leva uns minutos")
    instead of hiding it in background — the operator watching an organ do real work on their
    own life IS the demo. By `finish`, everything in the phenotype has already run at least
-   once: the yaml is a birth certificate, not a boot plan. Secrets are
-delivered by the operator — you never invent, fetch, or print key values. **And the rite
-never self-terminates**: every act of the close happens WITH the operator — the narrated
-discovery runs in front of them, the first artefato is read side by side — and the
-session ends when the OPERATOR ends it. A sign-off note ("está completo", next-steps
+   once: the yaml is a birth certificate, not a boot plan.
+
+Secrets are delivered by the operator — you never invent, fetch, or print key values.
+**And the rite never self-terminates**: every act of the close happens WITH the operator —
+the narrated discovery runs in front of them, the first artefato is read side by side — and
+the session ends when the OPERATOR ends it. A sign-off note ("está completo", next-steps
 shell block, farewell) is the consultant leaving the room; the edge lives here now, and
 its first day does not end with it walking out.
 
@@ -109,11 +112,12 @@ table.
 **The interview IS the boot sequence (law 3).** Do not collect all seven and only then
 install: as soon as a decision unlocks an organ, run that organ RIGHT THERE, blocking and
 narrated, and let its output feed the next turn of the conversation. Name + home + CLIs +
-backfill in hand → run §1 (bootstrap), §2 (runtime) and §3 (first wake) immediately — "vou
-ler teus últimos N dias agora; leva uns minutos, me espera" — and come back speaking of
-their real history, not of configuration. The remaining decisions (adversarial, secrets,
-heartbeat) then happen with a guide who has already read the person. The seven decisions,
-in order:
+secrets + backfill in hand → run §1 (bootstrap), §2 (runtime) and §3 (first wake)
+immediately — "vou ler teus últimos N dias agora; leva uns minutos, me espera" — and come
+back speaking of their real history, not of configuration. (Secrets before the first wake
+on purpose: the film's extraction wants the keys — quality over one saved turn.) The
+remaining decisions (adversarial, heartbeat) then happen with a guide who has already read
+the person. The seven decisions, in order:
 
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
