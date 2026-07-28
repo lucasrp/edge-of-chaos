@@ -64,6 +64,17 @@ class RiteFloor(unittest.TestCase):
         self.assertIn("The sections below are ANATOMY, not a script.", FLAT)
 
 
+class PreflightBeforeFinish(unittest.TestCase):
+    def test_preflight_list_sits_before_the_finish_command(self):
+        pre = SKILL.index("**Pre-flight — confer BEFORE `finish`")
+        cmd = SKILL.index("tools/edge-python tools/edge-bootstrap finish")
+        self.assertLess(SKILL.index("## 5. Close"), pre)
+        self.assertLess(pre, cmd)
+        # the list's floor: film complete, senses already sensed, mentor ground read back
+        self.assertIn("the yaml only carries senses that have already sensed", FLAT)
+        self.assertIn("nothing lands in it that did not already run", FLAT)
+
+
 class HeartbeatShipsOff(unittest.TestCase):
     def test_finish_block_has_no_ignition_and_carries_language_and_sources(self):
         m = re.search(r"```bash\n(tools/edge-python tools/edge-bootstrap finish.*?)```",
