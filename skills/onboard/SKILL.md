@@ -258,9 +258,11 @@ evidence or not made.
 
 **The grill cadence, once open:**
 
-- **One live question per breath, bisected at the wound** — each question aims at the
-  point of highest uncertainty and consequence, born from what you already read, never
-  researchable elsewhere. The BEST question is the one the mentee did not know needed
+- **One live question per breath, resolving dependencies between decisions one-by-one**
+  — walk down each branch of the tree in dependency order: never open a branch that
+  hangs on an unresolved one, and among the unlocked, aim at the point of highest
+  uncertainty and consequence. Born from what you already read, never researchable
+  elsewhere. The BEST question is the one the mentee did not know needed
   asking (the unknown-unknown about the PERSON): the out-of-the-box probe, the
   enumeration edge ("o que você não listar — e existe — é o achado"), the decisions
   they sign without being able to verify.
@@ -274,11 +276,9 @@ evidence or not made.
   them on day one is the consultant). Ask their mission — never wait for it to be
   volunteered. Read back the threads the wake detected ("quais estão vivas? qual
   sangra?") and let them confirm, kill, or add.
-- **Keep the ledger of branches, resolving dependencies between decisions one-by-one**
-  — never open a branch that hangs on an unresolved one; among the unlocked branches,
-  bisect at the wound. Never re-ask the resolved, never abandon the open; a branch
-  still open when understanding arrives is SAID OUT LOUD and becomes an inscription,
-  not silently dropped.
+- **Keep the ledger of branches** — never re-ask the resolved, never abandon the open;
+  a branch still open when understanding arrives is SAID OUT LOUD and becomes an
+  inscription, not silently dropped.
 
 **The only stop condition is MUTUAL understanding — and it is PROVEN with the wayfind
 on the table.** Before any close, the mentor lays out its map, out loud: "isto é o que
