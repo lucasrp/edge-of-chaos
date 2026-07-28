@@ -365,8 +365,8 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
         hermes_path = sessions.hermes_state_db() if hermes_dir is None else Path(hermes_dir)
         hermes_home = hermes_path.parent if hermes_path.is_file() else hermes_path
         for s in sessions.list_hermes_sessions(hermes_dir):
-            if not _session_in_window(s, window):
-                continue
+            # Hermes is the operator's durable conversation store: cursors make the
+            # full scan incremental, while backfill remains an onboarding import knob.
             sid = _cursor_id(s)
             seen = cursors.get(sid, 0)
             turns, watermark = sessions.delta(s.path, seen, surface="hermes")

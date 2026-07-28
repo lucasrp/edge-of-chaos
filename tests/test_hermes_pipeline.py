@@ -1,5 +1,6 @@
 import sys
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,6 +42,14 @@ class HermesPipelineTest(HermesSessionsTest):
         self.assertEqual([p["edge_group"] for p in planned], ["hive", "hive"])
         self.assertEqual(planned[0]["turns"][:2], [
             sessions.Turn("human", "question"), sessions.Turn("edge", "answer")])
+
+    def test_sweep_does_not_date_cut_hermes_history(self):
+        (self.home / "config.yaml").write_text("edge_group: hive\n")
+        with mock.patch.object(sweep, "_film_window_start", return_value=10**20):
+            planned = sweep.plan_sweep(
+                project_dir=self.home, cursors={}, recent=None,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual([p["profile_name"] for p in planned], ["work", "default"])
 
 
 if __name__ == "__main__":
