@@ -83,6 +83,42 @@ _SESSION_STORES = {
 _HERMES_DB = ".hermes/state.db"
 
 
+def is_wsl(proc_version="/proc/version", env=None):
+    """True on WSL — where the mentee's CLIs may run on the Windows side and write to /mnt/c/..."""
+    env = env if env is not None else os.environ
+    if env.get("WSL_DISTRO_NAME"):
+        return True
+    try:
+        return "microsoft" in Path(proc_version).read_text().lower()
+    except OSError:
+        return False
+
+
+def detect_windows_session_stores(mnt_root="/mnt", stores=None):
+    """Under WSL, native-Windows CLIs write their sessions to C:\\Users\\<user>\\... — seen here as
+    /mnt/<drive>/Users/<user>/<store>. Scan for each surface's store and return {surface: path} so the
+    onboarding can propose pointing at them (EDGE_PROJECT_DIR + surface homes) instead of the empty
+    Linux home. Empty when none (Linux-only sessions, or the Windows side has none). Apps/cloud
+    (Claude desktop, Codex cloud) store server-side, not on disk — never detectable here."""
+    stores = stores or _SESSION_STORES
+    root = Path(mnt_root)
+    found: dict[str, Path] = {}
+    if not root.is_dir():
+        return found
+    for drive in sorted(root.iterdir()):
+        users = drive / "Users"
+        if not users.is_dir():
+            continue
+        for user in sorted(users.iterdir()):
+            for surface, sub in stores.items():
+                p = user / sub
+                # ponytail: first Windows user with each store wins; onboarding disambiguates if the
+                # host has several. Enough for the common single-user Windows machine.
+                if surface not in found and p.is_dir():
+                    found[surface] = p
+    return found
+
+
 def _hermes_estimate(home: Path, cutoff: float) -> Optional[dict]:
     """Sessões recentes do hermes via HERMES_HOME/state.db (sessions.started_at).
 
@@ -710,6 +746,7 @@ def emit_phenotype(
     mentee: Optional[str] = None,
     heartbeat_interval: Optional[str] = None,
     install_mode: Optional[str] = None,
+    project_dir: Optional[str] = None,
 ) -> Path:
     """Write agent.yaml as onboarding output (atomic)."""
     import yaml
@@ -748,6 +785,13 @@ def emit_phenotype(
     cfg["install_mode"] = (
         install_mode or boot.get("install_mode")
         or _provision.select_install_mode({"docker_present": _provision.docker_present()}))
+    # project_dir — the mentee's Claude transcript store, when it is NOT the $HOME convention: a WSL
+    # install points at the Windows store (/mnt/c/Users/<user>/.claude/projects). The onboarding
+    # proposes it (detect_windows_session_stores) and passes the confirmed path here; project_dir()
+    # reads this field. Omitted → the runtime derives from $HOME (the Linux-native default).
+    pd = project_dir or boot.get("project_dir")
+    if pd:
+        cfg["project_dir"] = str(pd)
     # strip any non-yaml internal markers
     cfg.pop("_secrets_inventory", None)
     # re-assert secrets block from live inventory at emit time

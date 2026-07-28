@@ -45,6 +45,17 @@ Say in one line what you are doing and that nothing leaves the machine. A guide 
 asks before looking is the lazy consultant; a guide that looked first never needs to
 ask what the terrain already answers.
 
+**Under WSL — the sessions may be on the Windows side.** If `onboarding.is_wsl()`, the mentee's
+CLIs (Claude Code, Codex, Grok) likely run on native Windows and write to
+`C:\Users\<user>\...` — seen here as `/mnt/c/Users/<user>/...`, NOT the WSL Linux home (which is
+empty of them). Run `onboarding.detect_windows_session_stores()` and, for each store found,
+**propose** pointing at it (propositions-only — the operator confirms): pass the confirmed Claude
+store to `emit_phenotype(project_dir=...)` (persisted as agent.yaml `project_dir`, which
+`project_dir()` reads), and set the Codex/Grok `surfaces.<name>.home` to the detected
+`/mnt/c/...` homes. **Apps/cloud are out of reach:** Claude desktop / claude.ai and the Codex
+cloud app store sessions server-side, not on disk — the edge reads CLI transcript files, so there
+is nothing to detect for those; say so plainly rather than promise it.
+
 ## 0. Interview — work first, confirm second
 
 **This is a CONVERSATION — one decision per turn, each explained.** Two failure modes,

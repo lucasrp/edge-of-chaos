@@ -77,13 +77,15 @@ def require_group(agent_yaml=AGENT_YAML):
     return g
 
 
-def project_dir():
+def project_dir(agent_yaml=AGENT_YAML):
     """The mentee's Claude transcript store for THIS install (ADR-0015). EDGE_PROJECT_DIR env →
-    derived from the running $HOME per the Claude store convention (/home/x →
-    ~/.claude/projects/-home-x). FAIL-LOUD: a store directory that does not exist raises —
-    "nothing new" is reserved for a real store with nothing new, never for scanning a foreign or
-    absent path (the roberto amnesia: a baked-in dev host path scanned nothing, silently)."""
-    raw = os.environ.get("EDGE_PROJECT_DIR")
+    agent.yaml `project_dir` → derived from the running $HOME per the Claude store convention
+    (/home/x → ~/.claude/projects/-home-x). The agent.yaml field lets a WSL install point durably at
+    the Windows store (/mnt/c/Users/<user>/.claude/projects) — the phenotype carries it, no env
+    plumbing into the runtime. FAIL-LOUD: a store directory that does not exist raises — "nothing
+    new" is reserved for a real store with nothing new, never for scanning a foreign or absent path
+    (the roberto amnesia: a baked-in dev host path scanned nothing, silently)."""
+    raw = os.environ.get("EDGE_PROJECT_DIR") or _cfg(agent_yaml).get("project_dir")
     if raw:
         p = Path(os.path.expanduser(raw))
     else:
