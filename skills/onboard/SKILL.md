@@ -152,6 +152,21 @@ in order:
 7. **Backfill days** — how much session history the first wake reads. Before accepting,
    run the cost check:
 
+**Modo avançado — corpus de projeto (only when the terrain shows it).** Corpus é do
+PROJETO; agente é da PESSOA×projeto (see `docs/specs/corpus-projeto-nxn.md`). Two
+situations turn this from theory into an interview decision, each proposed worked, never
+as a blank category: (a) the vasculhada found a REACHABLE corpus already populated (a
+bolt endpoint + group of an existing project KB) → the mentor proposes joining it:
+"existe um cérebro do projeto X; teu agente pode nascer DENTRO dele — você veria tudo
+que o time já sabe, e o time veria teu filme deste projeto" (consent said out loud:
+joining = publishing your project slice to the team); (b) the mentee wants a
+project-scoped agent (not whole-life) → the film filter is the project's directories
+("vi sessões em ~/edge e ~/landing — os dois são deste projeto?"). Both land in the
+phenotype `corpus:` block at finish (`emit_phenotype(corpus=...)`): {group, uri,
+role: host|member, film.stores}. Omitted entirely → the degenerate default (private
+whole-life corpus) — the simple mode IS the advanced mode with defaults; never present
+two products.
+
 ```bash
 tools/edge-python tools/edge-bootstrap estimate --days N
 ```

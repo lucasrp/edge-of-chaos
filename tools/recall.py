@@ -36,10 +36,14 @@ SEMANTIC_EMBED_MODEL = "text-embedding-3-small"  # same model as publisher proje
 # (cap, recency order, complete-projections-only, retired-cluster filter), testable as
 # interfaces rather than by grepping function source (review: a comment satisfied the old
 # substring assertions while the live query regressed).
+# Regime is keyed group×agent (shared-corpus N×N): the spine head reads THIS agent's regime
+# only. coalesce = a legacy node (agent null, pre-claim) still answers its sole install.
 SPINE_QUERY = (
-    "MATCH (gen:Genesis {group_id:$g}) "
+    "MATCH (gen:Genesis {group_id:$g}) WHERE coalesce(gen.agent,$agent)=$agent "
     "OPTIONAL MATCH (gen)-[:GROUNDS]->(o:Objective {group_id:$g}) "
+    "WHERE coalesce(o.agent,$agent)=$agent "
     "OPTIONAL MATCH (o)-[:ANCHORS]->(d:Direction {group_id:$g}) "
+    "WHERE coalesce(d.agent,$agent)=$agent "
     "RETURN gen.codename AS codename, gen.voice AS voice, o.body AS objective, "
     "collect(DISTINCT d.body) AS bets")
 ARTEFATOS_QUERY = (
@@ -251,8 +255,10 @@ def recall_subgraph(group=None, uri=None, user=None, password=None):
         with _session(group, uri, user, password) as s:
             if s is None:
                 return None
-            # space-0 → objective → bets (active ANCHORS only) — the spine head
-            head = s.run(_q(SPINE_QUERY), g=group).single()
+            # space-0 → objective → bets (active ANCHORS only) — the spine head, own regime only
+            import _identity as _id
+            head = s.run(_q(SPINE_QUERY), g=group,
+                         agent=_id.agent_id() or group).single()
             if head is None:
                 return {"codename": None, "voice": None, "objective": None,
                         "bets": [], "artefatos": [], "clusters": [],

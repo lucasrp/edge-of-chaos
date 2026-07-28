@@ -782,6 +782,7 @@ def emit_phenotype(
     install_mode: Optional[str] = None,
     project_dir: Optional[str] = None,
     sources: Optional[list] = None,
+    corpus: Optional[dict] = None,
 ) -> Path:
     """Write agent.yaml as onboarding output (atomic)."""
     import yaml
@@ -827,6 +828,11 @@ def emit_phenotype(
     pd = project_dir or boot.get("project_dir")
     if pd:
         cfg["project_dir"] = str(pd)
+    # corpus — which KB this install inhabits (modo avançado: {group, uri, role, film.stores}).
+    # Omitted → the degenerate private corpus; _identity.corpus() supplies every default.
+    corp = corpus or boot.get("corpus")
+    if corp:
+        cfg["corpus"] = corp
     # strip any non-yaml internal markers
     cfg.pop("_secrets_inventory", None)
     # re-assert secrets block from live inventory at emit time

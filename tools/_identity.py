@@ -54,15 +54,59 @@ def _cfg(agent_yaml=AGENT_YAML):
 
 
 def group(agent_yaml=AGENT_YAML):
-    """The graph group for THIS install. EDGE_GROUP (host override) → agent.yaml `graph_group` →
-    name/codename. `graph_group` lets an install own a corpus in a group distinct from its mentor
-    name without orphaning it — explicit per-install config, never a baked-in default (#21). Returns
-    None when nothing resolves — the runtime degrade posture (no cross-tenant default)."""
+    """The graph group for THIS install — the CORPUS tenancy key (corpus é do PROJETO).
+    EDGE_GROUP (host override) → agent.yaml `corpus.group` (the project KB this install
+    inhabits, possibly shared with other agents) → `graph_group` (legacy spelling of the same
+    idea) → name/codename (the degenerate private corpus). Never a baked-in default (#21).
+    Returns None when nothing resolves — the runtime degrade posture."""
     g = os.environ.get("EDGE_GROUP")
     if g:
         return g
     cfg = _cfg(agent_yaml)
-    return cfg.get("graph_group") or cfg.get("name") or cfg.get("codename") or None
+    corp = cfg.get("corpus") or {}
+    return (corp.get("group") or cfg.get("graph_group")
+            or cfg.get("name") or cfg.get("codename") or None)
+
+
+def agent_id(agent_yaml=AGENT_YAML):
+    """The install's OWN identity inside its corpus — the REGIME key (agente é da
+    PESSOA×projeto). Regime nodes (Genesis/Objective/Direction) are keyed group×agent so N
+    agents share one corpus group while each keeps its own spine. EDGE_AGENT (host override) →
+    name/codename → group. Degenerate single-agent corpus: agent == group, nothing changes."""
+    a = os.environ.get("EDGE_AGENT")
+    if a:
+        return a
+    cfg = _cfg(agent_yaml)
+    return cfg.get("name") or cfg.get("codename") or group(agent_yaml)
+
+
+def corpus(agent_yaml=AGENT_YAML):
+    """The corpus this install inhabits — agent.yaml `corpus:` {group, uri, role, film.stores}.
+    Every field defaults to the degenerate case (private corpus, local bolt, host role) so an
+    install without the block behaves exactly as today. `role`: the corpus HOST runs
+    corpus-level operations (communities consolidation); a MEMBER never does — the no-lock rule
+    for N agents on one KB."""
+    cfg = _cfg(agent_yaml)
+    c = cfg.get("corpus") or {}
+    return {
+        "group": group(agent_yaml),
+        "uri": (os.environ.get("EDGE_NEO4J_URI") or c.get("uri")
+                or "bolt://localhost:7687"),
+        "role": c.get("role") or "host",
+        "film_stores": [str(s) for s in ((c.get("film") or {}).get("stores") or [])],
+    }
+
+
+def film_stores(agent_yaml=AGENT_YAML):
+    """The session stores THIS install films — the project filter over the mentee's life.
+    corpus.film.stores when declared (a project-scoped agent films only its project's
+    directories), else the single whole-life store (project_dir — the degenerate filter-tudo).
+    # ponytail: filtro por diretório; re-escopo semântico só se o vazamento de sessão mista doer
+    """
+    declared = corpus(agent_yaml)["film_stores"]
+    if declared:
+        return [Path(os.path.expanduser(s)) for s in declared]
+    return [project_dir(agent_yaml)]
 
 
 def mentee(agent_yaml=AGENT_YAML):
@@ -177,8 +221,10 @@ def require_neo4j_password():
     return pw
 
 
-def neo4j_conn():
-    """(uri, user, password) for the local graph — password from the env secret (no literal)."""
-    return (os.environ.get("EDGE_NEO4J_URI", "bolt://localhost:7687"),
+def neo4j_conn(agent_yaml=AGENT_YAML):
+    """(uri, user, password) for THIS install's corpus — uri via EDGE_NEO4J_URI env →
+    agent.yaml corpus.uri → localhost (a member install reaches the corpus HOST's bolt, not
+    its own loopback). Password from the env secret (no literal)."""
+    return (corpus(agent_yaml)["uri"],
             os.environ.get("EDGE_NEO4J_USER", "neo4j"),
-            neo4j_password())
+            neo4j_password(agent_yaml))
