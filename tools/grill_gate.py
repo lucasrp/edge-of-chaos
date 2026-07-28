@@ -43,7 +43,7 @@ def _max_seq(log, types):
     return best
 
 
-def grill_complete(log=eventlog.LOG):
+def grill_complete(log=eventlog.LOG, require_wayfind=False):
     """Return the list of stage-(ii) pieces still missing after a grill (empty list = complete).
 
     A piece is present when its feeder landed an event with a **stripped-non-empty body** (Codex gate
@@ -68,15 +68,20 @@ def grill_complete(log=eventlog.LOG):
     max_level = _max_seq(log, frozenset({"grill.leveling"}))
     if max_level < 0 or (max_steer >= 0 and max_level < max_steer):
         missing.append("leveling")
+    # wayfind — CONCOMITANT with Direction at the FIRST mentor (operator 2026-07-28): the
+    # onboarding close requires the map landed as state (`map.state`), not just spoken.
+    # Opt-in so daily grill closes stay untouched; finish_onboarding turns it on.
+    if require_wayfind and _max_seq(log, frozenset({"map.state"})) < 0:
+        missing.append("wayfind")
     return missing
 
 
-def assert_grill_complete(log=eventlog.LOG):
+def assert_grill_complete(log=eventlog.LOG, require_wayfind=False):
     """Raise ValueError naming the gaps if any stage-(ii) piece is missing; pass silently otherwise.
 
     The grill MUST call this at its close: empty-post-grill is a stage-(ii) failure, not acceptable.
     """
-    missing = grill_complete(log=log)
+    missing = grill_complete(log=log, require_wayfind=require_wayfind)
     if missing:
         raise ValueError(
             "grill incomplete — stage-(ii) briefing section(s) left empty: "

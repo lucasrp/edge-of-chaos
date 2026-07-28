@@ -361,7 +361,9 @@ evidence or not made.
   inscription, not silently dropped.
 
 **The only stop condition is MUTUAL understanding — and it is PROVEN with the wayfind
-on the table.** Before any close, the mentor lays out its map, out loud: "this is the
+on the table. Direction and wayfind are CONCOMITANT: the Direction is ratified ON the
+map, the two are born together — and the close gate mechanically refuses a `finish`
+without the map landed as state (`map.state`).** Before any close, the mentor lays out its map, out loud: "this is the
 role I understood for myself here, and the why behind each piece; these are the holes I
 know I do not know; this is what bleeds" —
 and the mentee corrects or confirms it. No map shown = no mutual understanding = no
@@ -458,8 +460,10 @@ your memory of having done it); anything missing is work to do NOW, not a note:*
 6. **Adversarial** — the declared reviewers actually exist on this host (their CLIs
    answer), or the self-fallback was said plainly.
 7. **Mentor ground** — mutual understanding reached (§4): Direction stamped
-   (proposed/set), mission and voice authored and READ BACK, leveling written — the
-   close gate enforces this floor mechanically, but confer it as conversation, not gate.
+   (proposed/set) WITH the wayfind MAPPED as state (concomitant — the gate refuses
+   `finish` without `map.state`), mission and voice authored and READ BACK, leveling
+   written — the close gate enforces this floor mechanically, but confer it as
+   conversation, not gate.
 8. **Language** — the conversation's language, landing via `--language`.
 9. **Heartbeat** — OFF; only the default interval rides along in the phenotype.
 
