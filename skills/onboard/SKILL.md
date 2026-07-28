@@ -442,6 +442,30 @@ operator accepts/rejects; accepted sources seed the phenotype `sources:` block b
 
 ## 5. Close — phenotype, local access
 
+**Pre-flight — confer BEFORE `finish`. The yaml is a birth certificate: every line of
+it has already LIVED. Walk this list and confer each item against reality (not against
+your memory of having done it); anything missing is work to do NOW, not a note:**
+
+1. **Skeleton** — bootstrap ran; install tree + ovo (`state/bootstrap.json`) in place.
+2. **Graph** — the runtime is up and ANSWERING with its password (a real query, now).
+3. **Film** — the backfill wake ran to COMPLETION (no truncated ingest), communities
+   consolidated, atividades detected — and the walk-through was SHOWN to the operator.
+4. **Senses** — every source of the roster was declared with the operator,
+   access-CHECKED, and the first delta/mundo sweep RAN on them ("I swept your world:
+   this is new") — the yaml only carries senses that have already sensed.
+5. **Embeddings** — one real embedding call succeeded, or the route is declared-dark
+   out loud.
+6. **Adversarial** — the declared reviewers actually exist on this host (their CLIs
+   answer), or the self-fallback was said plainly.
+7. **Mentor ground** — mutual understanding reached (§4): Direction stamped
+   (proposed/set), mission and voice authored and READ BACK, leveling written — the
+   close gate enforces this floor mechanically, but confer it as conversation, not gate.
+8. **Language** — the conversation's language, landing via `--language`.
+9. **Heartbeat** — OFF; only the default interval rides along in the phenotype.
+
+Only when every line has already happened does `finish` run — the phenotype is authored
+WHOLE from the person known whole, and nothing lands in it that did not already run.
+
 With mission and voice out of the mentor session:
 
 ```bash
