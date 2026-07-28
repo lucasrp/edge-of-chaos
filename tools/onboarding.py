@@ -1037,10 +1037,10 @@ def run_bootstrap(
         if src_skills.is_dir():
             dst_skills = home / "skills"
             if not dst_skills.exists():
-                shutil.copytree(
-                    src_skills, dst_skills,
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-                )
+                prefix = str(cfg.get("skill_prefix") or cfg.get("codename") or name)
+                _provision.place_tree(src_skills, dst_skills,
+                                      {"{name}": name, "{prefix}": prefix})
+                payload["skills_seeded"] = True
             else:
                 # merge: copy any missing skill dirs
                 for child in src_skills.iterdir():

@@ -136,7 +136,7 @@ hunger instead of pretending to know.
 
 **First-run (no phenotype yet):** do **not** open cold. Require the wake-shaped insumo at
 `state/onboarding-insumo.md` (assemble + secrets + secrets delta + quente + delta + recall;
-**no Direction** — Direction is born in this mentor). If missing: run `/ed-wake` / predispatch
+**no Direction** — Direction is born in this mentor). If missing: run `/{prefix}-wake` / predispatch
 first (it auto-stamps via `onboarding.maybe_stamp_insumo`) or
 `tools/edge-python -c "import onboarding; onboarding.assert_mentor_has_insumo(home)"`.
 After steers + leveling land, **one close**:

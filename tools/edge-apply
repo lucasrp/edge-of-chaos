@@ -178,7 +178,10 @@ def main() -> None:
     if (REPO / "blog" / "static").exists():
         _provision.place_tree(REPO / "blog" / "static", home / "blog" / "static")
     if (REPO / "skills").exists():
-        _provision.place_tree(REPO / "skills", home / "skills")
+        name = str(cfg.get("name") or cfg.get("codename") or "Edge")
+        prefix = str(cfg.get("skill_prefix") or cfg.get("codename") or name)
+        _provision.place_tree(REPO / "skills", home / "skills",
+                              {"{name}": name, "{prefix}": prefix})
     render_caddyfile(home, args.yaml)
 
     mem = home / "memory" / "MEMORY.md"
