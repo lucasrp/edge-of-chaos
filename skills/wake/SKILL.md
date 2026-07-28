@@ -119,6 +119,22 @@ Present a tight orientation, **not a state dump**:
 - **The live intersection** — the one theme ed *would* pursue as autonomous beat: deep domain
   insight × mentee's live work, named as the decision not yet made — **with ongoing employment
   held in mind**.
+- **Awaiting your word (Voz)** — the latest published artefatos the mentee has NOT
+  reacted to yet (published slugs minus `voz.comment` target_refs; last 3, newest
+  first), each named with its blog link: "estes saíram e ainda não ouviram de você".
+  Silence is a signal the mentor respects — the wake puts them on the table once,
+  never nags:
+
+```sh
+tools/edge-python <<'PY'
+import sys; sys.path.insert(0, "tools")
+import eventlog
+pub = [(e.get("payload") or {}).get("slug") for e in eventlog.read(types=["artefato.published"])]
+heard = {(e.get("payload") or {}).get("target_ref") for e in eventlog.read(types=["voz.comment"])}
+for slug in [s for s in pub if s and s not in heard][-3:][::-1]:
+    print(f"awaiting Voz: {slug} → http://127.0.0.1:8766/")
+PY
+```
 
 Lead with the **single recommended next move** — **state it, do not run it.**  
 Priority: serve/acknowledge **ONGOING** when that is where the operator already is; only push
