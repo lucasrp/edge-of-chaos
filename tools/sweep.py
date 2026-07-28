@@ -33,6 +33,7 @@ import _identity
 CURSORS = _identity.state_root() / "state" / "cursors.json"
 CODEX_BASELINE_KEY = "_codex_baselined"
 GROK_BASELINE_KEY = "_grok_baselined"
+HERMES_BASELINE_KEY = "_hermes_baselined"
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
 # import-time cache (stale-copy risk), no baked-in host path (the dev's -home-<user> store
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
@@ -365,8 +366,10 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
         hermes_path = sessions.hermes_state_db() if hermes_dir is None else Path(hermes_dir)
         hermes_home = hermes_path.parent if hermes_path.is_file() else hermes_path
         for s in sessions.list_hermes_sessions(hermes_dir):
-            # Hermes is the operator's durable conversation store: cursors make the
-            # full scan incremental, while backfill remains an onboarding import knob.
+            # First Hermes sweep imports all available history; later sweeps keep the
+            # configured rolling window and rely on cursors for deltas.
+            if cursors.get(HERMES_BASELINE_KEY) and not _session_in_window(s, window):
+                continue
             sid = _cursor_id(s)
             seen = cursors.get(sid, 0)
             turns, watermark = sessions.delta(s.path, seen, surface="hermes")
@@ -1247,6 +1250,8 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
                               grok_dir=grok_dir, install_birth=birth)
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
+            if _hermes_enabled(project_dir, None):
+                cursors[HERMES_BASELINE_KEY] = True
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
                                                        grok_dir=grok_dir, log=log)

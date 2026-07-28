@@ -43,13 +43,22 @@ class HermesPipelineTest(HermesSessionsTest):
         self.assertEqual(planned[0]["turns"][:2], [
             sessions.Turn("human", "question"), sessions.Turn("edge", "answer")])
 
-    def test_sweep_does_not_date_cut_hermes_history(self):
+    def test_first_sweep_does_not_date_cut_hermes_history(self):
         (self.home / "config.yaml").write_text("edge_group: hive\n")
         with mock.patch.object(sweep, "_film_window_start", return_value=10**20):
             planned = sweep.plan_sweep(
                 project_dir=self.home, cursors={}, recent=None,
                 codex_dir=False, grok_dir=False, hermes_dir=self.db)
         self.assertEqual([p["profile_name"] for p in planned], ["work", "default"])
+
+    def test_later_sweep_restores_hermes_date_window(self):
+        (self.home / "config.yaml").write_text("edge_group: hive\n")
+        with mock.patch.object(sweep, "_film_window_start", return_value=10**20):
+            planned = sweep.plan_sweep(
+                project_dir=self.home,
+                cursors={sweep.HERMES_BASELINE_KEY: True}, recent=None,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual(planned, [])
 
 
 if __name__ == "__main__":
