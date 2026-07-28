@@ -16,6 +16,12 @@ Internal identifiers — env vars, flags, file paths, function names — belong 
 commands you RUN, never in the sentences you SPEAK: the operator hears what a thing
 does and why, not what it is called inside.
 
+**Speak the operator's language.** The docs and defaults are en-US, but the rite is a
+conversation: mirror the language the operator uses from their first message on (the
+quoted examples in this file are scripts of INTENT — translate them naturally into the
+conversation's language). At `finish`, land the choice in the phenotype
+(`--language`, e.g. `pt-BR`) so the daily sessions keep speaking it.
+
 **The onboarding explains ITSELF because that is how the operator learns what the edge
 IS.** Each step names the edge concept it embodies as it runs — the wake that films
 history, the insumo, the phenotype born at the close, the heartbeat as the autonomous
@@ -33,7 +39,13 @@ the file is the conversation's certificate, never its precondition. No autonomou
 1. **Every question is the mentor's.** The mechanical floor asks NOTHING — it tests what is
    possible and executes (install mode, session stores, keyless sources: all detected, never
    asked as bare categories). What reaches the human as a question arrives in the mentor's
-   voice, worked and proposed by name, from the first word of the rite.
+   voice, worked and proposed by name, from the first word of the rite. **This law is about
+   the SHAPE of questions, never a license to skip them**: a bare "install this" command IS
+   the rite's opening, not permission to run it silent — the interview (§0) is the first
+   human stop and can never be skipped. Host residue (an old CLAUDE.md, leftover session
+   stores, backups of a previous install) is evidence for PROPOSALS, never an ANSWER: the
+   name and the backfill exist only in the operator's own words, and reaching `bootstrap`
+   before the operator has spoken is a FAILED install, not a fast one.
 2. **Machine facts live in the ovo; identity is the conversation's output.** `bootstrap.json`
    carries what detection decided; `agent.yaml` carries what the person authorized.
 3. **Organs ignite incrementally — each answer turns on a sense, and the sense answers
@@ -386,7 +398,8 @@ With mission and voice out of the mentor session:
 tools/edge-python tools/edge-bootstrap finish --home <home> \
   --mission "<from mentor>" --voice "<from mentor>" \
   --heartbeat-interval <from interview> \
-  --sources-json '<the authorized roster from §4b, JSON list>' --enable-heartbeat
+  --sources-json '<the authorized roster from §4b, JSON list>' \
+  --language <the conversation's language, e.g. pt-BR> --enable-heartbeat
 ```
 
 `--sources-json` carries the roster the mentee authorized (pasta local, rclone remotes, CLI
