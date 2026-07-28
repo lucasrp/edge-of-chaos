@@ -1,9 +1,8 @@
-"""The initial wayfind is CONCOMITANT with Direction (operator 2026-07-28): the first
-mentor may not close without the map on the table AND landed as state. The gate grows an
-opt-in `wayfind` piece — a `map.state` event must exist — and finish_onboarding is the
-caller that requires it. Daily grill closes are untouched.
+"""Direction is the direção; the wayfind is the MAPA — complementary, and BOTH are
+updated by EVERY mentor (operator 2026-07-28). The gate's `wayfind` piece is standard:
+a `map.state` event must exist and be at least as recent as the latest steer feeder
+(same clock as leveling). By the close, not necessarily at the session's start.
 """
-import inspect
 import sys
 import tempfile
 import unittest
@@ -13,7 +12,6 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog  # noqa: E402
 import grill_gate  # noqa: E402
-import onboarding  # noqa: E402
 
 
 def _land_all_four(log):
@@ -23,37 +21,45 @@ def _land_all_four(log):
     eventlog.append("grill.leveling", "leveling", {"kind": "diario", "content": "x"}, log=log)
 
 
-class WayfindPiece(unittest.TestCase):
-    def test_all_four_landed_but_no_map_misses_wayfind_when_required(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            _land_all_four(log)
-            self.assertEqual(grill_gate.grill_complete(log=log), [])
-            missing = grill_gate.grill_complete(log=log, require_wayfind=True)
-            self.assertEqual(missing, ["wayfind"])
+def _map(log):
+    eventlog.append("map.state", "map:t", {"titulo": "mapa", "estado": "aberto"}, log=log)
 
-    def test_map_state_event_satisfies_wayfind(self):
+
+class WayfindIsAStandardPiece(unittest.TestCase):
+    def test_wayfind_is_in_pieces(self):
+        self.assertIn("wayfind", grill_gate.PIECES)
+
+    def test_all_four_landed_but_no_map_misses_wayfind(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             _land_all_four(log)
-            eventlog.append("map.state", "map:t", {"titulo": "mapa", "estado": "aberto"},
-                            log=log)
-            self.assertEqual(
-                grill_gate.grill_complete(log=log, require_wayfind=True), [])
+            self.assertEqual(grill_gate.grill_complete(log=log), ["wayfind"])
+
+    def test_map_as_recent_as_steers_completes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _land_all_four(log)
+            _map(log)
+            self.assertEqual(grill_gate.grill_complete(log=log), [])
+
+    def test_map_older_than_latest_steer_is_stale(self):
+        # direção moved after the last map update → the mapa must move too
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _land_all_four(log)
+            _map(log)
+            eventlog.append("direction.set", "direction", {"body": "novo rumo"}, log=log)
+            eventlog.append("grill.leveling", "leveling",
+                            {"kind": "diario", "content": "y"}, log=log)
+            self.assertEqual(grill_gate.grill_complete(log=log), ["wayfind"])
 
     def test_assert_raises_naming_wayfind(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             _land_all_four(log)
             with self.assertRaises(ValueError) as ctx:
-                grill_gate.assert_grill_complete(log=log, require_wayfind=True)
+                grill_gate.assert_grill_complete(log=log)
             self.assertIn("wayfind", str(ctx.exception))
-
-
-class FinishRequiresTheWayfind(unittest.TestCase):
-    def test_finish_onboarding_passes_require_wayfind(self):
-        src = inspect.getsource(onboarding.finish_onboarding)
-        self.assertIn("require_wayfind=True", src)
 
 
 if __name__ == "__main__":

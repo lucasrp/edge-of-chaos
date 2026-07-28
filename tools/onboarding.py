@@ -948,9 +948,7 @@ def finish_onboarding(
     import eventlog as _eventlog
 
     log_path = log if log is not None else _eventlog.LOG
-    # wayfind concomitante com a Direction no primeiro mentor — o mapa aterrissado
-    # (map.state) é prova do entendimento mútuo, não opcional (operador 2026-07-28)
-    grill_gate.assert_grill_complete(log=log_path, require_wayfind=True)
+    grill_gate.assert_grill_complete(log=log_path)
     path = emit_phenotype(
         home, mission=mission, voice=voice, mentee=mentee,
         heartbeat_interval=heartbeat_interval, sources=sources, language=language,

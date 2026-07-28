@@ -374,9 +374,11 @@ evidence or not made.
   inscription, not silently dropped.
 
 **The only stop condition is MUTUAL understanding — and it is PROVEN with the wayfind
-on the table. Direction and wayfind are CONCOMITANT: the Direction is ratified ON the
-map, the two are born together — and the close gate mechanically refuses a `finish`
-without the map landed as state (`map.state`).** Before any close, the mentor lays out its map, out loud: "this is the
+on the table. Direction and wayfind are COMPLEMENTARY — the Direction is the direção,
+the wayfind is the MAPA — and BOTH are updated by every mentor (here and in every grill
+after): the close gate mechanically refuses any close whose map (`map.state`) is not at
+least as recent as the steers. Not necessarily at the session's start — knowing first
+is good; by the close, both have moved.** Before any close, the mentor lays out its map, out loud: "this is the
 role I understood for myself here, and the why behind each piece; these are the holes I
 know I do not know; this is what bleeds" —
 and the mentee corrects or confirms it. No map shown = no mutual understanding = no
