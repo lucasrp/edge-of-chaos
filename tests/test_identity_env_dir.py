@@ -76,11 +76,11 @@ class IdentityPathHomeFirst(unittest.TestCase):
                 self.assertEqual(_identity.identity_path("agent.yaml"),
                                  Path(tmp) / "agent.yaml")
 
-    def test_missing_in_home_falls_to_repo(self):
+    def test_missing_agent_yaml_in_home_still_uses_home_for_bootstrap(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(os.environ, {"EDGE_HOME": tmp}, clear=False):
                 self.assertEqual(_identity.identity_path("agent.yaml"),
-                                 REPO / "agent.yaml")
+                                 Path(tmp) / "agent.yaml")
 
     def test_no_edge_home_uses_repo(self):
         env = {k: v for k, v in os.environ.items() if k != "EDGE_HOME"}

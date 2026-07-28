@@ -23,12 +23,6 @@ def hermes_prefixes(cfg: dict) -> list:
     """Expose only the install-specific alias; duplicate families add no capability."""
     prefix = cfg.get("skill_prefix") or cfg.get("codename") or cfg.get("name") or "edge"
     return [str(prefix).strip()]
-    for item in raw:
-        prefix = str(item).strip()
-        if prefix and prefix not in out:
-            out.append(prefix)
-    return out
-
 
 def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_group=None) -> str:
     """Render a global Hermes wrapper for one canonical Edge skill."""
@@ -61,12 +55,18 @@ def provision_hermes(cfg: dict, repo: Path, edge_home: Path, hermes_home: Path,
 
     skills_src = repo / "skills"
     if skills_src.exists():
-        for skill_dir in sorted(skills_src.iterdir()):
-            if not skill_dir.is_dir() or skill_dir.name.startswith("."):
-                continue
-            skill_file = skill_dir / "SKILL.md"
-            if not skill_file.exists() or skill_dir.name == "_shared":
-                continue
+        skill_dirs = [p for p in sorted(skills_src.iterdir())
+                      if p.is_dir() and not p.name.startswith(".")
+                      and p.name != "_shared" and (p / "SKILL.md").exists()]
+        desired = {f"{prefix}-{skill_dir.name}"
+                   for prefix in prefixes for skill_dir in skill_dirs}
+        installed_skills = hermes_home / "skills"
+        if installed_skills.is_dir():
+            for path in installed_skills.iterdir():
+                if path.name not in desired and path.is_dir() \
+                        and _managed_wrapper(path, repo, edge_home):
+                    shutil.rmtree(path)
+        for skill_dir in skill_dirs:
             canonical = edge_home / "skills" / skill_dir.name / "SKILL.md"
             for prefix in prefixes:
                 dst = hermes_home / "skills" / f"{prefix}-{skill_dir.name}" / "SKILL.md"
@@ -81,14 +81,16 @@ def provision_hermes(cfg: dict, repo: Path, edge_home: Path, hermes_home: Path,
     return rows
 
 
-def _managed_wrapper(path, repo):
+def _managed_wrapper(path, repo, edge_home=None):
     try:
         body = (path / "SKILL.md").read_text()
     except OSError:
         return False
-    return ("You are running the Edge of Chaos skill" in body
-            and str(Path(repo) / "skills") in body)
-
+    roots = [Path(repo).resolve() / "skills"]
+    if edge_home is not None:
+        roots.append(Path(edge_home).resolve() / "skills")
+    marker = "Canonical implementation:" in body or "Read the full contract at" in body
+    return marker and any(str(root) in body for root in roots)
 
 def reconcile_hermes_profiles(cfg, repo, edge_home, hermes_root):
     """Make profile-local Edge wrappers match Hermes edge_group configuration."""
@@ -110,7 +112,7 @@ def reconcile_hermes_profiles(cfg, repo, edge_home, hermes_root):
         skills = home / "skills"
         if skills.is_dir():
             for path in skills.iterdir():
-                if path.is_dir() and _managed_wrapper(path, repo):
+                if path.is_dir() and _managed_wrapper(path, repo, edge_home):
                     shutil.rmtree(path)
                     removed.append(path.name)
         result[name] = {"skills_removed": removed}

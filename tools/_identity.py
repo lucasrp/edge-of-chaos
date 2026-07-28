@@ -25,9 +25,7 @@ def identity_path(name):
     identidade. Sem EDGE_HOME (ou sem o arquivo no home), REPO é o legado home==repo."""
     env = os.environ.get("EDGE_HOME")
     if env:
-        p = Path(os.path.expanduser(env)) / name
-        if p.exists():
-            return p
+        return Path(os.path.expanduser(env)) / name
     return REPO / name
 
 

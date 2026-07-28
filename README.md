@@ -201,6 +201,7 @@ tools/edge-python tools/edge-apply --yaml agent.yaml --home ~/edge
 
 | Doc | Role |
 |-----|------|
+| [`docs/hermes-installation.md`](docs/hermes-installation.md) | Install, upgrade, and verify EoC in Hermes Agent |
 | [`CLAUDE.md`](CLAUDE.md) / [`AGENTS.md`](AGENTS.md) | Fresh-clone guard for agent harnesses |
 | [`CONTRACT.md`](CONTRACT.md) | Product contract |
 | [`CONTEXT.md`](CONTEXT.md) | Domain map (internal self-model) |

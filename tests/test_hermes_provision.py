@@ -70,22 +70,27 @@ class HermesProvisionTest(unittest.TestCase):
             (repo / "skills" / "_shared" / "pipeline.md").write_text("y")
             edge_home = root / "home"
             hermes_home = root / ".hermes"
-            cfg = {"skill_prefix": "ed", "tool_prefix": "edge"}
+            hermes_home.mkdir()
+            (hermes_home / "config.yaml").write_text("edge_group: ''\n")
+            cfg = {"skill_prefix": "Steve", "tool_prefix": "edge"}
             legacy = hermes_home / "skills" / "edge-wake"
             legacy.mkdir(parents=True)
+            installed_skill = edge_home / "skills" / "wake" / "SKILL.md"
+            installed_skill.parent.mkdir(parents=True)
+            installed_skill.write_text("canonical installed copy")
             (legacy / "SKILL.md").write_text(_hermes_provision.render_hermes_skill(
-                "wake", "edge", repo / "skills" / "wake" / "SKILL.md"))
+                "wake", "edge", installed_skill))
             foreign = hermes_home / "skills" / "edge-foreign"
             foreign.mkdir(parents=True)
             (foreign / "SKILL.md").write_text("third-party skill")
             _hermes_provision.provision_hermes(cfg, repo, edge_home, hermes_home)
             _hermes_provision.reconcile_hermes_profiles(cfg, repo, edge_home, hermes_home)
             self.assertTrue(
-                (hermes_home / "skills" / "ed-wake" / "SKILL.md").is_file())
+                (hermes_home / "skills" / "Steve-wake" / "SKILL.md").is_file())
             self.assertFalse((hermes_home / "skills" / "edge-wake").exists())
             self.assertTrue(foreign.exists())
             # _shared não vira wrapper
-            self.assertFalse((hermes_home / "skills" / "ed-_shared").exists())
+            self.assertFalse((hermes_home / "skills" / "Steve-_shared").exists())
 
 
 class SurfaceDetection(unittest.TestCase):

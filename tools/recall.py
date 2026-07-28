@@ -573,7 +573,7 @@ def compose_mentee_persona_brief(root=None, *, max_perfil_chars=3500):
 
     Safe for wake/mentor recall: missing/blank perfil is declared empty, never silent.
     """
-    root = Path(root) if root is not None else Path(__file__).resolve().parent.parent / "memory" / "leveling"
+    root = Path(root) if root is not None else _identity.state_root() / "memory" / "leveling"
     parts = [
         "## Persona do mentee",
         "",
