@@ -143,6 +143,17 @@ def _grok_enabled(project_dir, grok_dir):
     return surfaces_cfg.include_optional_surface("grok", project_dir, grok_dir)
 
 
+def _hermes_enabled(project_dir, hermes_dir):
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("hermes", project_dir, hermes_dir)
+
+
+def _session_in_window(session, window_start):
+    return window_start is None or (
+        sessions.updated_epoch(session) >= window_start if session.updated_at
+        else _in_window(session.path, window_start))
+
+
 def _film_window_start(log=None):
     """Início da janela do filme (epoch) a partir do backfill_days declarado — agent.yaml
     lentes.backfill_days, senão state/bootstrap.json. None = sem limite (legado).
@@ -300,7 +311,7 @@ def _load_install_env():
 
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
 def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok_dir=None,
-               install_birth=None):
+               install_birth=None, hermes_dir=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
@@ -308,6 +319,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
     the cursor makes the full sweep resumable)."""
     include_codex = _codex_enabled(project_dir, codex_dir)
     include_grok = _grok_enabled(project_dir, grok_dir)
+    include_hermes = _hermes_enabled(project_dir, hermes_dir)
     if project_dir is None:
         project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
     cursors = cursors or {}
@@ -323,7 +335,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
         turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
         if watermark <= seen or not turns:
             continue  # no new raw lines / no new dialogue
-        found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+        found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid, None))
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
             if not _in_window(s.path, window):
@@ -335,7 +347,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
             if watermark <= seen or not turns:
                 continue  # no new raw lines / no new dialogue
-            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid, None))
     if include_grok:
         for s in sessions.list_grok_sessions(grok_dir):
             if not _in_window(s.path, window):
@@ -347,14 +359,31 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
             if watermark <= seen or not turns:
                 continue  # no new raw lines / no new dialogue
-            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid, None))
+    if include_hermes:
+        import hermes_profiles
+        hermes_path = sessions.hermes_state_db() if hermes_dir is None else Path(hermes_dir)
+        hermes_home = hermes_path.parent if hermes_path.is_file() else hermes_path
+        for s in sessions.list_hermes_sessions(hermes_dir):
+            if not _session_in_window(s, window):
+                continue
+            sid = _cursor_id(s)
+            seen = cursors.get(sid, 0)
+            turns, watermark = sessions.delta(s.path, seen, surface="hermes")
+            if watermark <= seen or not turns:
+                continue
+            member = hermes_profiles.membership(hermes_home, s.profile_name)
+            if member.enabled:
+                found.append((sessions.updated_epoch(s), s, turns, watermark, sid, member.edge_group))
     found.sort(key=lambda x: x[0])           # chronological
     if recent:
         found = found[-recent:]              # the N newest, still chronological
     return [{"id": sid, "raw_id": s.id, "surface": s.surface, "path": str(s.path),
+             **({"profile_name": s.profile_name} if s.profile_name else {}),
+             **({"edge_group": group} if group else {}),
              "turns": turns, "watermark": watermark,
              "body": (body := clean_body(turns)), "skip": not _qualifies(turns, body)}
-            for _, s, turns, watermark, sid in found]
+            for _, s, turns, watermark, sid, group in found]
 
 
 # --- bounded a-posteriori rationalization (log-checkpointed; no cursor) ---
@@ -835,6 +864,9 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
                    "medium_tier": "low_tier"}
         if it.get("surface") in ("codex", "grok"):
             payload["surface"] = it["surface"]
+        if it.get("surface") == "hermes":
+            payload.update(surface="hermes", profile_name=it["profile_name"],
+                           edge_group=it["edge_group"])
         eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
     if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
@@ -945,10 +977,10 @@ def graphiti_ingest(items):
     from graphiti_core.llm_client import LLMConfig, OpenAIClient
     _load_openai_key()
     neo = _identity.neo4j_conn()
-    group = _identity.require_group()   # resolved ONCE, before any episode (codex gate)
+    install_group = _identity.require_group()   # unchanged fallback for Claude/Codex/Grok
     ok = set()
 
-    async def bounded_previous_uuids(g, ref):
+    async def bounded_previous_uuids(g, ref, group):
         """The previous-episode context add_episode would retrieve, bounded: most-recent-first
         under PREV_CONTEXT_MAX_CHARS, never an episode over MAX_EPISODE_CHARS (a legacy pre-#53
         giant — one alone can blow the window). Deterministic seam: the tool disposes what the
@@ -971,13 +1003,14 @@ def graphiti_ingest(items):
         g = Graphiti(*neo, llm_client=llm)
         await g.build_indices_and_constraints()
         for it in items:
+            group = it.get("edge_group") or install_group
             ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
             chunks = chunk_episode_body(it["body"])   # one big session → several context-fit episodes (#53)
             failed = False
             for k, chunk in enumerate(chunks):
                 name = _episode_name(it) if len(chunks) == 1 else _episode_name(it, k)
                 try:
-                    prev = await bounded_previous_uuids(g, ref)
+                    prev = await bounded_previous_uuids(g, ref, group)
                     await g.add_episode(name=name, episode_body=chunk,
                                         source=EpisodeType.message,
                                         source_description=_source_description(it),

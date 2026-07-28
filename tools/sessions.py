@@ -14,6 +14,7 @@ Locator/offset-based; carries no domain semantics beyond surface normalization (
 import json
 import os
 import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,6 +55,8 @@ class Session:
     id: str
     path: Path
     surface: str = "claude"
+    updated_at: str | None = None
+    profile_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -582,8 +585,57 @@ def dialogue_turns(path, surface="claude") -> list:
     )
 
 
+def hermes_state_db(cfg=None, agent_yaml=None, env=None) -> Path:
+    import surfaces_cfg
+    return surfaces_cfg.surface_home("hermes", cfg=cfg, agent_yaml=agent_yaml, env=env) / "state.db"
+
+
+def _hermes_target(path):
+    db, session_id = str(path).rsplit("#", 1)
+    return Path(db), session_id
+
+
+def _hermes_connect(path):
+    return sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True)
+
+
+def list_hermes_sessions(root=None, cfg=None, agent_yaml=None, env=None) -> list:
+    db = hermes_state_db(cfg, agent_yaml, env) if root is None else Path(root)
+    if db.is_dir():
+        db /= "state.db"
+    if not db.is_file():
+        return []
+    with _hermes_connect(db) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+        profile = "s.profile_name" if "profile_name" in columns else "NULL"
+        rows = conn.execute(f"""SELECT s.id, MAX(m.timestamp), {profile} FROM sessions s
+            LEFT JOIN messages m ON m.session_id = s.id AND m.active = 1
+                AND m.role IN ('user', 'assistant')
+            GROUP BY s.id, {profile} ORDER BY MAX(m.timestamp), s.id""")
+        return [Session(id, Path(f"{db}#{id}"), "hermes", updated_at,
+                        profile_name or "default")
+                for id, updated_at, profile_name in rows]
+
+
+def updated_epoch(session) -> float:
+    """Normalize Hermes REAL timestamps and older ISO-text stores."""
+    try:
+        return float(session.updated_at)
+    except (TypeError, ValueError):
+        from datetime import datetime
+        return datetime.fromisoformat(str(session.updated_at).replace("Z", "+00:00")).timestamp()
+
+
 def read_turns(path, surface="claude") -> list:
     """Parse a transcript into ordered human/edge dialogue turns (alias of dialogue_turns)."""
+    if surface == "hermes":
+        db, session_id = _hermes_target(path)
+        with _hermes_connect(db) as conn:
+            rows = conn.execute("""SELECT role, content FROM messages
+                WHERE session_id = ? AND active = 1 AND role IN ('user', 'assistant')
+                ORDER BY timestamp, id""", (session_id,))
+            return [Turn("human" if role == "user" else "edge", content)
+                    for role, content in rows]
     return dialogue_turns(path, surface=surface)
 
 
@@ -722,6 +774,14 @@ def delta(path, since_line: int, surface="claude"):
     A truncated FINAL line (a writer flushing mid-sweep) is NOT consumed by the watermark —
     when the writer completes it, the next sweep re-reads it (non-lossy raw). A corrupt
     interior line is a crashed writer: dropped and consumed (`_turns_from_lines`)."""
+    if surface == "hermes":
+        db, session_id = _hermes_target(path)
+        with _hermes_connect(db) as conn:
+            rows = list(conn.execute("""SELECT id, role, content FROM messages
+                WHERE session_id = ? AND active = 1 AND role IN ('user', 'assistant') AND id > ?
+                ORDER BY timestamp, id""", (session_id, since_line)))
+        return ([Turn("human" if role == "user" else "edge", content)
+                 for _, role, content in rows], max((id for id, _, _ in rows), default=since_line))
     lines = Path(path).read_text(errors="replace").splitlines()
     watermark = len(lines)
     new = lines[since_line:]

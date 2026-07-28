@@ -19,13 +19,47 @@ import surfaces_cfg  # noqa: E402
 class WrapperRender(unittest.TestCase):
     def test_wrapper_points_to_canonical_contract(self):
         out = _hermes_provision.render_hermes_skill(
-            slug="wake", prefix="ed", canonical_skill=Path("/x/skills/wake/SKILL.md"))
+            slug="wake", prefix="ed", canonical_skill=Path("/x/skills/wake/SKILL.md"),
+            edge_group="hive")
         self.assertIn("name: ed-wake", out)
+        self.assertIn("EDGE_GROUP=hive", out)
         self.assertIn("/x/skills/wake/SKILL.md", out)
         self.assertIn("canonical contract", out)
 
 
-class ProvisionTree(unittest.TestCase):
+class HermesProvisionTest(unittest.TestCase):
+    def test_configure_group_seeds_once_and_preserves_blank_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertTrue(_hermes_provision.configure_hermes_group(root, "hive"))
+            self.assertIn("edge_group: hive", (root / "config.yaml").read_text())
+            (root / "config.yaml").write_text("edge_group:\nother: kept\n")
+            self.assertFalse(_hermes_provision.configure_hermes_group(root, "other-hive"))
+            self.assertEqual((root / "config.yaml").read_text(), "edge_group:\nother: kept\n")
+
+    def test_reconcile_installs_only_enabled_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            (repo / "skills" / "wake").mkdir(parents=True)
+            (repo / "skills" / "wake" / "SKILL.md").write_text("---\nname: wake\n---\nx")
+            (root / "config.yaml").write_text("edge_group: hive\n")
+            off = root / "profiles" / "off"
+            off.mkdir(parents=True)
+            (off / "config.yaml").write_text("edge_group: null\n")
+            # null is origin-only, therefore still enabled.
+            result = _hermes_provision.reconcile_hermes_profiles(
+                {"skill_prefix": "ed", "tool_prefix": "edge"}, repo, root / "edge", root)
+            self.assertIn("hermes skills", result["default"][0])
+            self.assertIn("hermes skills", result["off"][0])
+
+    def test_startup_plugin_is_installable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", root / "edge", root)
+            self.assertTrue((plugin / "plugin.yaml").is_file())
+            compile((plugin / "__init__.py").read_text(), str(plugin / "__init__.py"), "exec")
+
     def test_provisions_prefixed_wrappers_under_hermes_home(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -37,11 +71,19 @@ class ProvisionTree(unittest.TestCase):
             edge_home = root / "home"
             hermes_home = root / ".hermes"
             cfg = {"skill_prefix": "ed", "tool_prefix": "edge"}
+            legacy = hermes_home / "skills" / "edge-wake"
+            legacy.mkdir(parents=True)
+            (legacy / "SKILL.md").write_text(_hermes_provision.render_hermes_skill(
+                "wake", "edge", repo / "skills" / "wake" / "SKILL.md"))
+            foreign = hermes_home / "skills" / "edge-foreign"
+            foreign.mkdir(parents=True)
+            (foreign / "SKILL.md").write_text("third-party skill")
             _hermes_provision.provision_hermes(cfg, repo, edge_home, hermes_home)
+            _hermes_provision.reconcile_hermes_profiles(cfg, repo, edge_home, hermes_home)
             self.assertTrue(
                 (hermes_home / "skills" / "ed-wake" / "SKILL.md").is_file())
-            self.assertTrue(
-                (hermes_home / "skills" / "edge-wake" / "SKILL.md").is_file())
+            self.assertFalse((hermes_home / "skills" / "edge-wake").exists())
+            self.assertTrue(foreign.exists())
             # _shared não vira wrapper
             self.assertFalse((hermes_home / "skills" / "ed-_shared").exists())
 

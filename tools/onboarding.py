@@ -967,6 +967,7 @@ def run_bootstrap(
     primary: str = "claude",
     provision_skills: bool = True,
     embedding_choice: Optional[dict] = None,
+    hermes_edge_group: str = "",
 ) -> dict:
     """Layout + secrets inventory + bootstrap.json. Never enables heartbeat."""
     home = Path(home).expanduser()
@@ -1077,8 +1078,13 @@ def run_bootstrap(
                     provisioned.append(f"grok: {row}")
             if installed.get("hermes", False) or surfaces_cfg.provision_surface("hermes", cfg=cfg):
                 hermes_home = Path.home() / ".hermes"
-                for row in _hermes_provision.provision_hermes(cfg, repo, home, hermes_home):
-                    provisioned.append(f"hermes: {row}")
+                _hermes_provision.configure_hermes_group(
+                    hermes_home, hermes_edge_group)
+                _hermes_provision.install_hermes_plugin(cfg, repo, home, hermes_home)
+                for rows in _hermes_provision.reconcile_hermes_profiles(
+                        cfg, repo, home, hermes_home).values():
+                    for row in rows if isinstance(rows, list) else []:
+                        provisioned.append(f"hermes: {row}")
             payload["provisioned_surfaces"] = provisioned
             payload["installed_surfaces"] = installed
         except Exception as e:  # noqa: BLE001 — bootstrap still succeeds; report

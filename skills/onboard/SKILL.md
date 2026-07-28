@@ -247,6 +247,13 @@ Picks the install mode automatically (`ensure_neo4j`): **docker** (Neo4j 5.x pin
 Password generated into `secrets/neo4j.env` (mode 600), idempotent. A host without docker no longer
 stops the install — it installs `local`. `DARK` prints only when no mode can bring the graph up.
 
+### Hermes network boundary
+
+If Hermes is installed and `edge_group` is not already declared in its config, ask whether the
+user wants a named shared EoC network. Blank means origin-only and is the safe default. Pass the
+answer to bootstrap as `--hermes-edge-group "<name>"`. Never replace an existing value, including
+an existing blank value.
+
 ## 3. First wake — the insumo, shown and explained
 
 Run predispatch/wake (lookback = the backfill days). It films the operator's history and
