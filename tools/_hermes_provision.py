@@ -34,6 +34,14 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
         "ask what the operator wants to work on. Do not start work before their reply.\n"
         if slug == "wake" else ""
     )
+    mentor_invariant = (
+        "5. MENTOR CADENCE INVARIANT: observe leveling-state and the work first; cite one "
+        "state line before any residual question. Ask at most one free-prose residual question, "
+        "never a menu. After the operator answers, process writeback/steers/synthesis in the same "
+        "turn; do not stop and ask them to say continue. Do not force a closing question when the "
+        "path is clear.\n"
+        if slug == "mentor" else ""
+    )
     return (
         "---\n"
         f"name: {name}\n"
@@ -47,6 +55,7 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
         f"3. Work from the install edge_home that owns that skills/ tree.\n"
         + (f"4. Set `EDGE_GROUP={edge_group}` for every EoC tool command.\n" if edge_group else "")
         + wake_terminal
+        + mentor_invariant
     )
 
 

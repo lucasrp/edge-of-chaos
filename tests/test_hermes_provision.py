@@ -35,6 +35,17 @@ class WrapperRender(unittest.TestCase):
             edge_group="hive")
         self.assertNotIn("WAKE TERMINAL INVARIANT", out)
 
+    def test_mentor_wrapper_preserves_cadence_invariants(self):
+        out = _hermes_provision.render_hermes_skill(
+            slug="mentor", prefix="Steve", canonical_skill=Path("/x/skills/mentor/SKILL.md"),
+            edge_group="hive")
+        self.assertIn("observe leveling-state and the work first", out)
+        self.assertIn("cite one state line", out)
+        self.assertIn("never a menu", out)
+        self.assertIn("process writeback/steers/synthesis in the same turn", out)
+        self.assertIn("do not stop and ask them to say continue", out)
+        self.assertIn("Do not force a closing question", out)
+
 
 class HermesProvisionTest(unittest.TestCase):
     def test_configure_group_seeds_once_and_preserves_blank_override(self):
