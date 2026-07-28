@@ -150,10 +150,14 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
     # teste). Mesmo codename = re-provision normal.
     claude_md = claude_home / "CLAUDE.md"
     my_name = str(cfg.get("codename") or cfg.get("name") or "").strip()
+    # same-install = owner matches name OR codename (o header renderiza o NAME; um
+    # name-com-espaço vs codename dava falso positivo no próprio install — petertosh 2026-07-28)
+    my_ids = {s for s in (str(cfg.get("codename") or "").strip(),
+                          str(cfg.get("name") or "").strip()) if s}
     if claude_md.is_file() and my_name:
         first = next((l.strip() for l in claude_md.read_text().splitlines() if l.strip()), "")
         owner = first.lstrip("# ").strip()
-        if owner and owner != my_name:
+        if owner and owner not in my_ids:
             raise RuntimeError(
                 f"{claude_md} pertence ao install '{owner}' — provisionar '{my_name}' "
                 "sobrescreveria a identidade dele (#154); este harness já tem dono")

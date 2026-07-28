@@ -61,6 +61,18 @@ class ProvisionRefusesForeignHarness(unittest.TestCase):
                 {"name": "turing", "codename": "turing"}, REPO, ch)
             self.assertTrue(any("CLAUDE.md" in r for r in rows))
 
+    def test_owner_matching_name_but_not_codename_is_same_install(self):
+        """Caso de campo (petertosh 2026-07-28): header rendered do NAME ('peter tosh'),
+        guard comparava só o codename ('petertosh') → falso positivo no PRÓPRIO install."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ch = Path(tmp) / ".claude"
+            ch.mkdir()
+            (ch / "CLAUDE.md").write_text(
+                "# peter tosh\n\n## Identity\n\n**My name is peter tosh.**\n")
+            rows = _claude_provision.provision_claude(
+                {"name": "peter tosh", "codename": "petertosh"}, REPO, ch)
+            self.assertTrue(any("CLAUDE.md" in r for r in rows))
+
 
 if __name__ == "__main__":
     unittest.main()
