@@ -30,10 +30,21 @@ class WrapperRender(unittest.TestCase):
         self.assertIn("Do not start work before their reply", out)
 
     def test_terminal_invariant_is_wake_only(self):
-        out = _hermes_provision.render_hermes_skill(
-            slug="recall", prefix="ed", canonical_skill=Path("/x/skills/recall/SKILL.md"),
-            edge_group="hive")
-        self.assertNotIn("WAKE TERMINAL INVARIANT", out)
+     out = _hermes_provision.render_hermes_skill(
+      slug="recall", prefix="ed", canonical_skill=Path("/x/skills/recall/SKILL.md"),
+      edge_group="hive")
+     self.assertNotIn("WAKE TERMINAL INVARIANT", out)
+
+    def test_every_canonical_skill_gets_a_thin_wrapper(self):
+     skills = Path(__file__).parents[1] / "skills"
+     for canonical in sorted(skills.glob("*/SKILL.md")):
+      slug = canonical.parent.name
+      with self.subTest(slug=slug):
+       out = _hermes_provision.render_hermes_skill(
+        slug, "Steve", canonical, edge_group="hive")
+       self.assertIn(f"name: Steve-{slug}", out)
+       self.assertIn(str(canonical.resolve()), out)
+       self.assertLess(len(out), 5_000)
 
     def test_mentor_wrapper_preserves_cadence_invariants(self):
         out = _hermes_provision.render_hermes_skill(
