@@ -143,7 +143,7 @@ After steers + leveling land, **one close**:
 
 ```sh
 tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
-  --mission "…" --voice "…"   # optional --enable-heartbeat
+  --mission "…" --voice "…"   # heartbeat ships OFF — never enabled at onboarding (operator 2026-07-28)
 ```
 
 (`finish_onboarding` = `grill_gate.assert_grill_complete` + `emit_phenotype`. See

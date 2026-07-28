@@ -168,10 +168,9 @@ Heartbeat stays **off** until onboarding completes.
 ```bash
 tools/edge-python tools/edge-bootstrap finish --home "$EDGE_HOME" \
   --mission "…" --voice "…"
-# optional: --enable-heartbeat
 ```
 
-5. Only then enable autonomous beat/heartbeat (`--enable-heartbeat` = systemd user timer + linger). Artifacts: **http://127.0.0.1:8766** (`blog-server`, loopback-only).
+5. The heartbeat ships **OFF** and onboarding never asks about it (it needs work before default-on). Enable later by hand: re-run `finish` with `--enable-heartbeat` (systemd user timer + linger). Artifacts: **http://127.0.0.1:8766** (`blog-server`, loopback-only).
 
 Full contract: [`docs/specs/onboarding-first-run.md`](docs/specs/onboarding-first-run.md).
 
