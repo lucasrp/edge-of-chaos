@@ -116,6 +116,7 @@ def cmd_finish(args) -> int:
             enable_heartbeat=bool(args.enable_heartbeat),
             heartbeat_interval=args.heartbeat_interval,
             sources=sources,
+            language=args.language,
         )
     except (ValueError, RuntimeError) as e:
         print(f"edge-bootstrap finish: {e}", file=sys.stderr)
@@ -168,6 +169,9 @@ def main(argv=None) -> int:
     f.add_argument("--sources-json", default=None,
                    help="roster de sources autorizado pelo mentor (JSON list) — "
                         "pasta local/rclone/CLI entram aqui; secrets-derived permanecem")
+    f.add_argument("--language", default=None,
+                   help="operator's session language (e.g. pt-BR) — mirrored during the "
+                        "rite, landed in the phenotype; default en")
 
     args = ap.parse_args(argv)
     if args.cmd == "finish":

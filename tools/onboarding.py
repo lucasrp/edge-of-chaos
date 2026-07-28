@@ -782,6 +782,7 @@ def emit_phenotype(
     install_mode: Optional[str] = None,
     project_dir: Optional[str] = None,
     sources: Optional[list] = None,
+    language: Optional[str] = None,
 ) -> Path:
     """Write agent.yaml as onboarding output (atomic)."""
     import yaml
@@ -812,6 +813,10 @@ def emit_phenotype(
         cfg["mission"] = mission
     if voice:
         cfg["voice"] = voice
+    # language — the rite mirrors the operator's language; finish lands the choice here
+    lang = language or boot.get("language")
+    if lang:
+        cfg["language"] = lang
     if mentee:
         cfg["mentee"] = mentee
     # install_mode — decided ONCE for the whole edge and read by every containerizable step
@@ -925,6 +930,7 @@ def finish_onboarding(
     enable_heartbeat: bool = False,
     heartbeat_interval: Optional[str] = None,
     sources: Optional[list] = None,
+    language: Optional[str] = None,
     run=None,
 ) -> Path:
     """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable.
@@ -939,7 +945,7 @@ def finish_onboarding(
     grill_gate.assert_grill_complete(log=log_path)
     path = emit_phenotype(
         home, mission=mission, voice=voice, mentee=mentee,
-        heartbeat_interval=heartbeat_interval, sources=sources,
+        heartbeat_interval=heartbeat_interval, sources=sources, language=language,
     )
     if enable_heartbeat:
         import yaml
