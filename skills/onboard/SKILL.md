@@ -304,11 +304,11 @@ SAME conversation, which now goes deep.
 The grill's spirit: **interview incessantly until mutual understanding about the
 AGENT.YAML** — the object of this grill is the ROLE this edge will play in THIS
 installation: every field the phenotype will carry (mission, voice, Direction, sources —
-what it watches, hunts, publishes), walked branch by branch like the plan it is. The
-person is understood AS FAR AS the role requires — their goals shape the Direction —
-and **every question must trace to a phenotype field it helps decide**: a probe that
-decides nothing in agent.yaml is guessing at their life, not grilling the plan. A
-conversation that does not drop the bone, never a deep-looking form.
+what it watches, hunts, publishes), walked branch by branch like the plan it is. **And a
+good agent.yaml requires KNOWING the mentee** — who they are, what they are building,
+what moves them: getting to know the person is not a detour from the plan, it is how the
+plan gets good. The yaml is the destination; the person is the road. A conversation that
+does not drop the bone, never a deep-looking form.
 
 **Work before the first word.** Before opening, the mentor WORKS everything the recon
 and the film put in reach — sessions, repos, communities, authenticated remotes —
@@ -327,10 +327,10 @@ evidence or not made.
   hangs on an unresolved one, and among the unlocked, aim at the point of highest
   uncertainty and consequence. Born from what you already read, never researchable
   elsewhere. The BEST question is the one the mentee did not know needed
-  asking — the unknown-unknown that CHANGES THE ROLE: the thread they did not name that
-  the edge should watch, the enumeration edge ("what you leave off the list — and it
-  exists — is the finding"), the decisions they sign without being able to verify that
-  the edge could ground.
+  asking — the unknown-unknown about the PERSON that changes the role: the thread they
+  did not name that the edge should watch, the enumeration edge ("what you leave off the
+  list — and it exists — is the finding"), the decisions they sign without being able to
+  verify that the edge could ground.
 - **Every question carries your recommended answer** — skin in the game, never a dry
   probe. For a decision, your recommendation; for a question about the person, your
   best hypothesis from the work already read ("my read is X — correct me"). Their
