@@ -39,12 +39,16 @@ class WrapperRender(unittest.TestCase):
         out = _hermes_provision.render_hermes_skill(
             slug="mentor", prefix="Steve", canonical_skill=Path("/x/skills/mentor/SKILL.md"),
             edge_group="hive")
-        self.assertIn("observe leveling-state and the work first", out)
+        self.assertIn("observe leveling-state and the operator's work first", out)
         self.assertIn("cite one state line", out)
+        self.assertIn("opt-in portfolio orientation", out)
+        self.assertIn("lint agenda as evidence", out)
         self.assertIn("never a menu", out)
-        self.assertIn("process writeback/steers/synthesis in the same turn", out)
-        self.assertIn("do not stop and ask them to say continue", out)
+        self.assertIn("persona writeback, steers, synthesis, and traceable inscription", out)
+        self.assertIn("advice alone is not completion", out)
+        self.assertIn("Do not stop and ask them to say continue", out)
         self.assertIn("Do not force a closing question", out)
+        self.assertIn("never invent a writeback or inscription", out)
 
 
 class HermesProvisionTest(unittest.TestCase):

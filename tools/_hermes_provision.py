@@ -35,11 +35,14 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
         if slug == "wake" else ""
     )
     mentor_invariant = (
-        "5. MENTOR CADENCE INVARIANT: observe leveling-state and the work first; cite one "
-        "state line before any residual question. Ask at most one free-prose residual question, "
-        "never a menu. After the operator answers, process writeback/steers/synthesis in the same "
-        "turn; do not stop and ask them to say continue. Do not force a closing question when the "
-        "path is clear.\n"
+        "5. MENTOR CONTRACT INVARIANT: observe leveling-state and the operator's work first; cite "
+        "one state line before any residual question. Render the contract's opt-in portfolio "
+        "orientation and use the lint agenda as evidence, not as an opening script. Ask at most one "
+        "free-prose residual question, never a menu. After the operator answers, process all "
+        "applicable persona writeback, steers, synthesis, and traceable inscription in the same "
+        "turn; advice alone is not completion. Do not stop and ask them to say continue. Do not "
+        "force a closing question when the path is clear, and never invent a writeback or "
+        "inscription merely to satisfy this wrapper.\n"
         if slug == "mentor" else ""
     )
     return (
