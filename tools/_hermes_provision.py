@@ -28,6 +28,12 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
     """Render a global Hermes wrapper for one canonical Edge skill."""
     name = f"{prefix}-{slug}"
     canonical = str(Path(canonical_skill).expanduser())
+    wake_terminal = (
+        "5. WAKE TERMINAL INVARIANT: after all four briefs complete, render the canonical "
+        "human-facing orientation (do not dump or merely summarize the briefs), then halt and "
+        "ask what the operator wants to work on. Do not start work before their reply.\n"
+        if slug == "wake" else ""
+    )
     return (
         "---\n"
         f"name: {name}\n"
@@ -40,6 +46,7 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
         f"2. Follow it as the active skill — do not re-interpret this wrapper.\n"
         f"3. Work from the install edge_home that owns that skills/ tree.\n"
         + (f"4. Set `EDGE_GROUP={edge_group}` for every EoC tool command.\n" if edge_group else "")
+        + wake_terminal
     )
 
 

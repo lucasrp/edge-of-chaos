@@ -25,6 +25,15 @@ class WrapperRender(unittest.TestCase):
         self.assertIn("EDGE_GROUP=hive", out)
         self.assertIn("/x/skills/wake/SKILL.md", out)
         self.assertIn("canonical contract", out)
+        self.assertIn("human-facing orientation", out)
+        self.assertIn("ask what the operator wants to work on", out)
+        self.assertIn("Do not start work before their reply", out)
+
+    def test_terminal_invariant_is_wake_only(self):
+        out = _hermes_provision.render_hermes_skill(
+            slug="recall", prefix="ed", canonical_skill=Path("/x/skills/recall/SKILL.md"),
+            edge_group="hive")
+        self.assertNotIn("WAKE TERMINAL INVARIANT", out)
 
 
 class HermesProvisionTest(unittest.TestCase):
