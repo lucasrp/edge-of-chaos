@@ -21,15 +21,21 @@ import eventlog  # noqa: E402
 import grill_gate  # noqa: E402
 
 
+def _wayfind(log):
+    """The mapa landed as state — wayfind piece (complementary to Direction, 2026-07-28)."""
+    eventlog.append("map.state", "map:t", {"titulo": "mapa", "estado": "aberto"}, log=log)
+
+
 class GrillCompleteNamesMissingPieces(unittest.TestCase):
     """grill_complete(log) returns the list of missing stage-(ii) pieces (empty list = complete)."""
 
-    def test_empty_log_is_missing_all_four(self):
+    def test_empty_log_is_missing_all_five(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             missing = grill_gate.grill_complete(log=log)
             self.assertEqual(
-                set(missing), {"objective", "direction", "direcionamento", "leveling"})
+                set(missing),
+                {"objective", "direction", "direcionamento", "leveling", "wayfind"})
 
     def test_only_set_objective_ran_misses_direction_direcionamento_leveling(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -37,7 +43,8 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             eventlog.set_objective("ship the gate", rationale="say-A-do-B", log=log)
             missing = grill_gate.grill_complete(log=log)
             self.assertNotIn("objective", missing)
-            self.assertEqual(set(missing), {"direction", "direcionamento", "leveling"})
+            self.assertEqual(
+                set(missing), {"direction", "direcionamento", "leveling", "wayfind"})
     def test_all_three_landed_without_leveling_misses_leveling(self):
         """Plan 2026-07-13: steers alone are not mentor-done (persona/leveling floor)."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -45,7 +52,8 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             eventlog.set_objective("ship the gate", log=log)
             eventlog.propose("d1", "tighten the close", log=log)
             eventlog.report_direction("the steer", log=log)
-            self.assertEqual(set(grill_gate.grill_complete(log=log)), {"leveling"})
+            self.assertEqual(
+                set(grill_gate.grill_complete(log=log)), {"leveling", "wayfind"})
 
     def test_three_steers_plus_leveling_is_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,6 +65,7 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             import grill_writeback
             grill_writeback.leveling(
                 "diario", "sem update de persona; residual = product", root=root, log=log)
+            _wayfind(log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
 
     def test_leveling_before_latest_steer_still_missing(self):
@@ -83,6 +92,7 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
+            _wayfind(log)
             eventlog.propose("topic-7d:report-rite", "inferida pelo sweep", log=log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
 
@@ -95,6 +105,7 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
+            _wayfind(log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
 
 class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
@@ -160,6 +171,7 @@ class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
+            _wayfind(log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
 
 class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
@@ -186,6 +198,7 @@ class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
+            _wayfind(log)
             self.assertIsNone(grill_gate.assert_grill_complete(log=log))
 
     def test_raises_when_leveling_missing(self):
@@ -231,6 +244,7 @@ class CloseCLIIsFailClosed(unittest.TestCase):
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
+            _wayfind(log)
             res = self._close(log)
             self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
 
