@@ -237,6 +237,16 @@ show it, or the filmed history genuinely contains nothing (then say exactly that
 the day of the install). Persona is the one legitimate empty: leveling is born in the
 mentor, next step.
 
+**The wait is kept company, not just announced.** A long backfill is minutes-to-hours of
+the operator watching a machine work — narrate it LIVE from the real stream, never a
+silent spinner. The ingest prints each episode as it lands (`+ ingested <sessão> …`);
+that stream is your script: translate the items into their language as they pass
+("acabei de guardar tua sessão de terça sobre X... agora uma de sábado — você madrugou
+nessa"), and weave between the real names the one-line teaching of what is happening
+(sessões viram episódios, episódios viram o grafo, o grafo vira as communities que eu
+te mostro já já). Every name spoken traces to a line that actually printed —
+entertainment here is provenance said out loud, never filler invented to cover a wait.
+
 Then SHOW what was just built, because this is the moment the edge demonstrates how it
 works — with the operator's own material:
 
