@@ -98,6 +98,14 @@ def cmd_finish(args) -> int:
     log = args.log
     if log is None:
         log = str(home / "state" / "events" / "log.jsonl")
+    sources = None
+    if args.sources_json:
+        try:
+            sources = json.loads(args.sources_json)
+            assert isinstance(sources, list)
+        except (ValueError, AssertionError):
+            print("edge-bootstrap finish: --sources-json must be a JSON list", file=sys.stderr)
+            return 2
     try:
         path = onboarding.finish_onboarding(
             home,
@@ -107,6 +115,7 @@ def cmd_finish(args) -> int:
             mentee=args.mentee,
             enable_heartbeat=bool(args.enable_heartbeat),
             heartbeat_interval=args.heartbeat_interval,
+            sources=sources,
         )
     except (ValueError, RuntimeError) as e:
         print(f"edge-bootstrap finish: {e}", file=sys.stderr)
@@ -156,6 +165,9 @@ def main(argv=None) -> int:
     f.add_argument("--enable-heartbeat", action="store_true")
     f.add_argument("--heartbeat-interval", default=None,
                    help="cadência do pulso autônomo (ex. 8h, 3h) — da entrevista")
+    f.add_argument("--sources-json", default=None,
+                   help="roster de sources autorizado pelo mentor (JSON list) — "
+                        "pasta local/rclone/CLI entram aqui; secrets-derived permanecem")
 
     args = ap.parse_args(argv)
     if args.cmd == "finish":

@@ -35,9 +35,22 @@ AGENT_YAML = identity_path("agent.yaml")
 
 
 def _cfg(agent_yaml=AGENT_YAML):
+    """agent.yaml when it exists; before the mentor's finish emits it, the OVO
+    (state/bootstrap.json next to it) supplies the mechanical identity facts — so pre-phenotype
+    life runs whole and nobody is pressured into creating agent.yaml before the mentor."""
     import yaml
     p = Path(agent_yaml)
-    return (yaml.safe_load(p.read_text()) or {}) if p.exists() else {}
+    if p.exists():
+        return yaml.safe_load(p.read_text()) or {}
+    ovo = p.parent / "state" / "bootstrap.json"
+    if ovo.is_file():
+        import json
+        try:
+            boot = json.loads(ovo.read_text()) or {}
+        except ValueError:
+            return {}
+        return {k: boot[k] for k in ("name", "edge_home") if boot.get(k)}
+    return {}
 
 
 def group(agent_yaml=AGENT_YAML):

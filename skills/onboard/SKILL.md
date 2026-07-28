@@ -23,7 +23,28 @@ pulse, the Direction. By the end of the install the operator has met the whole p
 without a single tour or manual.
 
 **The contract underneath (never violate):** `agent.yaml` is the OUTPUT of onboarding, not
-the seed. No autonomous production (heartbeat) before a Direction exists. Secrets are
+the seed — it is born at the mentor's `finish` and ONLY there. Never create it earlier "so a
+tool works": pre-phenotype life runs whole from the OVO (`state/bootstrap.json` — `_identity`
+falls back to it automatically). If `agent.yaml` exists, a mentor conversed with this person;
+the file is the conversation's certificate, never its precondition. No autonomous production
+(heartbeat) before a Direction exists.
+
+**Three laws shape the whole rite (operador 2026-07-28):**
+1. **Every question is the mentor's.** The mechanical floor asks NOTHING — it tests what is
+   possible and executes (install mode, session stores, keyless sources: all detected, never
+   asked as bare categories). What reaches the human as a question arrives in the mentor's
+   voice, worked and proposed by name, from the first word of the rite.
+2. **Machine facts live in the ovo; identity is the conversation's output.** `bootstrap.json`
+   carries what detection decided; `agent.yaml` carries what the person authorized.
+3. **Organs ignite incrementally — each answer turns on a sense, and the sense answers
+   DURING the interview.** CLIs + backfill named → the first wake/assemble runs NOW, and the
+   guide returns speaking of THEIR real past. Day-to-day sources named → the first delta/mundo
+   sweep runs NOW ("varri teu mundo: isto é novo"). Direction born → the dig hunts their
+   personalized sources. **Blocking, on purpose: deixa travar — qualidade sobre velocidade é
+   valor da casa.** Narrate the wait ("estou lendo teus últimos N dias; leva uns minutos")
+   instead of hiding it in background — the operator watching an organ do real work on their
+   own life IS the demo. By `finish`, everything in the phenotype has already run at least
+   once: the yaml is a birth certificate, not a boot plan. Secrets are
 delivered by the operator — you never invent, fetch, or print key values. **And the rite
 never self-terminates**: every act of the close happens WITH the operator — the narrated
 discovery runs in front of them, the first artefato is read side by side — and the
@@ -56,6 +77,14 @@ store to `emit_phenotype(project_dir=...)` (persisted as agent.yaml `project_dir
 cloud app store sessions server-side, not on disk — the edge reads CLI transcript files, so there
 is nothing to detect for those; say so plainly rather than promise it.
 
+**Keyless sources are part of the vasculhada.** A source's existence is never gated on a key in
+`secrets/` — auth is a property, not the existence condition. Run
+`onboarding.detect_cli_sources()`: a logged `gh` (CLI auth, no token file) and every `rclone`
+remote (drive/cloud via `rclone.conf`) are machine facts, ammunition for the mentor's proposals
+in §4b. The one source no detector reaches is a **local folder** — only the conversation can
+declare it, which is exactly why that question belongs to the mentor (declared hunger, never a
+blank category).
+
 ## 0. Interview — work first, confirm second
 
 **This is a CONVERSATION — one decision per turn, each explained.** Two failure modes,
@@ -75,7 +104,16 @@ instinct); (2) it arrives in its moment — sources, em particular, are hunted a
 proposed AFTER Direction exists (§4b), because before knowing the person they are just
 plumbing. The mentee should end the interview understanding the seven
 decisions because each one was a small conversation — never because they reviewed a
-table. The seven decisions, in order:
+table.
+
+**The interview IS the boot sequence (law 3).** Do not collect all seven and only then
+install: as soon as a decision unlocks an organ, run that organ RIGHT THERE, blocking and
+narrated, and let its output feed the next turn of the conversation. Name + home + CLIs +
+backfill in hand → run §1 (bootstrap), §2 (runtime) and §3 (first wake) immediately — "vou
+ler teus últimos N dias agora; leva uns minutos, me espera" — and come back speaking of
+their real history, not of configuration. The remaining decisions (adversarial, secrets,
+heartbeat) then happen with a guide who has already read the person. The seven decisions,
+in order:
 
 1. **Name** — the install's identity seed (`--name`). One word, lowercase.
 2. **Home folder** — where the install lives (`--home`, default `~/edge-home`). Genotype
@@ -282,8 +320,18 @@ become the proposed set:
 
 - generic strong defaults the dig confirms or kills: **arXiv** (their area), **Hacker News**;
 - **Exa** if `EXA_API_KEY` landed in secrets; **X** if the xai key is there;
+- the **keyless hits from the vasculhada** (`detect_cli_sources`): a logged `gh`, each
+  `rclone` remote — proposed by name with what each would feed;
+- the **local folders only the conversation can declare** — asked as the mentor's honest
+  hunger ("tem alguma pasta que eu deveria estar olhando e não consigo ver?"), never as a
+  blank category;
 - the **growth-specific** ones the dig surfaced — the part that changes per person, and
   the proof the list came from the Direction, not from a template or from the repo.
+
+For each accepted source, capture HOW this person uses it — the same source can feed Mundo
+AND Atividade (github for staying tuned to new projects AND for tracking their own work);
+the role lives in how they use it, in their words, not in a schema enum. That usage line
+goes into the source's `description`.
 
 Each with one line of what it would feed — and CLOSE the demo on the lesson it just made
 visible: the generic feeds everyone reads yield what everyone already knows; the
@@ -304,10 +352,13 @@ With mission and voice out of the mentor session:
 ```bash
 tools/edge-python tools/edge-bootstrap finish --home <home> \
   --mission "<from mentor>" --voice "<from mentor>" \
-  --heartbeat-interval <from interview> --enable-heartbeat
+  --heartbeat-interval <from interview> \
+  --sources-json '<the authorized roster from §4b, JSON list>' --enable-heartbeat
 ```
 
-`finish` writes `agent.yaml` (the phenotype — now it may exist) and `--enable-heartbeat`
+`--sources-json` carries the roster the mentee authorized (pasta local, rclone remotes, CLI
+auth — entries beyond what secrets imply; secrets-derived ones stay unless overridden by
+name). `finish` writes `agent.yaml` (the phenotype — now it may exist) and `--enable-heartbeat`
 renders the timer at the interviewed cadence and ignites the autonomous pulse
 (`edge-heartbeat.timer` + linger, so it survives logout). Confirm the ignition with the
 operator before flipping it — an operator who wants to drive by hand first says no, and

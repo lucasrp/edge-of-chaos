@@ -464,6 +464,40 @@ def _sources_from_inventory(inventory: Optional[dict]) -> list[dict]:
     return out
 
 
+def detect_cli_sources(run=None) -> list[dict]:
+    """Keyless source detection — a source's existence is never gated on a key in secrets/
+    (auth is a property, not the existence condition). Machine facts for the interview: the
+    mentor proposes each hit by name, the mentee authorizes; nothing here writes the phenotype.
+    A local folder has no detector at all — only the conversation can declare it."""
+    import subprocess
+    run = run or subprocess.run
+    out: list[dict] = []
+    try:
+        r = run(["gh", "auth", "status"], capture_output=True, text=True)
+        if r.returncode == 0:
+            out.append({
+                "name": "github", "kind": "cli",
+                "description": "GitHub via gh CLI (Atividade + Mundo) — auth da própria CLI.",
+                "detected_via": "gh auth status",
+            })
+    except (FileNotFoundError, OSError):
+        pass
+    try:
+        r = run(["rclone", "listremotes"], capture_output=True, text=True)
+        if r.returncode == 0:
+            for line in (r.stdout or "").splitlines():
+                remote = line.strip().rstrip(":")
+                if remote:
+                    out.append({
+                        "name": f"rclone:{remote}", "kind": "rclone",
+                        "description": f"Remote rclone '{remote}' (drive/cloud via rclone.conf).",
+                        "detected_via": "rclone listremotes",
+                    })
+    except (FileNotFoundError, OSError):
+        pass
+    return out
+
+
 def bootstrap_cfg(
     *,
     home: Path | str,
@@ -747,6 +781,7 @@ def emit_phenotype(
     heartbeat_interval: Optional[str] = None,
     install_mode: Optional[str] = None,
     project_dir: Optional[str] = None,
+    sources: Optional[list] = None,
 ) -> Path:
     """Write agent.yaml as onboarding output (atomic)."""
     import yaml
@@ -803,6 +838,14 @@ def emit_phenotype(
             "vars": list(inv.get("vars") or []),
         }
         cfg["sources"] = _sources_from_inventory(inv)
+    if sources:
+        # mentor-authorized roster wins by name; secrets-derived entries the mentor did not
+        # mention stay (a real key is a real source) — sources exist beyond secrets (pasta
+        # local, rclone remote, gh CLI auth), so the conversation is the authority here
+        by_name = {s.get("name"): s for s in (cfg.get("sources") or [])}
+        for s in sources:
+            by_name[s.get("name")] = s
+        cfg["sources"] = list(by_name.values())
     path = phenotype_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".yaml.tmp")
@@ -881,6 +924,7 @@ def finish_onboarding(
     mentee: Optional[str] = None,
     enable_heartbeat: bool = False,
     heartbeat_interval: Optional[str] = None,
+    sources: Optional[list] = None,
     run=None,
 ) -> Path:
     """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable.
@@ -895,7 +939,7 @@ def finish_onboarding(
     grill_gate.assert_grill_complete(log=log_path)
     path = emit_phenotype(
         home, mission=mission, voice=voice, mentee=mentee,
-        heartbeat_interval=heartbeat_interval,
+        heartbeat_interval=heartbeat_interval, sources=sources,
     )
     if enable_heartbeat:
         import yaml
