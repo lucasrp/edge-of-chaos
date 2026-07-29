@@ -72,9 +72,11 @@ def grill_complete(log=eventlog.LOG):
     if max_level < 0 or (max_steer >= 0 and max_level < max_steer):
         missing.append("leveling")
     # wayfind — the MAPA, complementary to Direction and updated by EVERY mentor
-    # (operator 2026-07-28): same recency clock as leveling — a `map.state` landed and at
+    # (operator 2026-07-28): same recency clock as leveling — a map event landed and at
     # least as recent as the latest steer feeder (the map moves when the direção moves).
-    max_map = _max_seq(log, frozenset({"map.state"}))
+    # Whole map family: the portfolio bound surface lands `map.opened`; state updates
+    # land `map.state` (field failure 2026-07-29: the gate blocked a close that had mapped).
+    max_map = _max_seq(log, frozenset({"map.state", "map.opened"}))
     if max_map < 0 or (max_steer >= 0 and max_map < max_steer):
         missing.append("wayfind")
     return missing

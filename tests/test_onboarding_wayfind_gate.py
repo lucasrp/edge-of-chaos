@@ -25,6 +25,12 @@ def _map(log):
     eventlog.append("map.state", "map:t", {"titulo": "mapa", "estado": "aberto"}, log=log)
 
 
+def _map_opened(log):
+    # the portfolio bound surface (portfolio.turn().map()) lands `map.opened` — the gate
+    # must accept the whole map family (field failure: mentor close blocked 2026-07-29)
+    eventlog.append("map.opened", "map:t", {"titulo": "mapa", "num": "map-001"}, log=log)
+
+
 class WayfindIsAStandardPiece(unittest.TestCase):
     def test_wayfind_is_in_pieces(self):
         self.assertIn("wayfind", grill_gate.PIECES)
@@ -40,6 +46,13 @@ class WayfindIsAStandardPiece(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             _land_all_four(log)
             _map(log)
+            self.assertEqual(grill_gate.grill_complete(log=log), [])
+
+    def test_map_opened_from_portfolio_surface_also_satisfies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            _land_all_four(log)
+            _map_opened(log)
             self.assertEqual(grill_gate.grill_complete(log=log), [])
 
     def test_map_older_than_latest_steer_is_stale(self):
