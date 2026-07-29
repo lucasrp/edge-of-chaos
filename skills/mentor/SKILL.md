@@ -103,6 +103,12 @@ things explicitly: promote to `direction.set` only when the mentee ratifies it, 
 wrong or stale, split/merge it when the topic cluster conflates threads, or leave it proposed with
 a sharper falsifiable inscription. Never promote an inferred topic just because it recurs.
 
+**Direction e wayfind são complementares — e AMBOS se atualizam em todo mentor (operador
+2026-07-28).** A Direction é a direção; o wayfind é o MAPA. O gate de fechamento recusa
+qualquer close cujo `map.state` não seja pelo menos tão recente quanto os steers — se a
+direção moveu, o mapa move junto. Não precisa abrir a sessão pelo mapa (conhecer primeiro
+é bom); até o close, os dois andaram.
+
 **Abrir mapa passa pela superfície bound, nunca pela caneta crua.** Use este writeback executável,
 copiando literalmente o dispatch id do envelope atual e escolhendo a operação explicitamente:
 

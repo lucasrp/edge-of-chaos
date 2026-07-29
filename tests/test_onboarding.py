@@ -345,6 +345,8 @@ class OnboardingCompletePath(unittest.TestCase):
             root=home / "lv",
             log=log,
         )
+        # wayfind — o mapa acompanha a direção (complementares, operador 2026-07-28)
+        eventlog.append("map.state", "map:t", {"titulo": "mapa", "estado": "aberto"}, log=log)
         self.assertTrue(onboarding.is_onboarding_complete(home, log=log))
         onboarding.assert_production_allowed(home, log=log)  # does not raise
 

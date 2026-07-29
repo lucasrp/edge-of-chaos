@@ -15,8 +15,11 @@ import sys
 import cortex
 import eventlog
 
-# The three stage-(ii) REQUIRED briefing sections and the feeder that fills each (the audit table).
-PIECES = ("objective", "direction", "direcionamento", "leveling")
+# The stage-(ii) REQUIRED pieces and the feeder that fills each (the audit table).
+# wayfind (operator 2026-07-28): Direction is the direção, the wayfind is the MAPA —
+# complementary, and BOTH are updated by every mentor (by the close, not necessarily at
+# the session's start: knowing first is good).
+PIECES = ("objective", "direction", "direcionamento", "leveling", "wayfind")
 
 # Event types that establish the three steers on the log — DELIBERATE acts only.
 # direction.proposed fica de fora do relogio do leveling: proposta e fila de ratificacao
@@ -68,6 +71,14 @@ def grill_complete(log=eventlog.LOG):
     max_level = _max_seq(log, frozenset({"grill.leveling"}))
     if max_level < 0 or (max_steer >= 0 and max_level < max_steer):
         missing.append("leveling")
+    # wayfind — the MAPA, complementary to Direction and updated by EVERY mentor
+    # (operator 2026-07-28): same recency clock as leveling — a map event landed and at
+    # least as recent as the latest steer feeder (the map moves when the direção moves).
+    # Whole map family: the portfolio bound surface lands `map.opened`; state updates
+    # land `map.state` (field failure 2026-07-29: the gate blocked a close that had mapped).
+    max_map = _max_seq(log, frozenset({"map.state", "map.opened"}))
+    if max_map < 0 or (max_steer >= 0 and max_map < max_steer):
+        missing.append("wayfind")
     return missing
 
 
@@ -81,9 +92,10 @@ def assert_grill_complete(log=eventlog.LOG):
         raise ValueError(
             "grill incomplete — stage-(ii) briefing section(s) left empty: "
             f"{', '.join(missing)} (briefing-lifecycle-audit.md + mentor leveling-state 2026-07-13). "
-            "A grill is not done until objective + direction + direcionamento have landed on the log "
-            "and a grill.leveling writeback is at least as recent as the latest steer feeder "
-            "(honest diario 'sem update de persona' counts)."
+            "A grill is not done until objective + direction + direcionamento have landed on the log, "
+            "a grill.leveling writeback is at least as recent as the latest steer feeder "
+            "(honest diario 'sem update de persona' counts), and the wayfind MAPA (map.state) is "
+            "at least as recent as the steers — direção and mapa are complementary, both updated."
         )
 
 
