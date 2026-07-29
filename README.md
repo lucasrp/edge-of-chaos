@@ -131,12 +131,70 @@ $EDGE_HOME/secrets/
   …
 ```
 
-- Format: one `VAR=value` per line (optional `export ` prefix).  
-- **Bootstrap, assemble, wake, and onboarding read this folder.** The installer does **not** invent keys.  
-- Do not commit secrets (`secrets/` is gitignored).  
+Format: one `VAR=value` per line (optional `export ` prefix).
+- **Bootstrap, assemble, wake, onboarding read folder.** installer does **not** invent keys.
+- Do not commit secrets (`secrets/` gitignored).
 - Logs record **key names only**, never values.
 
-### Bootstrap knobs
+### Configuration roots, lenses, and native OpenAI routes
+
+The repository is the **genotype** (code/templates); the installed home is the **phenotype** (identity, runtime state, generated tools, and local configuration). They may be different directories. Export the installed home for every operational command and service:
+
+```bash
+export EDGE_HOME="$HOME/.edge-of-chaos/<agent>"
+export EDGE_GROUP="default"
+```
+
+With `EDGE_HOME` set, runtime configuration resolves from `$EDGE_HOME/agent.yaml` and secrets from its configured `env_dir`, falling back to `$EDGE_HOME/secrets/`. Do not copy secrets into the checkout or commit them. `edge-rationalize.service` is provisioned with the same `EDGE_HOME`, so split-home installs do not fall back to the repository's `agent.yaml`.
+
+Keep the complete operational configuration at `$EDGE_HOME/agent.yaml` and pass that same file to `edge-apply`. `edge-apply` consumes the YAML but does not copy it into the install home; omitted sections are not configuration overlays. A 30-day Hermes onboarding with bounded sweeps can use:
+
+```yaml
+edge_home: /absolute/path/to/.edge-of-chaos/<agent>
+
+lentes:
+  backfill_days: 30
+  max_sessions_per_sweep: 5
+  sweep_token_budget: 100000
+  scene_turn_limit: 40
+
+routers:
+  chat:
+    provider: openai
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: gpt-5.4
+  embedding:
+    provider: openai
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: text-embedding-3-small
+```
+
+`backfill_days` limits historical discovery; `max_sessions_per_sweep` bounds each run; `sweep_token_budget` is the aggregate budget for that run; `scene_turn_limit` bounds dialogue retained per rationalization scene. Size the token budget for the configured model and workload.
+
+The `openai` provider uses the native official OpenAI route. Put only the key in `$EDGE_HOME/secrets/openai.env`:
+
+```bash
+OPENAI_API_KEY=...
+```
+
+Reapply and validate without discarding required operational sections:
+
+```bash
+./tools/edge-apply --yaml "$EDGE_HOME/agent.yaml" --home "$EDGE_HOME" --provision-runtime
+./tools/edge-apply --yaml "$EDGE_HOME/agent.yaml" --home "$EDGE_HOME" --validate
+```
+
+The memory boundary is intentional:
+
+```text
+Hermes sessions → Tier-0 filming → Hermes rationalization
+→ activity_relevant employment gate → employment digest
+→ emprego.project() → Graphiti ontology → Cortex
+```
+
+Raw sessions and Tier-0 deltas are never projected directly into Graphiti. `emprego.project()` is the only Tier-1 projection door; Cortex reads the resulting ontology (`Atividade`, `Objective`, provenance relationships, and Graphiti entities).
+
+### Runtime:
 
 | Knob | Required | Example |
 |------|----------|---------|
