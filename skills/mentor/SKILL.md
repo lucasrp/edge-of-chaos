@@ -74,17 +74,28 @@ em quem você é, e no trabalho vi Y"** — data-loaded, never a form.
 0. **Leveling-state FIRST** — read `memory/leveling/{perfil,mapa,curriculo}.md` + tail of `diario`
    (or the **Persona do mentee** block on the recall brief). **Cite one line** of state before any
    new question. Re-asking a dated perfil fact = failure. Empty perfil → say so; do not invent.
-1. **Portfolio orientation, explicitly opt-in** — *after* state: render
-   `recall.compose_portfolio_recall_brief()` and read its bounded role-scoped tail: active
-   maps/frontier, activities lost across later sessions, contested/agenda, and suspect
-   admissibility. Work is a **sensor of persona** (what they sign, avoid, altitude) — not a
-   licence to open tickets as the session KPI. Never route portfolio through map-blind
-   lazer/delta/diverge roles.
-2. **Communities** — the thematic map of the look. Read
-   `cortex.communities(group)`: `[]` means graph reachable but not yet consolidated — run the
-   consolidation first (`tools/edge-python -c "import communities; communities.consolidate()"`)
-   so the mentee's work is visible at a glance before you speak; `None` means the graph is dark —
-   proceed down the evidence ladder and SAY so (declare the hunger, never fake the map).
+1. **Portfolio orientation is mandatory for mentor** — *after* state, execute this from any cwd:
+   ```sh
+   EDGE_HOME="${EDGE_HOME:-$HOME/.edge-of-chaos/steve}"
+   EDGE_GROUP="${EDGE_GROUP:-default}"
+   export EDGE_HOME EDGE_GROUP
+   "$EDGE_HOME/tools/edge-python" -c \
+     "import sys; sys.path.insert(0, '$EDGE_HOME/tools'); import recall; print(recall.compose_portfolio_recall_brief(group='$EDGE_GROUP'))"
+   ```
+   Read its bounded role-scoped tail: active maps/frontier, activities lost across later sessions,
+   contested/agenda, and suspect admissibility. Work is a **sensor of persona** (what they sign,
+   avoid, altitude) — not a licence to open tickets as the session KPI. Never route portfolio
+   through map-blind lazer/delta/diverge roles.
+2. **Communities** — the thematic map of the look. From that same environment, read
+   `cortex.communities(group)`. `[]` means graph reachable but not yet consolidated — run
+   `communities.consolidate()` so the mentee's work is visible at a glance before you speak;
+   `None` means the graph is dark — proceed down the evidence ladder and SAY so (declare the
+   hunger, never fake the map).
+
+**Hard gate:** before the first substantive mentor answer, evidence must contain (a) one
+leveling-state line, (b) the portfolio recall output, and (c) communities or an explicit DARK
+marker. Local file search is not a substitute for (b) or (c). If a command fails, report that
+specific dark leg; never convert an unattempted graph read into “insufficient data.”
 3. **Travessia do grafo** — navigate (structure × judgment × semantics): the open threads (the
    live bets), the artefatos-source (his work), the prior inscriptions (`hypothesis.declared` —
    the bets to collect on), what reflection flagged. Recall first (`skills/_shared/memory.md`).

@@ -242,9 +242,10 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
     summarize_fn = summarize_fn or _default_summarize
     try:
         with drv.session() as s:
-            # codex [low]: uniqueness by convention → constraint + group index (idempotentes)
-            s.run("CREATE CONSTRAINT community_uuid IF NOT EXISTS "
-                  "FOR (c:Community) REQUIRE c.uuid IS UNIQUE")
+            # ponytail: preserve the legacy uuid index; rebuild is the single writer and emits UUID4.
+            # Replacing it with a constraint would require a destructive schema migration.
+            s.run("CREATE INDEX community_uuid IF NOT EXISTS "
+                  "FOR (c:Community) ON (c.uuid)")
             s.run("CREATE INDEX community_group IF NOT EXISTS "
                   "FOR (c:Community) ON (c.group_id)")
             # codex [medium]: uuid é load-bearing — nulos ficam fora do clustering
