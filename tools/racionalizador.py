@@ -164,13 +164,13 @@ def _loads_json_loose(raw):
     if not text:
         raise ValueError("empty JSON input")
     try:
-        return json.loads(text)
+        return json.loads(text, strict=False)
     except json.JSONDecodeError:
         pass
     fence = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if fence:
         try:
-            return json.loads(fence.group(1).strip())
+            return json.loads(fence.group(1).strip(), strict=False)
         except json.JSONDecodeError:
             pass
     start = text.find("{")

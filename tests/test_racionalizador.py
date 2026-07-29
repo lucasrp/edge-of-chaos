@@ -705,6 +705,11 @@ class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
             self.assertEqual(eventlog.read(log=log), [])
 
 
+class LooseJsonParsing(unittest.TestCase):
+    def test_accepts_unescaped_control_character_from_model(self):
+        self.assertEqual(racionalizador._loads_json_loose('{"text":"a\nb"}'), {"text": "a\nb"})
+
+
 class ProviderFreeModule(unittest.TestCase):
     def test_only_the_injected_completer_can_reach_a_model(self):
         tree = ast.parse(Path(racionalizador.__file__).read_text())
