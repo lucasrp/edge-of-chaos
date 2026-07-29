@@ -211,12 +211,12 @@ def locate(names, group=None, **kw):
 
 
 def _default_summarize(members_text):
-    """gpt-4o-mini one-shot name+summary; injected in tests. Raises on transport error —
+    """gpt-5.4-mini one-shot name+summary; injected in tests. Raises on transport error —
     consolidate catches and degrades."""
     import urllib.request
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
-        data=json.dumps({"model": "gpt-4o-mini", "max_tokens": 300, "messages": [{
+        data=json.dumps({"model": "gpt-5.4-mini", "max_completion_tokens": 300, "messages": [{
             "role": "user",
             "content": "Estas entidades formam um cluster de conhecimento das sessões de "
                        "trabalho de um operador. Dê um NOME curto (3-6 palavras, PT-BR) e um "
