@@ -197,6 +197,22 @@ tools/edge-python tools/edge-apply --yaml agent.yaml --home ~/edge
 
 ---
 
+## Hermes profiles and `edge_group`
+
+A Hermes profile identifies the session source. It does not create a Graphiti namespace named `profile-*`.
+
+`edge_group` isolates one EoC installation's graph inside a shared Neo4j:
+
+- `edge_group: default` reads and writes group `default`.
+- Profiles without an override inherit the root Hermes `edge_group`.
+- Override it only to join another installation/hive, using its name directly (`research`), never `profile-research` or `profile:research`.
+- Sweep, recall, Cortex, and validation must resolve the same value. Changing it selects another namespace; it does not migrate nodes.
+- Graphiti IDs allow only letters, numbers, hyphens, and underscores.
+
+For one installation, set `edge_group: default` in `~/.hermes/config.yaml`.
+
+---
+
 ## Documentation
 
 | Doc | Role |

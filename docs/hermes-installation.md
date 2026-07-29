@@ -15,7 +15,7 @@ Example paths used below:
 ```bash
 export EDGE_REPO="$HOME/src/edge-of-chaos"
 export EDGE_HOME="$HOME/.edge-of-chaos/steve"
-export EDGE_GROUP="profile:default"
+export EDGE_GROUP="default"
 ```
 
 `EDGE_HOME` isolates identity, state, memory, secrets, runtime, and projections for one phenotype. `EDGE_GROUP` selects the graph/hivemind namespace. Use both variables on every EoC command; never rely on an unrelated working directory.
@@ -25,18 +25,18 @@ export EDGE_GROUP="profile:default"
 Hermes resolves EoC per profile:
 
 - missing effective `edge_group`: EoC is disabled for that profile;
-- blank `edge_group`: use `profile:<profile_name>`;
+- blank `edge_group`: use the profile name directly (`work`, not `profile-work` or `profile:work`);
 - named `edge_group`: profiles with that value share one EoC hivemind.
 
 Set the global default in Hermes `config.yaml`, then override it in a profile config only when that profile needs different behavior. See [ADR-0025](adr/0025-hermes-profiles-share-through-edge-group.md).
 
-For an isolated default profile:
+For a single installation:
 
 ```yaml
-edge_group: ""
+edge_group: default
 ```
 
-This resolves to `profile:default`; it does not create a second storage layer.
+This resolves to `default`; it does not create a second storage layer.
 
 ## 3. Create the phenotype runtime
 
@@ -113,7 +113,7 @@ Predispatch validates the phenotype before a wake. Follow the exact command in `
 
 ```bash
 export EDGE_HOME="$HOME/.edge-of-chaos/steve"
-export EDGE_GROUP="profile:default"
+export EDGE_GROUP="default"
 cd "$EDGE_REPO"
 # Run the predispatch command documented by skills/wake/SKILL.md.
 ```
@@ -170,7 +170,7 @@ git diff --check
 cd "$EDGE_REPO"
 git pull --ff-only
 export EDGE_HOME="$HOME/.edge-of-chaos/steve"
-export EDGE_GROUP="profile:default"
+export EDGE_GROUP="default"
 tools/edge-python tools/_hermes_provision.py
 ```
 
