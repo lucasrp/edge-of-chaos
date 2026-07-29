@@ -27,9 +27,13 @@ EMBEDDING_ROUTE = "embedding"
 KNOWN_PROVIDERS = tuple(_llm.PROVIDER_BASE_URLS) + _llm.SUBSCRIPTION_PROVIDERS
 
 
-def _load_routers(repo):
+def _config_root(repo=None):
+    return Path(repo) if repo is not None else _id_state.identity_path("agent.yaml").parent
+
+
+def _load_routers(repo=None):
     import yaml
-    cfg = yaml.safe_load((Path(repo) / "agent.yaml").read_text()) or {}
+    cfg = yaml.safe_load((_config_root(repo) / "agent.yaml").read_text()) or {}
     return cfg.get("routers") or {}
 
 
@@ -41,7 +45,7 @@ def _secret_value(repo, secret_ref):
     fname, key = secret_ref.split(":", 1)
     if os.environ.get(key):
         return os.environ[key]
-    f = Path(repo) / "secrets" / fname
+    f = _config_root(repo) / "secrets" / fname
     if not f.is_file():
         return None
     for line in f.read_text().splitlines():
