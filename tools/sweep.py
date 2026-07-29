@@ -857,11 +857,8 @@ def rationalize_pending_sessions(
 
 
 # --- effectful execute: log + ingest + advance cursor ---
-def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
-    """**Tier-0 is truth** (ADR-0006): write each qualifying delta as an `episode` event and advance
-    its cursor — **always, even with no graph**. The graph ingest (`ingest_fn`) is **best-effort**:
-    a missing runtime or a down Neo4j (e.g. a graph-less fleet host) is logged and skipped, never
-    fatal — the graph is a projection rebuildable from the log. Returns (cursors, n_logged)."""
+def execute(plan, cursors, log=eventlog.LOG):
+    """Persist Tier-0 episodes/cursors only. Tier-1 Graphiti intake is gated by emprego.project()."""
     qualifying = [it for it in plan if not it.get("skip") and it.get("body", "").strip()]
     for it in qualifying:                              # Tier-0: the log + cursor, unconditionally
         # R8c part 1 (F9-dep, C5): STAMP the source Medium's tier on the episode at ingest. The native
@@ -878,40 +875,6 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
                            edge_group=it["edge_group"])
         eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
-    if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
-        # BOUNDED + degrade-dark (#62): Tier-0 (episode + cursor) is ALREADY durable above, so the
-        # graph ingest must never gate the wake. It runs on a daemon thread with a hard deadline —
-        # a HANG (add_episode on a network call with no client timeout) degrades dark LOUD exactly
-        # like a raise; the graph re-projects from the log. Fail loud on a bad budget, never un-cap.
-        # Default 600s (qualidade>latência, operador 2026-07-25): extração LLM honesta
-        # passa fácil de 30s e o grafo vivia truncando em silêncio; o cap segue existindo
-        # só para HANG de rede — nunca para apressar trabalho real.
-        budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
-        try:
-            budget = float(budget_raw)
-        except (TypeError, ValueError):
-            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number — fail loud (#62)")
-        if not math.isfinite(budget) or budget < 0:
-            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a finite non-negative "
-                             "number — nan/inf/negative would un-bound the graph ingest (#62); fail loud")
-        err = []
-        done = threading.Event()
-
-        def _ingest():
-            try:
-                ingest_fn(qualifying)
-            except Exception as e:  # noqa: BLE001 — captured, surfaced on the caller thread
-                err.append(e)
-            finally:
-                done.set()
-
-        threading.Thread(target=_ingest, daemon=True).start()
-        if not done.wait(timeout=budget):
-            print(f"sweep: graph ingest EXCEEDED {budget:g}s budget — degraded DARK (Tier-0 log is "
-                  f"current; the graph is rebuildable from the log)")
-        elif err:
-            print(f"sweep: graph ingest skipped ({type(err[0]).__name__}: {err[0]}) — "
-                  f"Tier-0 log is current; the graph is rebuildable from the log")
     return cursors, len(qualifying)
 
 
@@ -993,7 +956,7 @@ async def _add_episode_with_backoff(add, *, attempts=6, base_delay=15):
             await asyncio.sleep(delay)
 
 
-def graphiti_ingest(items):
+def _legacy_graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
     others still land). Returns the set of session ids that ingested — INFORMATIONAL: `execute`
@@ -1124,6 +1087,40 @@ def _maybe_consolidate():
         print(f"sweep: communities skipped ({type(e).__name__}: {e}) — graph/LLM leg dark")
 
 
+def _maybe_project_emprego(log=eventlog.LOG):
+    """Project only mining-accepted digests into Graphiti; Tier-0 remains truth."""
+    budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
+    try:
+        budget = float(budget_raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number")
+    if not math.isfinite(budget) or budget < 0:
+        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} must be finite and non-negative")
+    err, done = [], threading.Event()
+
+    def _run():
+        try:
+            import emprego
+            out = emprego.project(log=log)
+            if out is not None:
+                print(f"sweep: emprego project — added {out.get('added', 0)}/{out.get('total', 0)} accepted digests")
+        except Exception as exc:  # noqa: BLE001
+            err.append(exc)
+        finally:
+            done.set()
+
+    threading.Thread(target=_run, daemon=True).start()
+    if not done.wait(timeout=budget):
+        print(f"sweep: emprego project EXCEEDED {budget:g}s budget — degraded DARK")
+    elif err:
+        print(f"sweep: emprego project skipped ({type(err[0]).__name__}: {err[0]}) — Tier-0 log is current")
+
+
+def _cortex_refresh(log=eventlog.LOG):
+    _maybe_project_emprego(log=log)
+    _maybe_consolidate()
+
+
 def _topic_direction_window_days():
     raw = os.environ.get("EDGE_TOPIC_DIRECTION_WINDOW_DAYS", "7")
     try:
@@ -1172,7 +1169,7 @@ def reproject():
     eventlog.consolidate_artefato_proposals()
     eventlog.project_direction()                       # pure fold — always
     eventlog.project_corpus()                          # pure fold — always (Tier-0, no graph)
-    _maybe_consolidate()                               # communities: vazão automática, knob-gated
+    _cortex_refresh()                                  # emprego gate, then communities
     missing = cortex.artefatos_without_kernel()        # the C3 gate finally gets a reader (ADR-0009)
     if missing:
         print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "
@@ -1286,7 +1283,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
                 cursors = _grok_baseline(cursors, grok_dir, install_birth=birth)
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
                               grok_dir=grok_dir, install_birth=birth)
-            cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
+            cursors, n = execute(plan, cursors, log=log)
             if _hermes_enabled(project_dir, None):
                 cursors[HERMES_BASELINE_KEY] = True
             save_cursors(cursors, cursors_path)
@@ -1300,7 +1297,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     elif reproject_fn is None:
         # Communities are the automatic consolidation leg of the wake. They must still refresh on a
         # no-delta dispatch so the briefing can read the current graph before any skill reasoning.
-        _maybe_consolidate()
+        _cortex_refresh(log=log)
     # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.
     # The run's `log` is threaded through (Codex P2): a custom-log dry-run never projects the real
     # corpus (publisher.reproject_graph default-skips a non-canonical log).
