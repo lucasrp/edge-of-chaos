@@ -1200,14 +1200,17 @@ _TITLE_FIELDS = {
     "Episodic": ("name", "summary"),
 }
 
-# Initial Cortex fold: Topic is the corpus' navigable spine. Loading every label makes a large shared
-# graph time out before the first screen; drill-down can widen later without taxing initial orientation.
+# Initial Cortex fold: the navigable ontology. Episodic provenance stays collapsed by default;
+# employment-gate nodes (Atividade/Objective) must not disappear behind the legacy Entity fallback.
 _CORTEX_NODES_QUERY = (
-    "MATCH (n:Topic {group_id:$g}) "
-    "RETURN elementId(n) AS id, labels(n)[0] AS label, properties(n) AS props LIMIT 250"
+    "MATCH (n {group_id:$g}) WHERE NOT n:Episodic OPTIONAL MATCH (n)-[r]-() "
+    "RETURN elementId(n) AS id, labels(n)[0] AS label, properties(n) AS props, count(r) AS degree "
+    "ORDER BY degree DESC LIMIT 250"
 )
 _CORTEX_EDGES_QUERY = (
-    "MATCH (a:Topic {group_id:$g})-[r]->(b:Topic {group_id:$g}) "
+    "MATCH (n {group_id:$g}) WHERE NOT n:Episodic OPTIONAL MATCH (n)-[r]-() "
+    "WITH n, count(r) AS degree ORDER BY degree DESC LIMIT 250 "
+    "WITH collect(n) AS nodes UNWIND nodes AS a MATCH (a)-[r]->(b) WHERE b IN nodes "
     "RETURN elementId(r) AS id, elementId(a) AS source, elementId(b) AS target, type(r) AS type LIMIT 500"
 )
 _CORTEX_ENTITY_NODES_QUERY = (
