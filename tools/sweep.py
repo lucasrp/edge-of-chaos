@@ -923,6 +923,9 @@ def _load_openai_key():
 
 
 def _first_ts(path):
+    # Hermes sessions are SQLite virtual paths (`state.db#session_id`), not files.
+    if "#" in str(path):
+        return None
     for line in open(path):
         try:
             ts = json.loads(line).get("timestamp")

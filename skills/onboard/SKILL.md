@@ -237,6 +237,10 @@ default interval (`8h`) so a later hand-ignition has its dial.
 
 ## 2. Runtime — the graph
 
+Before bootstrap, require `secrets/openai.env` containing `OPENAI_API_KEY`. Graphiti extraction
+currently uses OpenAI directly even when embeddings use OpenRouter/Azure; do not proceed until
+`edge-apply --validate` reports the key present.
+
 ```bash
 tools/edge-python tools/edge-bootstrap runtime --home <home>
 ```

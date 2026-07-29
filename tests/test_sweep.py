@@ -558,6 +558,9 @@ class ChunkEpisodeBodyKeepsLargeSessionsUnderContext(unittest.TestCase):
         body = "human: hi\nassistant: hello"
         self.assertEqual(sweep.chunk_episode_body(body, 1000), [body])
 
+    def test_hermes_virtual_path_has_no_file_timestamp(self):
+        self.assertIsNone(sweep._first_ts("/tmp/state.db#session-id"))
+
     def test_large_body_splits_into_chunks_each_under_budget(self):
         body = "\n".join(f"human: turn {i} " + "x" * 200 for i in range(50))
         chunks = sweep.chunk_episode_body(body, 1000)

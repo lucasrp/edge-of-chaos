@@ -31,7 +31,7 @@ def membership(hermes_home, profile_name):
         return Membership(profile_name, False, None)
     value = source["edge_group"]
     if value is None or (isinstance(value, str) and not value.strip()):
-        return Membership(profile_name, True, f"profile:{profile_name}")
+        return Membership(profile_name, True, profile_name)
     if not isinstance(value, str):
         raise ValueError(f"edge_group for Hermes profile {profile_name!r} must be a string or blank")
     return Membership(profile_name, True, value.strip())

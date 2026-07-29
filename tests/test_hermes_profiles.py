@@ -17,7 +17,7 @@ class HermesProfilesTest(unittest.TestCase):
             local = root / "profiles" / "work"
             local.mkdir(parents=True)
             (local / "config.yaml").write_text("edge_group:\n")
-            self.assertEqual(hermes_profiles.membership(root, "work").edge_group, "profile:work")
+            self.assertEqual(hermes_profiles.membership(root, "work").edge_group, "work")
 
 
 if __name__ == "__main__":
