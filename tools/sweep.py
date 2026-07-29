@@ -490,7 +490,7 @@ def rationalization_identity(session_id, turns, *, surface="claude", watermark=N
 
 
 def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None, grok_dir=None,
-                          backfill_days=None, now=None,
+                          hermes_dir=None, backfill_days=None, now=None,
                           racionalizador_version="racionalizador-v3-session-provenance"):
     """Return current substantial inputs lacking a log checkpoint, oldest first.
 
@@ -505,6 +505,10 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
         raise ValueError("racionalizador_version must be a non-blank string")
     include_codex = _codex_enabled(project_dir, codex_dir)
     include_grok = _grok_enabled(project_dir, grok_dir)
+    include_hermes = (
+        _hermes_enabled(project_dir, hermes_dir)
+        if project_dir is None or hermes_dir is not None else False
+    )
     if project_dir is None:
         project_dir = _identity.project_dir()
     now = datetime.now(timezone.utc) if now is None else now
@@ -531,13 +535,20 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
         discovered.extend(sessions.list_codex_sessions(codex_dir))
     if include_grok:
         discovered.extend(sessions.list_grok_sessions(grok_dir))
+    if include_hermes:
+        discovered.extend(sessions.list_hermes_sessions(hermes_dir))
     pending = []
     for session in discovered:
         path = Path(session.path)
         try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
+            mtime = sessions.updated_epoch(session)
+        except (TypeError, ValueError):
+            mtime = None
+        if mtime is None:
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
         if floor is not None and mtime < floor:
             continue
         # Pre-process: operator dialogue only (no terminals/tools) + not worker/sidechain.

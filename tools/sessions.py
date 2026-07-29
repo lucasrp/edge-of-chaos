@@ -18,7 +18,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-# Operator-facing chat surfaces the edge films. Rationalization plans over all three.
+# Legacy file-backed surfaces; Hermes is virtual and accepted separately by the normalizer.
 SURFACES = ("claude", "codex", "grok")
 
 ROLES = {"user": "human", "assistant": "edge"}
@@ -541,8 +541,8 @@ def _grok_turn_from_obj(obj):
 
 def _normalize_surface(surface) -> str:
     s = (surface or "claude").strip().lower()
-    if s not in SURFACES:
-        raise ValueError(f"surface must be one of {SURFACES}, got {surface!r}")
+    if s not in (*SURFACES, "hermes"):
+        raise ValueError(f"surface must be one of {(*SURFACES, 'hermes')}, got {surface!r}")
     return s
 
 
@@ -675,9 +675,13 @@ def mentee_dialogue_for_rationalize(session: Session):
     surface = _normalize_surface(session.surface)
     if not is_user_session(session):
         return None
-    path = Path(session.path)
+    if surface == "hermes":
+        turns, watermark = delta(session.path, 0, surface=surface)
+        turns = filter_dialogue_for_rationalizer(turns)
+        return (turns, watermark) if turns and any(t.role == "human" for t in turns) else None
     try:
-        raw_lines = path.read_text(errors="replace").splitlines()
+        raw_lines = Path(session.path).read_text(errors="replace").splitlines()
+
     except OSError:
         return None
     watermark = len(raw_lines)

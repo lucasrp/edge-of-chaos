@@ -32,6 +32,19 @@ class HermesSessionsTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_rationalization_reads_virtual_hermes_dialogue(self):
+        with sqlite3.connect(self.db) as conn:
+            conn.execute("INSERT INTO sessions VALUES ('c', 'cli', NULL, '1', NULL, 'work')")
+            conn.executemany("INSERT INTO messages VALUES (?, 'c', ?, ?, ?, 1)", [
+                (10, 'user', 'first substantial operator question about the project architecture', '2026-03-01'),
+                (11, 'assistant', 'a substantial answer describing the architecture and next steps', '2026-03-01'),
+                (12, 'user', 'second substantial operator question confirming the implementation', '2026-03-01'),
+            ])
+        session = next(s for s in sessions.list_hermes_sessions(self.db) if s.id == 'c')
+        turns, watermark = sessions.mentee_dialogue_for_rationalize(session)
+        self.assertEqual([turn.role for turn in turns], ['human', 'edge', 'human'])
+        self.assertEqual(watermark, 12)
+
     def test_resolution_listing_turns_and_delta(self):
         self.assertEqual(surfaces_cfg.surface_home("hermes", env={"HERMES_HOME": str(self.home)}), self.home)
         found = sessions.list_hermes_sessions(env={"HERMES_HOME": str(self.home)})
