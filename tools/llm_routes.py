@@ -151,7 +151,7 @@ def set_provider(route, provider, repo=REPO, model=None):
     return {"route": route, "provider": provider, "model": model}
 
 
-def completer_for(route, repo=REPO, max_tokens=4000, exec_fn=None):
+def completer_for(route, repo=None, max_tokens=4000, exec_fn=None):
     """O completer pronto da rota: `fn(prompt) -> str`, com provider/chave resolvidos do
     agent.yaml + secrets do host. Rota de API sem chave viva → LLMTransportError JÁ AQUI
     (infra explícita, não uma reprovação de revisor lá na frente). `exec_fn` é o seam de
