@@ -427,7 +427,8 @@ def _lentes_config(path=None):
     When agent.yaml is absent (first-run), fall back to state/bootstrap.json
     ``backfill_days`` so the initial assemble uses the install lookback.
     """
-    path = REPO / "agent.yaml" if path is None else Path(path)
+    path = (Path(os.path.expanduser(os.environ.get("EDGE_HOME", str(REPO)))) / "agent.yaml"
+            if path is None else Path(path))
     try:
         import yaml
         raw = yaml.safe_load(path.read_text()) or {}
@@ -702,6 +703,7 @@ def rationalize_pending_sessions(
     completer_factory=None,
     log=eventlog.LOG,
     codex_dir=None,
+    hermes_dir=None,
     rationalize_fn=None,
     backfill_days=None,
     max_sessions_per_sweep=DEFAULT_MAX_SESSIONS_PER_SWEEP,
@@ -768,6 +770,7 @@ def rationalize_pending_sessions(
                 project_dir,
                 log=log,
                 codex_dir=codex_dir,
+                hermes_dir=hermes_dir,
                 backfill_days=backfill_days,
                 racionalizador_version=racionalizador_version,
             )
@@ -778,10 +781,7 @@ def rationalize_pending_sessions(
                     return 0  # watermark grew → will unpark below
                 return 1 if _softfail_is_parked(entry, item["watermark"]) else 0
 
-            pending = sorted(
-                pending,
-                key=lambda item: (_park_key(item), item["mtime"], item["surface"], item["id"]),
-            )
+            pending = sorted(pending, key=_park_key)
             for item in pending:
                 # Finding G: limit attempts (not only successes) so invalid_output cannot burn
                 # unbounded sessions past max_sessions_per_sweep.
@@ -852,6 +852,7 @@ def rationalize_pending_sessions(
                 project_dir,
                 log=log,
                 codex_dir=codex_dir,
+                hermes_dir=hermes_dir,
                 backfill_days=backfill_days,
                 racionalizador_version=racionalizador_version,
             )
@@ -1318,6 +1319,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
 
 
 def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
+                                hermes_dir=None,
                                 complete_fn=None, completer_factory=None,
                                 rationalize_fn=None, lentes_config=None,
                                 reconcile_fn=None, project_fn=None, render_fn=None,
@@ -1333,7 +1335,8 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
     version = config.get(
         "racionalizador_version", "racionalizador-v3-session-provenance")
     pending = plan_rationalizations(
-        project_dir, log=log, codex_dir=codex_dir, backfill_days=backfill_days,
+        project_dir, log=log, codex_dir=codex_dir, hermes_dir=hermes_dir,
+        backfill_days=backfill_days,
         racionalizador_version=version,
     )
     if pending:
@@ -1347,6 +1350,7 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
             completer_factory=completer_factory,
             log=log,
             codex_dir=codex_dir,
+            hermes_dir=hermes_dir,
             rationalize_fn=rationalize_fn,
             backfill_days=backfill_days,
             max_sessions_per_sweep=config.get(
