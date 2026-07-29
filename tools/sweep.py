@@ -126,9 +126,15 @@ def _source_description(item):
     return "Claude work session (mentee<->edge)"
 
 
-def _episode_name(item, chunk_index=None):
+def _legacy_episode_name(item, chunk_index=None):
     sid = item["id"].replace(":", "-")[:24]
     base = f"session-{sid}"
+    return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
+
+
+def _episode_name(item, chunk_index=None):
+    sid = (item.get("raw_id") or item["id"]).replace(":", "-")
+    base = f"session-{item.get('surface', 'unknown')}-{sid}-w{item['watermark']}"
     return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
 
 
@@ -970,6 +976,23 @@ def chunk_episode_body(body, max_chars=MAX_EPISODE_CHARS):
     return chunks
 
 
+async def _add_episode_with_backoff(add, *, attempts=6, base_delay=15):
+    """Retry only provider throttling; every other failure remains immediately visible."""
+    import asyncio
+    for attempt in range(attempts):
+        try:
+            return await add()
+        except Exception as e:
+            quota_exhausted = getattr(e, "code", None) == "insufficient_quota" or \
+                "insufficient_quota" in str(e)
+            if (type(e).__name__ != "RateLimitError" or quota_exhausted or
+                    attempt == attempts - 1):
+                raise
+            delay = base_delay * (2 ** attempt)
+            print(f"  ~ rate limited; retrying in {delay}s")
+            await asyncio.sleep(delay)
+
+
 def graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
@@ -980,7 +1003,6 @@ def graphiti_ingest(items):
     import asyncio
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
-    from graphiti_core.llm_client import LLMConfig, OpenAIClient
     _load_openai_key()
     neo = _identity.neo4j_conn()
     install_group = _identity.require_group()   # unchanged fallback for Claude/Codex/Grok
@@ -1005,9 +1027,13 @@ def graphiti_ingest(items):
         return chosen
 
     async def go():
-        llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
-        g = Graphiti(*neo, llm_client=llm)
+        g = Graphiti(*neo)
         await g.build_indices_and_constraints()
+        groups = sorted({it.get("edge_group") or install_group for it in items})
+        records, _, _ = await g.driver.execute_query(
+            "MATCH (e:Episodic) WHERE e.group_id IN $groups "
+            "RETURN e.group_id AS group_id, e.name AS name", groups=groups)
+        existing = {(r["group_id"], r["name"]) for r in records}
         for it in items:
             group = it.get("edge_group") or install_group
             ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
@@ -1015,17 +1041,25 @@ def graphiti_ingest(items):
             failed = False
             for k, chunk in enumerate(chunks):
                 name = _episode_name(it) if len(chunks) == 1 else _episode_name(it, k)
+                legacy_name = (_legacy_episode_name(it) if len(chunks) == 1
+                               else _legacy_episode_name(it, k))
                 try:
+                    if (group, name) in existing or (group, legacy_name) in existing:
+                        print(f"  = exists {name}")
+                        continue
                     prev = await bounded_previous_uuids(g, ref, group)
-                    await g.add_episode(name=name, episode_body=chunk,
-                                        source=EpisodeType.message,
-                                        source_description=_source_description(it),
-                                        reference_time=ref, group_id=group,
-                                        previous_episode_uuids=prev)
+                    await _add_episode_with_backoff(lambda: g.add_episode(
+                        name=name, episode_body=chunk, source=EpisodeType.message,
+                        source_description=_source_description(it), reference_time=ref,
+                        group_id=group, previous_episode_uuids=prev))
+                    existing.add((group, name))
                     print(f"  + ingested {name} ({len(chunk)} chars)")
                 except Exception as e:
                     failed = True
                     print(f"  ! FAILED {name}: {type(e).__name__}: {e}")
+                    if os.environ.get("EDGE_GRAPHITI_DEBUG") == "1":
+                        import traceback
+                        traceback.print_exc()
             if not failed:           # a session counts as ingested only if every sub-episode landed
                 ok.add(it["id"])
         await g.close()

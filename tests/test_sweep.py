@@ -547,6 +547,15 @@ class GraphIngestIsBestEffort(unittest.TestCase):
 
 
 class ChunkEpisodeBodyKeepsLargeSessionsUnderContext(unittest.TestCase):
+    def test_episode_name_distinguishes_full_id_watermark_and_chunk(self):
+        item = {"id": "same-prefix-12345678901234567890-a", "raw_id": "full-a",
+                "surface": "hermes", "watermark": 10}
+        other = {**item, "raw_id": "full-b"}
+        grown = {**item, "watermark": 11}
+        self.assertNotEqual(sweep._episode_name(item), sweep._episode_name(other))
+        self.assertNotEqual(sweep._episode_name(item), sweep._episode_name(grown))
+        self.assertNotEqual(sweep._episode_name(item), sweep._episode_name(item, 0))
+
     """#53 (ex edge-of-chaos #573) — graphiti_ingest shipped each session's ENTIRE body as one
     episode to gpt-4o-mini; an oversized session overflowed the context window, FAILED, and was
     silently dropped from the graph while the cursor advanced (no replay) — silent knowledge loss.
@@ -581,6 +590,35 @@ class ChunkEpisodeBodyKeepsLargeSessionsUnderContext(unittest.TestCase):
         for c in chunks:
             self.assertLessEqual(len(c), 1000)
         self.assertEqual("".join(chunks), body, "every character of an oversized turn must still land")
+
+    def test_rate_limit_retries_then_succeeds(self):
+        import asyncio
+        calls = 0
+
+        async def add():
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise type("RateLimitError", (Exception,), {})()
+            return "ok"
+
+        self.assertEqual(asyncio.run(sweep._add_episode_with_backoff(
+            add, attempts=3, base_delay=0)), "ok")
+        self.assertEqual(calls, 3)
+
+    def test_insufficient_quota_is_not_retried(self):
+        import asyncio
+        calls = 0
+
+        async def add():
+            nonlocal calls
+            calls += 1
+            raise type("RateLimitError", (Exception,), {"code": "insufficient_quota"})()
+
+        with self.assertRaises(Exception):
+            asyncio.run(sweep._add_episode_with_backoff(add, base_delay=0))
+        self.assertEqual(calls, 1)
+
 
 
 class EmbedAndSignalScoresSnippettedCites(unittest.TestCase):
