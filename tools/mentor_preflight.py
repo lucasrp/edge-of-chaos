@@ -1,62 +1,47 @@
 #!/usr/bin/env python3
-"""Read-only EoC mentor preflight: leveling + portfolio recall + Cortex communities."""
+"""Read-only EoC mentor preflight composed from canonical Edge sources."""
 import json
 import os
 import re
-import sqlite3
-import time
 
 import cortex
+import quente
 import recall
+import sessions
 
 
-def recent_hermes_work(db_path=None, days=7, limit=20, now=None):
-    db_path = db_path or os.environ.get("HERMES_STATE_DB", "/home/dqx-agent/.hermes/state.db")
-    cutoff = (now or time.time()) - days * 86400
-    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    rows = db.execute(
-        "SELECT id, started_at, title FROM sessions "
-        "WHERE started_at >= ? AND COALESCE(title, '') <> '' "
-        "ORDER BY started_at DESC", (cutoff,)
-    )
-    seen, work = set(), []
-    for session_id, started_at, title in rows:
-        if re.search(r"(?:Steve (?:Wake|Mentor)|preflight|configura.+mentor|installa?tion|gateway|contexto do Hermes)", title, re.I):
-            continue
-        key = re.sub(r"\s+#\d+$", "", title).casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        user_goal = db.execute(
-            "SELECT content FROM messages WHERE session_id = ? AND role = 'user' "
-            "AND COALESCE(content, '') <> '' ORDER BY id LIMIT 1", (session_id,)
-        ).fetchone()
-        outcome = db.execute(
-            "SELECT content FROM messages WHERE session_id = ? AND role = 'assistant' "
-            "AND tool_name IS NULL AND COALESCE(content, '') <> '' ORDER BY id DESC LIMIT 1",
-            (session_id,),
-        ).fetchone()
-        clean = lambda row: re.sub(r"\s+", " ", row[0]).strip()[:1000] if row else ""
-        work.append({"session_id": session_id, "started_at": started_at,
-                     "title": title, "user_goal": clean(user_goal),
-                     "outcome": clean(outcome)})
-        if len(work) == limit:
-            break
+def _clean(text):
+    return re.sub(r"\s+", " ", text).strip()[:900]
+
+
+def work_from_window(selected):
+    work = []
+    for meta in selected:
+        turns = sessions.read_turns(meta["path"], surface=meta["surface"])
+        goals = [_clean(turn.text) for turn in turns
+                 if turn.role == "human" and turn.text.strip()
+                 and not any(marker in turn.text[:200] for marker in quente.SCAFFOLDING)]
+        outcomes = [_clean(turn.text) for turn in turns if turn.role == "edge" and turn.text.strip()]
+        work.append({
+            "session_id": meta["id"],
+            "surface": meta["surface"],
+            "updated_at": meta.get("last", ""),
+            "user_goal": goals[0] if goals else "",
+            "outcome": outcomes[-1] if outcomes else "",
+        })
     return work
 
 
 def collect(group=None, db_path=None):
     group = group or os.environ.get("EDGE_GROUP") or "default"
-    work = recent_hermes_work(db_path=db_path)[:10]
-    for index, item in enumerate(work, 1):
-        item["front_id"] = f"F{index:02d}"
-        item["user_goal"] = str(item.get("user_goal", ""))[:900]
-        item["outcome"] = str(item.get("outcome", ""))[:900]
+    selected, _window_start = quente.select_window(
+        k=3, max_age_days=7, hermes_dir=db_path,
+    )
     return {
         "group": group,
         "leveling": recall.compose_mentee_persona_brief(),
         "portfolio_recall": recall.compose_portfolio_recall_brief(group=group)[:8000],
-        "recent_hermes_work": work,
+        "recent_hermes_work": work_from_window(selected),
         "communities": cortex.communities(group),
     }
 

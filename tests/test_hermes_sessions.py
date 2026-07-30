@@ -57,6 +57,11 @@ class HermesSessionsTest(unittest.TestCase):
         self.assertEqual(turns, [sessions.Turn("edge", "answer")])
         self.assertEqual(watermark, 3)
 
+    def test_background_completion_notification_is_runtime_scaffolding(self):
+        self.assertTrue(sessions._is_scaffolding_turn(
+            "human", "[IMPORTANT: Background process proc_123 completed normally (exit code 0)."
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

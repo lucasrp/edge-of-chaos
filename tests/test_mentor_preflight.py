@@ -1,39 +1,50 @@
-import os
-import sqlite3
-import tempfile
-import unittest
-from unittest import mock
 import sys
+import unittest
 from pathlib import Path
+from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import mentor_preflight
 
 
-class MentorPreflightTests(unittest.TestCase):
-    def test_collect_composes_all_sources(self):
-        with mock.patch.dict(os.environ, {}, clear=True), \
-                mock.patch.object(mentor_preflight.recall, "compose_portfolio_recall_brief", return_value="portfolio") as portfolio, \
-                mock.patch.object(mentor_preflight, "recent_hermes_work", return_value=[{"title": "recent"}]), \
-                mock.patch.object(mentor_preflight.cortex, "communities", return_value=[{"name": "community"}]) as communities:
-            result = mentor_preflight.collect()
-        self.assertEqual(result["group"], "default")
-        self.assertEqual(result["portfolio_recall"], "portfolio")
-        self.assertIn("leveling", result)
-        self.assertEqual(result["recent_hermes_work"], [{"title": "recent", "front_id": "F01", "user_goal": "", "outcome": ""}])
-        self.assertEqual(result["communities"], [{"name": "community"}])
-        portfolio.assert_called_once_with(group="default")
-        communities.assert_called_once_with("default")
+class MentorPreflightTest(unittest.TestCase):
+    def test_collect_reuses_canonical_hot_window(self):
+        selected = [
+            {"id": "hermes:s1", "surface": "hermes", "path": "p1", "last": "2026-07-30T12:00:00Z"},
+            {"id": "hermes:s2", "surface": "hermes", "path": "p2", "last": "2026-07-29T12:00:00Z"},
+            {"id": "hermes:s3", "surface": "hermes", "path": "p3", "last": "2026-07-28T12:00:00Z"},
+        ]
+        turns = {
+            "p1": [mock.Mock(role="human", text=mentor_preflight.quente.SCAFFOLDING[0] + " wrapper"),
+                   mock.Mock(role="human", text="goal one"), mock.Mock(role="edge", text="outcome one")],
+            "p2": [mock.Mock(role="human", text="goal two"), mock.Mock(role="edge", text="outcome two")],
+            "p3": [mock.Mock(role="human", text="goal three"), mock.Mock(role="edge", text="outcome three")],
+        }
+        with mock.patch.object(mentor_preflight.quente, "select_window", return_value=(selected, "start")) as select, \
+             mock.patch.object(mentor_preflight.sessions, "read_turns", side_effect=lambda path, surface: turns[path]), \
+             mock.patch.object(mentor_preflight.recall, "compose_mentee_persona_brief", return_value="level"), \
+             mock.patch.object(mentor_preflight.recall, "compose_portfolio_recall_brief", return_value="portfolio"), \
+             mock.patch.object(mentor_preflight.cortex, "communities", return_value=[{"name": "community"}]):
+            result = mentor_preflight.collect(group="default", db_path="state.db")
 
-    def test_recent_work_deduplicates_numbered_session_titles(self):
-        with tempfile.NamedTemporaryFile() as tmp:
-            db = sqlite3.connect(tmp.name)
-            db.execute("CREATE TABLE sessions (id TEXT, started_at REAL, title TEXT)")
-            db.execute("CREATE TABLE messages (id INTEGER, session_id TEXT, role TEXT, content TEXT, tool_name TEXT)")
-            db.executemany("INSERT INTO sessions VALUES (?, ?, ?)", [("new", 900, "Steve Wake Blocked #28"), ("old", 800, "Steve Wake Blocked #27"), ("other", 700, "OnlinEstetica — Meta Ads daily check")])
-            db.commit()
-            work = mentor_preflight.recent_hermes_work(tmp.name, now=1000)
-        self.assertEqual([item["session_id"] for item in work], ["other"])
+        select.assert_called_once_with(k=3, max_age_days=7, hermes_dir="state.db")
+        self.assertEqual([w["session_id"] for w in result["recent_hermes_work"]], ["hermes:s1", "hermes:s2", "hermes:s3"])
+        self.assertEqual(result["recent_hermes_work"][0]["user_goal"], "goal one")
+        self.assertEqual(result["recent_hermes_work"][0]["outcome"], "outcome one")
+        self.assertNotIn("front_id", result["recent_hermes_work"][0])
+        self.assertEqual(result["leveling"], "level")
+        self.assertEqual(result["portfolio_recall"], "portfolio")
+        self.assertEqual(result["communities"], [{"name": "community"}])
+
+    def test_work_from_window_preserves_distinct_sessions_without_title_dedup(self):
+        selected = [
+            {"id": "hermes:a", "surface": "hermes", "path": "a", "last": "1"},
+            {"id": "hermes:b", "surface": "hermes", "path": "b", "last": "2"},
+        ]
+        same = [mock.Mock(role="human", text="same goal"), mock.Mock(role="edge", text="same outcome")]
+        with mock.patch.object(mentor_preflight.sessions, "read_turns", return_value=same):
+            work = mentor_preflight.work_from_window(selected)
+        self.assertEqual([w["session_id"] for w in work], ["hermes:a", "hermes:b"])
 
 
 if __name__ == "__main__":

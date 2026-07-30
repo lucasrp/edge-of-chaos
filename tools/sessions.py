@@ -26,6 +26,7 @@ CODEX_ROLES = {"user": "human", "assistant": "edge"}
 GROK_ROLES = {"user": "human", "assistant": "edge"}
 _USER_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
 SCAFFOLDING_PREFIXES = (
+    "[IMPORTANT: Background process ",
     "<environment_context>",
     "<skill>",
     "<subagent_notification>",
@@ -635,7 +636,9 @@ def read_turns(path, surface="claude") -> list:
                 WHERE session_id = ? AND active = 1 AND role IN ('user', 'assistant')
                 ORDER BY timestamp, id""", (session_id,))
             return [Turn("human" if role == "user" else "edge", content)
-                    for role, content in rows]
+                    for role, content in rows
+                    if content and not _is_scaffolding_turn(
+                        "human" if role == "user" else "edge", content)]
     return dialogue_turns(path, surface=surface)
 
 
