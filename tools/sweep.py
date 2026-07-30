@@ -38,7 +38,7 @@ GROK_BASELINE_KEY = "_grok_baselined"
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
 DISPATCH_MARKER = "Dispatch runtime context"   # strip the edge's own framing (exp-001)
 MIN_CHARS = 200                                 # a substantive delta, not a stray turn
-# Tier-1 ONLY: the body fed to ONE Graphiti episode. The extractor (gpt-5.4-mini, 128k-token
+# Tier-1 ONLY: the body fed to ONE Graphiti episode. The extractor (gpt-4o-mini, 128k-token
 # context) also carries its system prompt + retrieved prior episodes + reserved output, so a whole
 # oversized session shipped as one episode overflowed and was dropped (#53). ~48k chars (~12k
 # tokens) leaves deep headroom and keeps the common case (deltas under budget) a single episode —
@@ -967,7 +967,7 @@ def graphiti_ingest(items):
         return chosen
 
     async def go():
-        llm = OpenAIClient(config=LLMConfig(model="gpt-5.4-mini", small_model="gpt-5.4-mini"))
+        llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
         g = Graphiti(*neo, llm_client=llm)
         await g.build_indices_and_constraints()
         for it in items:

@@ -57,7 +57,7 @@ accepted
   disposable projections tolerate a cheap, occasionally imperfect renderer; a cheap renderer
   affords constant re-render.
 - **Cost gradient:** Opus (judgment — theme, grill, orientation, spawn/merge by harm potential) →
-  `gpt-5.4-mini` (synthesis render) → template (structure) → `gpt-5.4-mini`/Graphiti (extraction).
+  `gpt-5.4-mini` (synthesis render) → template (structure) → `gpt-4o-mini`/Graphiti (extraction).
   Scarce cognition touches only the irreducible.
 - Cluster curation (spawn/attach/merge) operates on the **graph**, gated by harm potential; pages
   follow. This **reverses handoff #4's** assumption that clusters might be hand-curated markdown.
