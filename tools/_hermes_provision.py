@@ -24,7 +24,8 @@ def hermes_prefixes(cfg: dict) -> list:
     prefix = cfg.get("skill_prefix") or cfg.get("codename") or cfg.get("name") or "edge"
     return [str(prefix).strip()]
 
-def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_group=None) -> str:
+_OBSOLETE_RENDERER = r'''
+def _render_hermes_skill_old(slug: str, prefix: str, canonical_skill: Path, edge_group=None) -> str:
     """Render a global Hermes wrapper for one canonical Edge skill."""
     name = f"{prefix}-{slug}"
     canonical = str(Path(canonical_skill).expanduser())
@@ -35,6 +36,12 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
         if slug == "wake" else ""
     )
     mentor_invariant = (
+        "0. HERMES PREFLIGHT SHORT-CIRCUIT: when `EOC MENTOR PREFLIGHT` is present, answer directly "
+        "from that payload before any tool call. Do not reload the skill, memory, portfolio, history, "
+        "or Cortex. State level/stage; compare three work fronts; cite one supplied community; name "
+        "the cross-front pattern; choose one justified priority; prescribe one executable next step; "
+        "do not end with a topic-selection question. Only use the remaining steps when the preflight "
+        "is absent.\n"
         "5. MENTOR CONTRACT INVARIANT: observe leveling-state and the operator's work first; cite "
         "one state line before any residual question. Render the contract's opt-in portfolio "
         "orientation and use the lint agenda as evidence, not as an opening script. Ask at most one "
@@ -46,34 +53,81 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
         "6. HERMES MEMORY ADAPTER (mandatory, provider-agnostic): use the standing memory context "
         "injected by Hermes' configured memory provider (local, Honcho, Mem0, Hindsight, Holographic, "
         "or another supported provider) and combine it with canonical leveling, portfolio recall, "
-        "and Cortex communities. Before the first substantive answer, use any available provider-native "
-        "profile/context capability for a compact peer snapshot. If the request depends on prior "
+        "and Cortex communities. Before the first user-facing mentor response — including orientation, "
+        "status, disclaimer, or question — use any available provider-native profile/context capability "
+        "for a compact peer snapshot. If the request depends on prior "
         "statements, preferences, relationships, or cross-session patterns, use the available "
         "provider-native search/reasoning capability; Honcho tools are one implementation, not a "
         "requirement. If it names or depends on a specific Hermes conversation, decision, or where "
         "work stopped, call `session_search` and inspect that original session before concluding. "
         "Do not require tools the configured provider does not expose, do not call expensive retrieval "
         "without its trigger, do not treat one memory system as a substitute for another, and never "
-        "persist inferred facts without evidence. HERMES HARD GATE: evidence before answering must "
-        "include current conversation + injected/provider memory context (or explicit unavailable "
-        "marker) + canonical leveling + portfolio recall + Cortex communities (or explicit DARK "
-        "marker), plus any retrieval triggered by the request.\n"
+        "persist inferred facts without evidence. HERMES HARD GATE: before any user-facing mentor "
+        "response, evidence must include current conversation + injected/provider memory context (or "
+        "explicit unavailable marker). Then run exactly `$EDGE_HOME/tools/edge-python "
+        "$EDGE_HOME/tools/mentor_preflight.py`; its JSON is the single mandatory read door for "
+        "canonical leveling + portfolio recall + Cortex communities. Do not replace it with manual "
+        "file inspection or prose. Evidence must therefore include canonical leveling + portfolio recall + Cortex communities "
+        "(or explicit DARK marker), plus any retrieval triggered by the request. If any leg lacks an "
+        "actual attempt, emit no mentor response and ask no question; continue the reads first. The "
+        "generic orientation rule does not apply to mentor until these reads complete. Missing evidence "
+        "is an instruction to keep reading, not a valid final answer or a reason to ask the operator "
+        "to continue.\n"
         if slug == "mentor" else ""
     )
     return (
         "---\n"
         f"name: {name}\n"
-        f"description: \"Edge `{slug}` skill (`/{name}`). Use when the user invokes "
-        f"`/{name}`, `@{name}`, or asks for Edge of Chaos {slug}. "
-        f"Read the full contract at {canonical} and follow it.\"\n"
-        "---\n"
+        canonical_steps = (
+            f"1. Read `{canonical}` completely (canonical contract).\n"
+            f"2. Follow the active skill — do not re-interpret it from this wrapper.\n"
+            f"3. Work from the live install at `{canonical}`; the install's edge_home owns the skills/ tree.\n"
+            if slug != "mentor" else ""
+        )
+        return (
+            f"---\nname: {name}\ndescription: Edge `{slug}` skill (`/{name}`). Use when the user "
+            f"invokes `/{name}`, `@{name}`, or asks for Edge of Chaos {slug}.\n---\n"
+            f"You are running the Edge of Chaos skill **{name}**.\n\n"
+            + mentor_invariant
+            + canonical_steps
+            + (f"4. Set `EDGE_GROUP={edge_group}` for every EoC tool command.\n" if edge_group else "")
+            + wake_terminal
+        )
+
+
+'''
+
+
+def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_group=None) -> str:
+    """Render a Hermes wrapper; mentor consumes the native preflight without re-reading."""
+    name = f"{prefix}-{slug}"
+    canonical = str(Path(canonical_skill).expanduser())
+    header = (
+        f"---\nname: {name}\ndescription: Edge `{slug}` skill (`/{name}`). Use when invoked. "
+        f"Canonical contract: {canonical}.\n---\n"
         f"You are running the Edge of Chaos skill **{name}**.\n\n"
+    )
+    if slug == "mentor":
+        return header + (
+            "HERMES PREFLIGHT SHORT-CIRCUIT: `EOC MENTOR PREFLIGHT` is the completed native "
+            "mentor read produced by `$EDGE_HOME/tools/mentor_preflight.py`, the single mandatory read door. Use it before any user-facing mentor content: the first user-facing mentor response must answer directly from it before any tool call. State level/stage; compare "
+            "at least three concrete work fronts; cite one supplied Cortex community; name the "
+            "cross-front pattern; choose one priority and justify it; prescribe one executable next "
+            "step; do not end with a question. The payload already combines the configured memory provider "
+            "through a provider-agnostic adapter; Honcho tools are one implementation, not a requirement. "
+            "It includes recent session history, local leveling, portfolio, and "
+            "Cortex communities and the lint agenda as evidence. If that read door fails, emit no mentor response and ask no question. The supplied portfolio is the opt-in portfolio orientation; the response "
+            "itself must provide persona synthesis, steers, and a concrete intervention, never a menu; "
+            "advice alone is not completion; after intervention, preserve persona writeback, steers, synthesis, and traceable inscription. "
+            "The generic orientation rule does not apply to mentor. "
+            "Do not stop and ask them to say continue. Do not force a closing question. never invent a writeback or inscription. Do not emit an instruction to keep reading, reload the skill, or repeat any preflight.\n"
+        )
+    return header + (
         f"1. Read `{canonical}` completely (canonical contract).\n"
-        f"2. Follow it as the active skill — do not re-interpret this wrapper.\n"
-        f"3. Work from the install edge_home that owns that skills/ tree.\n"
+        "2. Follow the active skill without re-interpreting it from this wrapper.\n"
+        f"3. Work from the live install at `{canonical}`.\n"
         + (f"4. Set `EDGE_GROUP={edge_group}` for every EoC tool command.\n" if edge_group else "")
-        + wake_terminal
-        + mentor_invariant
+        + ("5. WAKE TERMINAL INVARIANT: render the canonical human-facing orientation, then halt and ask what the operator wants to work on. Do not start work before their reply.\n" if slug == "wake" else "")
     )
 
 
@@ -123,7 +177,7 @@ def _managed_wrapper(path, repo, edge_home=None):
     roots = [Path(repo).resolve() / "skills"]
     if edge_home is not None:
         roots.append(Path(edge_home).resolve() / "skills")
-    marker = "Canonical implementation:" in body or "Read the full contract at" in body
+    marker = any(text in body for text in ("Canonical implementation:", "Read the full contract at", "Canonical contract:"))
     return marker and any(str(root) in body for root in roots)
 
 def reconcile_hermes_profiles(cfg, repo, edge_home, hermes_root):
@@ -185,8 +239,20 @@ def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
         f"EDGE_HOME = Path({str(Path(edge_home))!r})\n"
         f"HERMES_ROOT = Path({str(Path(hermes_root))!r})\n"
         "sys.path.insert(0, str(REPO / 'tools'))\n"
+        "def mentor_preflight(user_message='', **_):\n"
+        "    text = (user_message or '').lstrip()\n"
+        "    if not text.startswith(('/Steve-mentor', 'Steve-mentor: Edge `mentor` skill', '[IMPORTANT: The user has invoked the \\\"Steve-mentor\\\" skill')):\n"
+        "        return None\n"
+        "    import json, os, subprocess\n"
+        "    env = os.environ.copy()\n"
+        "    env.update(EDGE_HOME=str(EDGE_HOME), EDGE_GROUP='default')\n"
+        "    raw = subprocess.run([str(EDGE_HOME / 'tools' / 'edge-python'), str(REPO / 'tools' / 'mentor_preflight.py')], env=env, capture_output=True, text=True, check=True).stdout\n"
+        "    payload = json.loads(raw)\n"
+        "    return {'context': 'EOC MENTOR PREFLIGHT — FIRST RESPONSE ACCEPTANCE CONTRACT: synthesize all four sources: canonical leveling, portfolio, recent Hermes work, and Cortex communities. Explicitly state the current level/stage and quote at least one exact `communities[].name` value from the supplied Cortex payload as evidence; saying only `Cortex`, inventing a name, or proceeding when `communities` is null does not satisfy this. Write a `Frentes comparadas` section with at least three separately labeled bullets; every bullet must name a distinct supplied recent work front and state its user_goal -> outcome; name concrete accomplishments, unresolved gaps, a cross-front pattern, one justified priority, and one actionable next step. Do not anchor on the newest item. Do not return a title-only inventory, disclaimer, status update, or generic question. The preflight already contains the required evidence: do not call tools before the first user-facing response. The first response itself must complete this analysis before inviting dialogue):\\n' + "
+        "json.dumps(payload, ensure_ascii=False, default=str)}\n"
         "def register(ctx):\n"
         "    from _hermes_provision import reconcile_hermes_profiles\n"
         f"    reconcile_hermes_profiles({cfg!r}, REPO, EDGE_HOME, HERMES_ROOT)\n"
+        "    ctx.register_hook('pre_llm_call', mentor_preflight)\n"
     )
     return plugin
