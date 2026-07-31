@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
@@ -23,6 +24,8 @@ class WrapperRender(unittest.TestCase):
             edge_group="hive")
         self.assertIn("name: ed-wake", out)
         self.assertIn("EDGE_GROUP=hive", out)
+        self.assertIn("EDGE_HOME=/x", out)
+        self.assertIn("working directory `/x`", out)
         self.assertIn("/x/skills/wake/SKILL.md", out)
         self.assertIn("canonical contract", out)
         self.assertIn("human-facing orientation", out)
@@ -110,6 +113,7 @@ class HermesProvisionTest(unittest.TestCase):
             compile((plugin / "__init__.py").read_text(), str(plugin / "__init__.py"), "exec")
             text = (plugin / "__init__.py").read_text()
             self.assertIn("ctx.register_hook('pre_llm_call', mentor_preflight)", text)
+            self.assertIn("ctx.register_hook('pre_llm_call', recall_preflight)", text)
             self.assertIn("ctx.register_hook('pre_llm_call', mark_session_active)", text)
             self.assertIn("ctx.register_hook('post_llm_call', mark_session_inactive)", text)
             self.assertIn("ctx.register_hook('pre_tool_call', mark_session_active)", text)
@@ -117,8 +121,86 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("HERMES_SESSION_ID", text)
             self.assertIn("tools' / 'mentor_preflight.py'", text)
             self.assertIn("subprocess.run", text)
-            self.assertIn("'/Steve-mentor'", text)
-            self.assertIn('[IMPORTANT: The user has invoked the \\\"Steve-mentor\\\" skill', text)
+            self.assertIn("command = f'/Steve-{slug}'", text)
+            self.assertIn("_invokes(user_message, 'mentor')", text)
+            self.assertIn("def wake_preflight", text)
+            self.assertIn("tools' / 'predispatch.py'", text)
+            self.assertIn("'--origin', 'user_requested'", text)
+            self.assertIn("cwd=str(EDGE_HOME)", text)
+            self.assertEqual(text.count("timeout=180"), 3)
+            self.assertEqual(text.count("cwd=str(EDGE_HOME)"), 3)
+            self.assertIn("EDGE_GROUP=_active_edge_group()", text)
+            self.assertIn("EOC WAKE PREFLIGHT", text)
+            self.assertIn("result.stdout[:6000]", text)
+            self.assertIn("result.stdout[recall_at:recall_at + 6000]", text)
+            self.assertIn("wake preflight missing DISPATCH_ID or Recall section", text)
+            self.assertIn("ctx.register_hook('pre_llm_call', wake_preflight)", text)
+            self.assertIn("_invokes(user_message, 'recall')", text)
+            self.assertIn("_invokes(user_message, 'wake')", text)
+            self.assertIn("compose_recall_brief", text)
+            self.assertIn("EOC RECALL PREFLIGHT", text)
+            self.assertIn("Return that brief verbatim", text)
+
+    def test_wake_preflight_runs_canonical_driver_and_bounds_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            edge = root / "edge"
+            plugin = _hermes_provision.install_hermes_plugin({}, repo, edge, root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            raw = (
+                "DISPATCH_ID=dispatch-1\n# Briefing\n" + "identity direction\n" * 1000
+                + "\n# Recall\n" + "portfolio recent-work\n" * 1000
+            )
+            completed = type("Completed", (), {"stdout": raw})()
+            with mock.patch("subprocess.run", return_value=completed) as run, \
+                    mock.patch.dict(namespace, {"_active_edge_group": lambda: "hive"}):
+                result = namespace["wake_preflight"](
+                    user_message="/Steve-wake", session_id="20260731_133507_2e3e32")
+            command = run.call_args.args[0]
+            kwargs = run.call_args.kwargs
+            self.assertEqual(command[-2:], ["--origin", "user_requested"])
+            self.assertEqual(kwargs["cwd"], str(edge))
+            self.assertEqual(kwargs["env"]["EDGE_HOME"], str(edge))
+            self.assertEqual(kwargs["env"]["EDGE_GROUP"], "hive")
+            self.assertEqual(kwargs["timeout"], 180)
+            context = result["context"]
+            self.assertLess(len(context.encode()), 15_000)
+            self.assertGreaterEqual(context.count("DISPATCH_ID=dispatch-1"), 2)
+            self.assertIn("[BRIEFING PROJECTION]", context)
+            self.assertIn("[RECALL PROJECTION]", context)
+
+    def test_wake_preflight_fails_closed_without_recall(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin = _hermes_provision.install_hermes_plugin(
+                {}, root / "repo", root / "edge", root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            completed = type("Completed", (), {"stdout": "DISPATCH_ID=dispatch-1\nbriefing"})()
+            release = mock.Mock()
+            with mock.patch("subprocess.run", return_value=completed), \
+                    mock.patch.dict(namespace, {
+                        "_active_edge_group": lambda: "hive",
+                        "mark_session_inactive": release,
+                    }):
+                with self.assertRaisesRegex(RuntimeError, "missing DISPATCH_ID or Recall"):
+                    namespace["wake_preflight"](
+                        user_message="/Steve-wake", session_id="20260731_133507_2e3e32")
+            release.assert_called_once_with(session_id="20260731_133507_2e3e32")
+
+    def test_preflight_command_detection_respects_command_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin = _hermes_provision.install_hermes_plugin(
+                {}, root / "repo", root / "edge", root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            self.assertTrue(namespace["_invokes"]("/Steve-wake", "wake"))
+            self.assertTrue(namespace["_invokes"]("/Steve-wake now", "wake"))
+            self.assertFalse(namespace["_invokes"]("/Steve-wake-anything", "wake"))
+            self.assertFalse(namespace["_invokes"]("prefix /Steve-wake", "wake"))
 
     def test_provisions_prefixed_wrappers_under_hermes_home(self):
         with tempfile.TemporaryDirectory() as tmp:

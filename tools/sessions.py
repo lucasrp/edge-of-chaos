@@ -130,22 +130,100 @@ def _hermes_live_dir(env=None):
     return root / "state" / "live" / "hermes"
 
 
+def _pid_start_time(pid):
+    try:
+        # /proc/<pid>/stat field 22 is stable for the lifetime of a process.
+        return Path(f"/proc/{int(pid)}/stat").read_text().split()[21]
+    except (FileNotFoundError, PermissionError, OSError, IndexError, ValueError):
+        return None
+
+
+def _owner_token(pid=None):
+    pid = os.getpid() if pid is None else int(pid)
+    start = _pid_start_time(pid)
+    return f"{pid}:{start}" if start is not None else str(pid)
+
+
+def _owner_is_alive(owner):
+    pid_text, separator, expected_start = str(owner).partition(":")
+    try:
+        os.kill(int(pid_text), 0)
+    except PermissionError:
+        pass
+    except (ProcessLookupError, TypeError, ValueError):
+        return False
+    if not separator:
+        return True  # legacy PID-only owner
+    return _pid_start_time(pid_text) == expected_start
+
+
+def _read_hermes_owners(path):
+    try:
+        age = time.time() - path.stat().st_mtime
+        raw = path.read_text().strip()
+    except (FileNotFoundError, OSError):
+        return {}
+    try:
+        parsed = json.loads(raw)
+        owners = parsed.get("owners", {}) if isinstance(parsed, dict) else {}
+        owners = {str(pid): max(0, int(count)) for pid, count in owners.items()}
+        owners = {pid: count for pid, count in owners.items() if count}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        # Empty/integer files were written by the previous lease format.
+        return {} if age > _HERMES_LIVE_MAX_AGE else {"legacy": 1}
+    if age <= _HERMES_LIVE_MAX_AGE:
+        return owners
+    return {owner: count for owner, count in owners.items() if _owner_is_alive(owner)}
+
+
+def _write_hermes_owners(path, owners):
+    owners = {str(pid): int(count) for pid, count in owners.items() if count > 0}
+    if not owners:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"owners": owners}, sort_keys=True))
+    os.replace(tmp, path)
+
+
 def mark_hermes_session_active(session_id, env=None):
     if not isinstance(session_id, str) or not _HERMES_SESSION_ID.fullmatch(session_id):
         raise ValueError("invalid Hermes session id")
+    import fcntl
     path = _hermes_live_dir(env) / session_id
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.touch()
+    lock_path = path.parent / ".locks" / session_id
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        owners = _read_hermes_owners(path)
+        owner = _owner_token()
+        owners[owner] = owners.get(owner, 0) + 1
+        _write_hermes_owners(path, owners)
 
 
 def mark_hermes_session_inactive(session_id, env=None):
     if not isinstance(session_id, str) or not _HERMES_SESSION_ID.fullmatch(session_id):
         raise ValueError("invalid Hermes session id")
-    (_hermes_live_dir(env) / session_id).unlink(missing_ok=True)
-
-
+    import fcntl
+    path = _hermes_live_dir(env) / session_id
+    lock_path = path.parent / ".locks" / session_id
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        owners = _read_hermes_owners(path)
+        owner = _owner_token()
+        count = owners.get(owner, 0)
+        if count <= 1:
+            owners.pop(owner, None)
+        else:
+            owners[owner] = count - 1
+        _write_hermes_owners(path, owners)
 def current_session_anchors(env=None):
-    """All live session anchors; Hermes may have concurrent gateway sessions."""
+    """All live session anchors, including Hermes hooks and explicit env."""
     env = os.environ if env is None else env
     anchors = []
     anchor = current_session_anchor(env)
@@ -154,12 +232,19 @@ def current_session_anchors(env=None):
     hermes_id = env.get("HERMES_SESSION_ID")
     if isinstance(hermes_id, str) and _HERMES_SESSION_ID.fullmatch(hermes_id):
         anchors.append(f"hermes:{hermes_id}")
-    now = time.time()
     live = _hermes_live_dir(env)
     if live.is_dir():
+        import fcntl
         for path in live.iterdir():
-            if (path.is_file() and _HERMES_SESSION_ID.fullmatch(path.name)
-                    and now - path.stat().st_mtime <= _HERMES_LIVE_MAX_AGE):
+            if not path.is_file() or not _HERMES_SESSION_ID.fullmatch(path.name):
+                continue
+            lock_path = path.parent / ".locks" / path.name
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with lock_path.open("a+") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                owners = _read_hermes_owners(path)
+                _write_hermes_owners(path, owners)
+            if owners:
                 anchors.append(f"hermes:{path.name}")
     return tuple(dict.fromkeys(anchors))
 

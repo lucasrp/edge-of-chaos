@@ -47,6 +47,7 @@ class HermesPipelineTest(HermesSessionsTest):
         (self.home / "config.yaml").write_text("edge_group: hive\n")
         with __import__("sqlite3").connect(self.db) as conn:
             now = datetime.now(timezone.utc).isoformat()
+            conn.execute("UPDATE messages SET timestamp = ? WHERE session_id = 'b'", (now,))
             for i in range(6, 12):
                 conn.execute("INSERT INTO messages VALUES (?, 'a', 'user', ?, ?, 1)",
                              (i, "substantial operator prompt " * 20, now))

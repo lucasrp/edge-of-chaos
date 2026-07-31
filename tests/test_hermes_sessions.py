@@ -79,6 +79,57 @@ class HermesSessionsTest(unittest.TestCase):
         sessions.mark_hermes_session_inactive("desktop-live", env=env)
         self.assertEqual(sessions.current_session_anchors(env), ())
 
+    def test_nested_hermes_lifecycle_keeps_anchor_until_outer_release(self):
+        env = {"EDGE_HOME": str(self.home)}
+        sessions.mark_hermes_session_active("desktop-live", env=env)
+        sessions.mark_hermes_session_active("desktop-live", env=env)
+        sessions.mark_hermes_session_inactive("desktop-live", env=env)
+        self.assertEqual(
+            sessions.current_session_anchors(env),
+            ("hermes:desktop-live",),
+        )
+        sessions.mark_hermes_session_inactive("desktop-live", env=env)
+        self.assertEqual(sessions.current_session_anchors(env), ())
+
+    def test_stale_hermes_marker_restarts_at_one_lease(self):
+        env = {"EDGE_HOME": str(self.home)}
+        path = self.home / "state" / "live" / "hermes" / "desktop-live"
+        path.parent.mkdir(parents=True)
+        path.write_text("99")
+        import os
+        os.utime(path, (0, 0))
+        sessions.mark_hermes_session_active("desktop-live", env=env)
+        owners = __import__("json").loads(path.read_text())["owners"]
+        self.assertEqual(owners, {sessions._owner_token(): 1})
+        # A live owner remains authoritative even when the marker is older than
+        # the crash-recovery TTL.
+        import os
+        os.utime(path, (0, 0))
+        self.assertEqual(
+            sessions.current_session_anchors(env), ("hermes:desktop-live",))
+        sessions.mark_hermes_session_inactive("desktop-live", env=env)
+        self.assertEqual(sessions.current_session_anchors(env), ())
+
+    def test_stale_dead_owner_is_collected(self):
+        env = {"EDGE_HOME": str(self.home)}
+        path = self.home / "state" / "live" / "hermes" / "desktop-dead"
+        path.parent.mkdir(parents=True)
+        path.write_text('{"owners": {"999999999": 2}}')
+        import os
+        os.utime(path, (0, 0))
+        self.assertEqual(sessions.current_session_anchors(env), ())
+        self.assertFalse(path.exists())
+
+    def test_stale_reused_pid_owner_is_collected(self):
+        env = {"EDGE_HOME": str(self.home)}
+        path = self.home / "state" / "live" / "hermes" / "desktop-reused"
+        path.parent.mkdir(parents=True)
+        import os
+        path.write_text('{"owners": {"%s:wrong-start": 1}}' % os.getpid())
+        os.utime(path, (0, 0))
+        self.assertEqual(sessions.current_session_anchors(env), ())
+        self.assertFalse(path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
