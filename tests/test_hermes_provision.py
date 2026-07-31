@@ -171,6 +171,31 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["cwd"], str(edge))
             self.assertIsNone(namespace["assemble_preflight"]("/Steve-assembler", "sid"))
 
+    def test_assemble_preflight_stops_at_next_section_when_recall_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            edge = root / "edge"
+            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", edge, root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            # Simulate predispatch output WITHOUT a # Recall section
+            raw = "DISPATCH_ID=dispatch-no-recall\n# Briefing\n## 5. Knowledge clusters\nclusters here\n# Grounding\n## Per-source yield\nyield data\n"
+            completed = type("Completed", (), {"stdout": raw})()
+            with mock.patch("subprocess.run", return_value=completed) as run, \
+                    mock.patch.dict(namespace, {"_active_edge_group": lambda: "hive"}):
+                payload = namespace["assemble_preflight"](
+                    user_message="/Steve-assemble", session_id="norecall")
+            context = payload["context"]
+            self.assertIn("EOC ASSEMBLE PREFLIGHT", context)
+            self.assertIn("DISPATCH_ID=dispatch-no-recall", context)
+            # The cache should contain briefing but NOT grounding
+            cache = edge / "state" / "live" / "hermes-preflight" / "norecall-assemble.md"
+            self.assertTrue(cache.is_file())
+            cached = cache.read_text()
+            self.assertIn("## 5. Knowledge clusters", cached)
+            self.assertNotIn("# Grounding", cached)
+            self.assertNotIn("Per-source yield", cached)
+
     def test_delta_preflight_injects_world_only_roster_without_running_world_reads(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
