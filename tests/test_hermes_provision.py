@@ -130,8 +130,8 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("tools' / 'predispatch.py'", text)
             self.assertIn("'--origin', 'user_requested'", text)
             self.assertIn("cwd=str(EDGE_HOME)", text)
-            self.assertEqual(text.count("timeout=180"), 5)
-            self.assertEqual(text.count("cwd=str(EDGE_HOME)"), 5)
+            self.assertEqual(text.count("timeout=180"), 6)
+            self.assertEqual(text.count("cwd=str(EDGE_HOME)"), 6)
             self.assertIn("def _edge_env", text)
             self.assertIn("_secrets.load_env", text)
             self.assertIn("EDGE_GROUP=_active_edge_group()", text)
@@ -196,6 +196,36 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("## 5. Knowledge clusters", cached)
             self.assertNotIn("# Grounding", cached)
             self.assertNotIn("Per-source yield", cached)
+
+    def test_producer_preflight_injects_close_publish_contract_and_direction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            edge = root / "edge"
+            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", edge, root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            raw = "DISPATCH_ID=dispatch-producer\n# Briefing\n## 5. Knowledge clusters\n# Recall\nrecall brief\n"
+            completed = type("Completed", (), {"stdout": raw})()
+            direction = edge / "state" / "direction.md"
+            direction.parent.mkdir(parents=True, exist_ok=True)
+            direction.write_text("# Direction\nactive goal: test\n")
+            with mock.patch("subprocess.run", return_value=completed) as run, \
+                    mock.patch.dict(namespace, {"_active_edge_group": lambda: "hive"}):
+                payload = namespace["producer_preflight"](
+                    user_message="/Steve-research", session_id="prod-sid")
+            context = payload["context"]
+            self.assertIn("EOC PRODUCER PREFLIGHT", context)
+            self.assertIn("close.run_close", context)
+            self.assertIn("publisher.publish", context)
+            self.assertIn("DISPATCH=DISPATCH_ID=dispatch-producer", context)
+            self.assertIn("research", context)
+            self.assertLess(len(context.encode()), 4_500)
+            cache = edge / "state" / "live" / "hermes-preflight" / "prod-sid-producer-research.md"
+            self.assertTrue(cache.is_file())
+            cached = cache.read_text()
+            self.assertIn("# Direction", cached)
+            self.assertEqual(run.call_args.args[0][-2:], ["--origin", "user_requested"])
+            self.assertIsNone(namespace["producer_preflight"]("/Steve-mentor", "prod-sid"))
 
     def test_delta_preflight_injects_world_only_roster_without_running_world_reads(self):
         with tempfile.TemporaryDirectory() as tmp:
