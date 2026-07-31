@@ -43,22 +43,39 @@ class HermesPipelineTest(HermesSessionsTest):
         self.assertEqual(planned[0]["turns"][:2], [
             sessions.Turn("human", "question"), sessions.Turn("edge", "answer")])
 
-    def test_first_sweep_does_not_date_cut_hermes_history(self):
+    def test_quente_and_sweep_exclude_active_hermes_session(self):
+        (self.home / "config.yaml").write_text("edge_group: hive\n")
+        with __import__("sqlite3").connect(self.db) as conn:
+            now = datetime.now(timezone.utc).isoformat()
+            for i in range(6, 12):
+                conn.execute("INSERT INTO messages VALUES (?, 'a', 'user', ?, ?, 1)",
+                             (i, "substantial operator prompt " * 20, now))
+        env = {"EDGE_HOME": str(self.home), "HERMES_SESSION_ID": "a"}
+        with mock.patch.dict(__import__("os").environ, env, clear=True):
+            selected, _ = quente.select_window(
+                store_dir=self.home, k=2, max_age_days=None,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+            planned = sweep.plan_sweep(
+                project_dir=self.home, cursors={}, recent=None,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual(selected, [])
+        self.assertEqual([p["id"] for p in planned], ["b"])
+
+    def test_first_sweep_respects_hermes_date_window(self):
         (self.home / "config.yaml").write_text("edge_group: hive\n")
         with mock.patch.object(sweep, "_film_window_start", return_value=10**20):
             planned = sweep.plan_sweep(
                 project_dir=self.home, cursors={}, recent=None,
                 codex_dir=False, grok_dir=False, hermes_dir=self.db)
-        self.assertEqual([p["profile_name"] for p in planned], ["work", "default"])
+        self.assertEqual(planned, [])
 
-    def test_later_sweep_restores_hermes_date_window(self):
+    def test_explicit_backfill_can_read_old_hermes_history(self):
         (self.home / "config.yaml").write_text("edge_group: hive\n")
         with mock.patch.object(sweep, "_film_window_start", return_value=10**20):
             planned = sweep.plan_sweep(
-                project_dir=self.home,
-                cursors={sweep.HERMES_BASELINE_KEY: True}, recent=None,
+                project_dir=self.home, cursors={}, recent=None, hermes_backfill=True,
                 codex_dir=False, grok_dir=False, hermes_dir=self.db)
-        self.assertEqual(planned, [])
+        self.assertEqual([p["profile_name"] for p in planned], ["work", "default"])
 
 
 if __name__ == "__main__":

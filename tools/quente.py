@@ -152,12 +152,12 @@ def _exclude_set(exclude):
     import os
     if exclude is None:
         vals = []
-        # One seam for live identity (Claude/Codex env + Grok active_sessions.json).
-        anchor = sessions.current_session_anchor()
-        if anchor:
+        # One seam for live identity, including concurrent Hermes gateway sessions.
+        for anchor in sessions.current_session_anchors():
             vals.append(anchor)
             _surface, raw = sessions.split_session_anchor(anchor)
-            if raw and raw != anchor:
+            # Backward-compatible raw id keeps old Claude callers/tests working.
+            if raw:
                 vals.append(raw)
         extra = os.environ.get("EDGE_EXCLUDE_SESSION_IDS")
         if extra:

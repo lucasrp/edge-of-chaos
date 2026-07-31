@@ -14,6 +14,7 @@ Locator/offset-based; carries no domain semantics beyond surface normalization (
 import json
 import os
 import re
+import time
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,6 +119,49 @@ def current_session_anchor(env=None):
         return grok_session_anchor(live)
     return None
 
+
+_HERMES_SESSION_ID = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_HERMES_LIVE_MAX_AGE = 60 * 60
+
+
+def _hermes_live_dir(env=None):
+    env = os.environ if env is None else env
+    root = Path(os.path.expanduser(env.get("EDGE_HOME", "~/.edge-of-chaos/steve")))
+    return root / "state" / "live" / "hermes"
+
+
+def mark_hermes_session_active(session_id, env=None):
+    if not isinstance(session_id, str) or not _HERMES_SESSION_ID.fullmatch(session_id):
+        raise ValueError("invalid Hermes session id")
+    path = _hermes_live_dir(env) / session_id
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def mark_hermes_session_inactive(session_id, env=None):
+    if not isinstance(session_id, str) or not _HERMES_SESSION_ID.fullmatch(session_id):
+        raise ValueError("invalid Hermes session id")
+    (_hermes_live_dir(env) / session_id).unlink(missing_ok=True)
+
+
+def current_session_anchors(env=None):
+    """All live session anchors; Hermes may have concurrent gateway sessions."""
+    env = os.environ if env is None else env
+    anchors = []
+    anchor = current_session_anchor(env)
+    if anchor:
+        anchors.append(anchor)
+    hermes_id = env.get("HERMES_SESSION_ID")
+    if isinstance(hermes_id, str) and _HERMES_SESSION_ID.fullmatch(hermes_id):
+        anchors.append(f"hermes:{hermes_id}")
+    now = time.time()
+    live = _hermes_live_dir(env)
+    if live.is_dir():
+        for path in live.iterdir():
+            if (path.is_file() and _HERMES_SESSION_ID.fullmatch(path.name)
+                    and now - path.stat().st_mtime <= _HERMES_LIVE_MAX_AGE):
+                anchors.append(f"hermes:{path.name}")
+    return tuple(dict.fromkeys(anchors))
 
 def grok_active_sessions_path(env=None) -> Path:
     """Path to Grok's live active_sessions.json (env → agent.yaml → ~/.grok/...)."""

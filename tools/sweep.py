@@ -33,7 +33,7 @@ import _identity
 CURSORS = _identity.state_root() / "state" / "cursors.json"
 CODEX_BASELINE_KEY = "_codex_baselined"
 GROK_BASELINE_KEY = "_grok_baselined"
-HERMES_BASELINE_KEY = "_hermes_baselined"
+
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
 # import-time cache (stale-copy risk), no baked-in host path (the dev's -home-<user> store
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
@@ -318,7 +318,7 @@ def _load_install_env():
 
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
 def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok_dir=None,
-               install_birth=None, hermes_dir=None):
+               install_birth=None, hermes_dir=None, *, hermes_backfill=False, exclude=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
@@ -330,6 +330,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
     if project_dir is None:
         project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
     cursors = cursors or {}
+    excluded = set(sessions.current_session_anchors() if exclude is None else exclude)
     window = _film_window_start()
     found = []
     for s in sessions.list_sessions(project_dir):
@@ -372,9 +373,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
         hermes_path = sessions.hermes_state_db() if hermes_dir is None else Path(hermes_dir)
         hermes_home = hermes_path.parent if hermes_path.is_file() else hermes_path
         for s in sessions.list_hermes_sessions(hermes_dir):
-            # First Hermes sweep imports all available history; later sweeps keep the
-            # configured rolling window and rely on cursors for deltas.
-            if cursors.get(HERMES_BASELINE_KEY) and not _session_in_window(s, window):
+            if not hermes_backfill and not _session_in_window(s, window):
                 continue
             sid = _cursor_id(s)
             seen = cursors.get(sid, 0)
@@ -384,6 +383,10 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             member = hermes_profiles.membership(hermes_home, s.profile_name)
             if member.enabled:
                 found.append((sessions.updated_epoch(s), s, turns, watermark, sid, member.edge_group))
+    found = [item for item in found
+             if item[4] not in excluded
+             and item[1].id not in excluded
+             and f"{item[1].surface}:{item[1].id}" not in excluded]
     found.sort(key=lambda x: x[0])           # chronological
     if recent:
         found = found[-recent:]              # the N newest, still chronological
@@ -1296,8 +1299,6 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
                               grok_dir=grok_dir, install_birth=birth)
             cursors, n = execute(plan, cursors, log=log)
-            if _hermes_enabled(project_dir, None):
-                cursors[HERMES_BASELINE_KEY] = True
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
                                                        grok_dir=grok_dir, log=log)

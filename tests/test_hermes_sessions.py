@@ -62,6 +62,23 @@ class HermesSessionsTest(unittest.TestCase):
             "human", "[IMPORTANT: Background process proc_123 completed normally (exit code 0)."
         ))
 
+    def test_current_session_anchors_include_hermes_env(self):
+        env = {"EDGE_HOME": str(self.home), "HERMES_SESSION_ID": "desktop-live"}
+        self.assertEqual(
+            sessions.current_session_anchors(env),
+            ("hermes:desktop-live",),
+        )
+
+    def test_current_session_anchors_include_live_hermes_markers(self):
+        env = {"EDGE_HOME": str(self.home)}
+        sessions.mark_hermes_session_active("desktop-live", env=env)
+        self.assertEqual(
+            sessions.current_session_anchors(env),
+            ("hermes:desktop-live",),
+        )
+        sessions.mark_hermes_session_inactive("desktop-live", env=env)
+        self.assertEqual(sessions.current_session_anchors(env), ())
+
 
 if __name__ == "__main__":
     unittest.main()
