@@ -114,6 +114,8 @@ class HermesProvisionTest(unittest.TestCase):
             text = (plugin / "__init__.py").read_text()
             self.assertIn("ctx.register_hook('pre_llm_call', mentor_preflight)", text)
             self.assertIn("ctx.register_hook('pre_llm_call', recall_preflight)", text)
+            self.assertIn("ctx.register_hook('pre_llm_call', assemble_preflight)", text)
+            self.assertIn("ctx.register_hook('pre_llm_call', delta_preflight)", text)
             self.assertIn("ctx.register_hook('pre_llm_call', mark_session_active)", text)
             self.assertIn("ctx.register_hook('post_llm_call', mark_session_inactive)", text)
             self.assertIn("ctx.register_hook('pre_tool_call', mark_session_active)", text)
@@ -127,8 +129,10 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("tools' / 'predispatch.py'", text)
             self.assertIn("'--origin', 'user_requested'", text)
             self.assertIn("cwd=str(EDGE_HOME)", text)
-            self.assertEqual(text.count("timeout=180"), 4)
-            self.assertEqual(text.count("cwd=str(EDGE_HOME)"), 4)
+            self.assertEqual(text.count("timeout=180"), 5)
+            self.assertEqual(text.count("cwd=str(EDGE_HOME)"), 5)
+            self.assertIn("def _edge_env", text)
+            self.assertIn("_secrets.load_env", text)
             self.assertIn("EDGE_GROUP=_active_edge_group()", text)
             self.assertIn("EOC WAKE PREFLIGHT", text)
             self.assertIn("result.stdout[:6000]", text)
@@ -140,6 +144,55 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("compose_recall_brief", text)
             self.assertIn("EOC RECALL PREFLIGHT", text)
             self.assertIn("Return that brief verbatim", text)
+
+    def test_assemble_preflight_uses_canonical_predispatch_and_supplies_judgment_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            edge = root / "edge"
+            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", edge, root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            raw = "DISPATCH_ID=dispatch-assemble\n# Briefing\n## 5. Knowledge clusters\n"
+            completed = type("Completed", (), {"stdout": raw})()
+            with mock.patch("subprocess.run", return_value=completed) as run, \
+                    mock.patch.dict(namespace, {"_active_edge_group": lambda: "hive"}):
+                payload = namespace["assemble_preflight"](
+                    user_message="/Steve-assemble", session_id="sid")
+            context = payload["context"]
+            self.assertIn("EOC ASSEMBLE PREFLIGHT", context)
+            self.assertIn("Recap", context)
+            self.assertIn("Dig sources actually used", context)
+            self.assertIn("DISPATCH_ID=dispatch-assemble", context)
+            self.assertLess(len(context.encode()), 4_500)
+            cache = edge / "state" / "live" / "hermes-preflight" / "sid-assemble.md"
+            self.assertTrue(cache.is_file())
+            self.assertIn("## 5. Knowledge clusters", cache.read_text())
+            self.assertEqual(run.call_args.args[0][-2:], ["--origin", "user_requested"])
+            self.assertEqual(run.call_args.kwargs["cwd"], str(edge))
+            self.assertIsNone(namespace["assemble_preflight"]("/Steve-assembler", "sid"))
+
+    def test_delta_preflight_injects_world_only_roster_without_running_world_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            edge = root / "edge"
+            (repo / ".claude" / "agents").mkdir(parents=True)
+            (repo / ".claude" / "agents" / "explorer.md").write_text("WORLD only")
+            plugin = _hermes_provision.install_hermes_plugin({}, repo, edge, root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            roadmap = edge / "state" / "source-roadmap.md"
+            roster = [{"name": "github", "kind": "cli", "interfaces": [{"interface_id": "gh", "via": "gh"}]}]
+            with mock.patch.object(namespace["sources"], "render_source_roadmap", return_value=roadmap), \
+                    mock.patch.object(namespace["sources"], "load_sources", return_value=(roster, [])):
+                payload = namespace["delta_preflight"]("/Steve-delta", "sid")
+            context = payload["context"]
+            self.assertIn("EOC DELTA PREFLIGHT", context)
+            self.assertIn("WORLD only", context)
+            self.assertIn("delegate_task", context)
+            self.assertIn("SOURCE_ROSTER=", context)
+            self.assertIn("orientation, not evidence", context)
+            self.assertIsNone(namespace["delta_preflight"]("/Steve-deltaware", "sid"))
 
     def test_wake_preflight_runs_canonical_driver_and_bounds_context(self):
         with tempfile.TemporaryDirectory() as tmp:
