@@ -185,7 +185,6 @@ def _managed_wrapper(path, repo, edge_home=None):
     return marker and any(str(root) in body for root in roots)
 
 def reconcile_hermes_profiles(cfg, repo, edge_home, hermes_root):
-    """Make profile-local Edge wrappers match Hermes edge_group configuration."""
     import hermes_profiles
 
     root = Path(hermes_root)
@@ -232,6 +231,7 @@ def configure_hermes_group(hermes_root, edge_group):
 
 def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
     """Install the startup reconciler as a normal Hermes user plugin."""
+    explorer_path = Path(repo) / ".claude" / "agents" / "explorer.md"
     plugin = Path(hermes_root) / "plugins" / "edge-of-chaos"
     plugin.mkdir(parents=True, exist_ok=True)
     (plugin / "plugin.yaml").write_text(
@@ -242,7 +242,9 @@ def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
         f"REPO = Path({str(Path(repo))!r})\n"
         f"EDGE_HOME = Path({str(Path(edge_home))!r})\n"
         f"HERMES_ROOT = Path({str(Path(hermes_root))!r})\n"
+        f"EXPLORER_CONTRACT_PATH = Path({str(explorer_path)!r})\n"
         "sys.path.insert(0, str(REPO / 'tools'))\n"
+        "import sources\n"
         "def mark_session_active(session_id='', **_):\n"
         "    if session_id:\n"
         "        from sessions import mark_hermes_session_active\n"
@@ -286,6 +288,24 @@ def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
         "    return {'context': 'EOC MENTOR PREFLIGHT — FIRST RESPONSE ACCEPTANCE CONTRACT: synthesize all four sources: canonical leveling, portfolio, recent Hermes work, and Cortex communities. Explicitly state the current level/stage and quote at least one exact `communities[].name` value from the supplied Cortex payload as evidence; saying only `Cortex`, inventing a name, or proceeding when `communities` is null does not satisfy this. Write a `Frentes comparadas` section with at least three separately labeled bullets; every bullet must name a distinct supplied recent work front and state its user_goal -> outcome; name concrete accomplishments, unresolved gaps, a cross-front pattern, one justified priority, and one actionable next step. Do not anchor on the newest item. Do not return a title-only inventory, disclaimer, status update, or generic question. The preflight already contains the required evidence: do not call tools before the first user-facing response. The first response itself must complete this analysis before inviting dialogue):\\n' + "
         "json.dumps(payload, ensure_ascii=False, default=str)}\n"
         "@_release_lease_on_error\n"
+        "def dig_preflight(user_message='', session_id='', **_):\n"
+        "    if not _invokes(user_message, 'dig'):\n"
+        "        return None\n"
+        "    import os, subprocess\n"
+        "    if not EXPLORER_CONTRACT_PATH.is_file():\n"
+        "        raise RuntimeError('Steve-dig requires the canonical explorer contract')\n"
+        "    group = _active_edge_group()\n"
+        "    roadmap = sources.render_source_roadmap(EDGE_HOME / 'agent.yaml')\n"
+        "    env = {**os.environ, 'EDGE_HOME': str(EDGE_HOME), 'EDGE_GROUP': group, 'HERMES_SESSION_ID': session_id}\n"
+        "    result = subprocess.run([str(EDGE_HOME / 'tools' / 'edge-python'), str(EDGE_HOME / 'tools' / 'predispatch.py')], cwd=str(EDGE_HOME), env=env, capture_output=True, text=True, check=True, timeout=180)\n"
+        "    import json\n"
+        "    briefing = result.stdout[:1200]\n"
+        "    roster, findings = sources.load_sources(EDGE_HOME / 'agent.yaml')\n"
+        "    plan = json.dumps({'sources': roster, 'findings': findings}, ensure_ascii=False, separators=(',', ':'))\n"
+        "    paths = {'edge_home': str(EDGE_HOME), 'roadmap': str(roadmap), 'explorer_contract': str(EXPLORER_CONTRACT_PATH), 'memory_dir': str(EDGE_HOME / 'memory'), 'memory_index': str(EDGE_HOME / 'memory' / 'MEMORY.md'), 'event_log': str(EDGE_HOME / 'state' / 'events' / 'log.jsonl')}\n"
+        "    signal = \"EDGE_HOME=%s EDGE_GROUP=%s %s -c \\\"import sys;sys.path.insert(0,'tools');import eventlog;eventlog.source_signal(SLUG, REF, KIND, SIMILARITY)\\\"\" % (EDGE_HOME, group, EDGE_HOME / 'tools' / 'edge-python')\n"
+        "    return {'context': 'EOC DIG PREFLIGHT READY. The canonical Steve-dig skill is already loaded: do not call skill_view/read_file/headroom_retrieve for it or this preflight. Fan world reads with delegate_task. Each child must receive its literal source/interface/query plus the explorer invariants: WORLD only; no Cortex, memory, or writes; compact evidence with URLs/snippets. The canonical explorer contract path is supplied for authority; do not paste its body. Account for every source/interface and every paid modality as queried, not applicable, or dark with a specific reason. Before answering, write the topic file and MEMORY index using the ABSOLUTE paths below, emit source.signal only for cited evidence using the exact command template, and include the PRISMA receipt.\\nPATHS=' + json.dumps(paths, ensure_ascii=False, separators=(',', ':')) + '\\nSOURCE_SIGNAL_TEMPLATE=' + signal + '\\nBRIEFING=' + briefing + '\\nSOURCE_ROSTER=' + plan}\n\n"
+        "@_release_lease_on_error\n"
         "def recall_preflight(user_message='', session_id='', **_):\n"
         "    if not _invokes(user_message, 'recall'):\n"
         "        return None\n"
@@ -315,6 +335,7 @@ def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
         f"    reconcile_hermes_profiles({cfg!r}, REPO, EDGE_HOME, HERMES_ROOT)\n"
         "    ctx.register_hook('pre_llm_call', mark_session_active)\n"
         "    ctx.register_hook('pre_llm_call', mentor_preflight)\n"
+        "    ctx.register_hook('pre_llm_call', dig_preflight)\n"
         "    ctx.register_hook('pre_llm_call', recall_preflight)\n"
         "    ctx.register_hook('pre_llm_call', wake_preflight)\n"
         "    ctx.register_hook('post_llm_call', mark_session_inactive)\n"

@@ -232,6 +232,30 @@ class SecretsDeltaAndInsumo(unittest.TestCase):
             self.assertEqual(cfg["lentes"]["backfill_days"], 3)
             self.assertIn("self", cfg.get("adversarials") or {})
 
+    def test_emit_phenotype_materializes_source_roadmap(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "secrets").mkdir(parents=True)
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=3, provision_skills=False
+            )
+            onboarding.emit_phenotype(home, sources=[{
+                "name": "github",
+                "kind": "cli",
+                "interfaces": [{
+                    "interface_id": "gh-cli",
+                    "via": "gh search",
+                    "canary": {"query": "gh api user"},
+                    "dry_semantics": "empty-is-empty",
+                }],
+            }])
+            roadmap = home / "state" / "source-roadmap.md"
+            self.assertTrue(roadmap.is_file())
+            text = roadmap.read_text()
+            self.assertIn("## github", text)
+            self.assertIn("### gh-cli", text)
+            self.assertIn('"query":"gh api user"', text)
+
     def test_emit_phenotype_declares_secrets_folder_and_inventory(self):
         """Phenotype must name the secrets dir and list files/vars present (no values)."""
         with tempfile.TemporaryDirectory() as td:

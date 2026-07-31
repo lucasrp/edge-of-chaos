@@ -31,6 +31,7 @@ dry_semantics / intent priors / yield notes), and dated yield rows carrying prov
 (`- YYYY-MM-DD [seed:loopR-...] text`). S7's never-blank seed lines come from here.
 """
 import re
+import json
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -207,6 +208,61 @@ def load_sources(agent_yaml=AGENT_YAML):
         return [], findings
     srcs, more = validate_sources(cfg)
     return srcs, findings + more
+
+
+def render_source_roadmap(agent_yaml=AGENT_YAML, roadmap=None):
+    """Materialize Dig's source plan from the phenotype authority.
+
+    Existing measured yield rows are preserved; declared source/interface
+    truth is always refreshed from agent.yaml.  This is the write-side seam
+    paired with :func:`parse_roadmap`.
+    """
+    agent_yaml = Path(agent_yaml)
+    roadmap = Path(roadmap or agent_yaml.parent / "state" / "source-roadmap.md")
+    srcs, findings = load_sources(agent_yaml)
+    errors = [f for f in findings if f.get("level") == "error" and "no sources" not in f.get("msg", "")]
+    if errors:
+        raise ValueError("cannot render source roadmap: " + "; ".join(f["msg"] for f in errors))
+    previous = parse_roadmap(roadmap.read_text()) if roadmap.is_file() else {}
+    def show(value, pending="NOT YET MEASURED"):
+        if value in (None, "", [], {}):
+            return pending
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return str(value)
+
+    lines = ["# Source Roadmap — S8", "", "Generated from `agent.yaml` source truth by `tools/sources.py`. Measured yield rows survive regeneration.", ""]
+    for source in srcs:
+        name = source["name"]
+        interfaces = source.get("interfaces") or []
+        lines += [f"## {name} — {source.get('description') or source.get('kind') or 'read source'}", ""]
+        if not interfaces:
+            lines += ["- **seed**: declared source; interface pending", "- **idiom**: NOT YET MEASURED", "- **canary**: NOT YET MEASURED", "- **dry_semantics**: unknown", "- **intent priors**: operator-authorized source", "- **yield notes**:", "  - seed:loopR-onboarding roster materialized; yield NOT YET MEASURED", ""]
+            continue
+        for iface_index, iface in enumerate(interfaces):
+            iid = iface["interface_id"]
+            lines += [f"### {iid}", f"- **seed**: {show(iface.get('via'), 'declared interface')}", f"- **idiom**: {show(iface.get('idiom'))}", f"- **canary**: {show(iface.get('canary'))}", f"- **dry_semantics**: {show(iface.get('dry_semantics'), 'unknown')}", "- **intent priors**: operator-authorized source", "- **yield notes**:"]
+            old = previous.get(name, {})
+            # parse_roadmap deliberately models yield at source granularity.
+            # Preserve those rows exactly once under the first interface;
+            # copying them into every interface fabricates duplicate evidence.
+            old_notes = old.get("yield_notes", []) if iface_index == 0 else []
+            for note in old_notes:
+                if isinstance(note, dict):
+                    date = note.get("date", "")
+                    provenance = note.get("provenance", "")
+                    body = note.get("text", "")
+                    lines.append(f"  - {date} [{provenance}] {body}".rstrip())
+                else:
+                    lines.append(f"  - {note}")
+            if not old_notes:
+                lines.append("  - seed:loopR-onboarding interface materialized; yield NOT YET MEASURED")
+            lines.append("")
+    roadmap.parent.mkdir(parents=True, exist_ok=True)
+    tmp = roadmap.with_suffix(".md.tmp")
+    tmp.write_text("\n".join(lines).rstrip() + "\n")
+    tmp.replace(roadmap)
+    return roadmap
 
 
 def load_acts(agent_yaml=AGENT_YAML):

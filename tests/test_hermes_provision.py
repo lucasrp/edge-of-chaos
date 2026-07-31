@@ -127,8 +127,8 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("tools' / 'predispatch.py'", text)
             self.assertIn("'--origin', 'user_requested'", text)
             self.assertIn("cwd=str(EDGE_HOME)", text)
-            self.assertEqual(text.count("timeout=180"), 3)
-            self.assertEqual(text.count("cwd=str(EDGE_HOME)"), 3)
+            self.assertEqual(text.count("timeout=180"), 4)
+            self.assertEqual(text.count("cwd=str(EDGE_HOME)"), 4)
             self.assertIn("EDGE_GROUP=_active_edge_group()", text)
             self.assertIn("EOC WAKE PREFLIGHT", text)
             self.assertIn("result.stdout[:6000]", text)
@@ -258,6 +258,47 @@ class SurfaceDetection(unittest.TestCase):
             (home / ".hermes").mkdir()
             block = surfaces_cfg.surfaces_block_for_installed(env={}, home=home)
             self.assertEqual(block["hermes"], {"enabled": True, "home": "~/.hermes"})
+
+
+    def test_dig_preflight_materializes_plan_and_injects_protocol_context(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            repo = Path(td) / "repo"
+            edge_home = Path(td) / "edge"
+            (repo / "skills").mkdir(parents=True)
+            (repo / ".claude" / "agents").mkdir(parents=True)
+            (repo / ".claude" / "agents" / "explorer.md").write_text(
+                "---\nname: explorer\ndisallowedTools: mcp__cortex__*\n---\nRead the WORLD only.\n"
+            )
+            (edge_home / "state").mkdir(parents=True)
+            plugin = root / "plugins" / "edge-of-chaos" / "__init__.py"
+            _hermes_provision.install_hermes_plugin({"name": "Steve", "graph_group": "default"}, repo, edge_home, root)
+            namespace = {"__file__": str(plugin)}
+            exec(compile(plugin.read_text(), str(plugin), "exec"), namespace)
+            completed = mock.Mock(stdout="BRIEFING\n", stderr="", returncode=0)
+            roadmap = edge_home / "state" / "source-roadmap.md"
+            roadmap.parent.mkdir(parents=True, exist_ok=True)
+            roadmap.write_text("# Source Roadmap\n\n## github — cli\n")
+            roster = [{"name": "github", "kind": "cli", "interfaces": [{"interface_id": "gh-cli", "via": "gh search"}]}]
+            with mock.patch("subprocess.run", return_value=completed) as run, \
+                    mock.patch.object(namespace["sources"], "render_source_roadmap", return_value=roadmap), \
+                    mock.patch.object(namespace["sources"], "load_sources", return_value=(roster, [])), \
+                    mock.patch.dict(namespace, {"_active_edge_group": lambda: "hive"}):
+                payload = namespace["dig_preflight"]("/Steve-dig", "sid")
+            ctx = payload["context"]
+            self.assertIn("DIG PREFLIGHT READY", ctx)
+            self.assertIn("delegate_task", ctx)
+            self.assertIn("PRISMA", ctx)
+            self.assertIn("explorer_contract", ctx)
+            self.assertIn("source.signal", ctx)
+            self.assertIn("memory_index", ctx)
+            self.assertIn("event_log", ctx)
+            self.assertIn("SOURCE_ROSTER=", ctx)
+            self.assertIn("do not call skill_view", ctx)
+            self.assertEqual(run.call_args.kwargs["cwd"], str(edge_home))
+            self.assertEqual(run.call_args.kwargs["env"]["EDGE_GROUP"], "hive")
+            self.assertEqual(run.call_args.kwargs["timeout"], 180)
+            self.assertIsNone(namespace["dig_preflight"]("/Steve-digest", "sid"))
 
 
 if __name__ == "__main__":
