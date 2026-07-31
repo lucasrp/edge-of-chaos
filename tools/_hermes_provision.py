@@ -19,9 +19,45 @@ def _write_if_changed(path: Path, content: str) -> None:
     path.write_text(content)
 
 
+def load_agent_cfg(edge_home) -> dict:
+    """Load identity/config from the live install's agent.yaml (if present)."""
+    path = Path(edge_home).expanduser() / "agent.yaml"
+    if not path.is_file():
+        return {}
+    try:
+        import yaml
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def resolve_provision_cfg(cfg, edge_home) -> dict:
+    """Fill skill identity from agent.yaml when caller passed empty/partial cfg.
+
+    Refuses the historical silent fallback to prefix ``edge``: empty cfg during a
+    live re-provision rewrote Steve-* wrappers to edge-* and deleted the agent
+    namespace. Callers must supply skill_prefix/codename/name OR point at an
+    edge_home whose agent.yaml carries one of those keys.
+    """
+    resolved = dict(cfg or {})
+    if resolved.get("skill_prefix") or resolved.get("codename") or resolved.get("name"):
+        return resolved
+    loaded = load_agent_cfg(edge_home)
+    for key in ("skill_prefix", "codename", "name"):
+        if not resolved.get(key) and loaded.get(key):
+            resolved[key] = loaded[key]
+    return resolved
+
+
 def hermes_prefixes(cfg: dict) -> list:
-    """Expose only the install-specific alias; duplicate families add no capability."""
-    prefix = cfg.get("skill_prefix") or cfg.get("codename") or cfg.get("name") or "edge"
+    """Expose only the install-specific alias; never invent ``edge``."""
+    prefix = cfg.get("skill_prefix") or cfg.get("codename") or cfg.get("name")
+    if not prefix or not str(prefix).strip():
+        raise ValueError(
+            "EoC Hermes provision requires skill_prefix, codename, or name in cfg "
+            "(load agent.yaml via resolve_provision_cfg; empty cfg must not fall back to 'edge')"
+        )
     return [str(prefix).strip()]
 
 _OBSOLETE_RENDERER = r'''
@@ -141,6 +177,7 @@ def provision_hermes(cfg: dict, repo: Path, edge_home: Path, hermes_home: Path,
     repo = Path(repo)
     edge_home = Path(edge_home).expanduser()
     hermes_home = Path(hermes_home).expanduser()
+    cfg = resolve_provision_cfg(cfg, edge_home)
     prefixes = hermes_prefixes(cfg)
     rows = []
     installed = 0
@@ -187,6 +224,7 @@ def _managed_wrapper(path, repo, edge_home=None):
 def reconcile_hermes_profiles(cfg, repo, edge_home, hermes_root):
     import hermes_profiles
 
+    cfg = resolve_provision_cfg(cfg, edge_home)
     root = Path(hermes_root)
     homes = [("default", root)]
     profiles = root / "profiles"
@@ -231,6 +269,7 @@ def configure_hermes_group(hermes_root, edge_group):
 
 def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
     """Install the startup reconciler as a normal Hermes user plugin."""
+    cfg = resolve_provision_cfg(cfg, edge_home)
     explorer_path = Path(repo) / ".claude" / "agents" / "explorer.md"
     plugin = Path(hermes_root) / "plugins" / "edge-of-chaos"
     plugin.mkdir(parents=True, exist_ok=True)
@@ -243,7 +282,7 @@ def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
         f"EDGE_HOME = Path({str(Path(edge_home))!r})\n"
         f"HERMES_ROOT = Path({str(Path(hermes_root))!r})\n"
         f"EXPLORER_CONTRACT_PATH = Path({str(explorer_path)!r})\n"
-        f"SKILL_PREFIX = {cfg.get('skill_prefix', 'Steve')!r}\n"
+        f"SKILL_PREFIX = {hermes_prefixes(cfg)[0]!r}\n"
         "sys.path.insert(0, str(REPO / 'tools'))\n"
         "import sources\n"
         "def _edge_env(session_id=''):\n"

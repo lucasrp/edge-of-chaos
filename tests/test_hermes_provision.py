@@ -105,10 +105,61 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("hermes skills", result["default"][0])
             self.assertIn("hermes skills", result["off"][0])
 
+
+    def test_resolve_provision_cfg_loads_name_from_agent_yaml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            edge = Path(tmp) / "edge"
+            edge.mkdir()
+            (edge / "agent.yaml").write_text("name: Steve\n")
+            resolved = _hermes_provision.resolve_provision_cfg({}, edge)
+            self.assertEqual(resolved.get("name"), "Steve")
+            self.assertEqual(_hermes_provision.hermes_prefixes(resolved), ["Steve"])
+
+    def test_hermes_prefixes_refuse_empty_identity(self):
+        with self.assertRaises(ValueError):
+            _hermes_provision.hermes_prefixes({})
+
+    def test_empty_cfg_provision_uses_agent_yaml_not_edge_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = root / "repo"
+            edge = root / "edge"
+            hermes = root / "hermes"
+            (repo / "skills" / "research").mkdir(parents=True)
+            (repo / "skills" / "research" / "SKILL.md").write_text("# research\n")
+            (edge / "skills" / "research").mkdir(parents=True)
+            (edge / "skills" / "research" / "SKILL.md").write_text("# research\n")
+            (edge / "agent.yaml").write_text("name: Steve\n")
+            (hermes / "skills").mkdir(parents=True)
+            # stale wrong-prefix managed wrapper must be removed
+            stale = hermes / "skills" / "edge-research"
+            stale.mkdir()
+            (stale / "SKILL.md").write_text(
+                "Canonical contract: " + str(edge / "skills") + "\n"
+            )
+            rows = _hermes_provision.provision_hermes({}, repo, edge, hermes)
+            self.assertTrue((hermes / "skills" / "Steve-research" / "SKILL.md").is_file())
+            self.assertFalse(stale.exists())
+            self.assertTrue(any("wrappers" in r for r in rows))
+            body = (hermes / "skills" / "Steve-research" / "SKILL.md").read_text()
+            self.assertIn("name: Steve-research", body)
+
+    def test_install_hermes_plugin_empty_cfg_reads_agent_yaml_for_skill_prefix(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            edge = root / "edge"
+            edge.mkdir()
+            (edge / "agent.yaml").write_text("name: Steve\n")
+            (root / "repo" / ".claude" / "agents").mkdir(parents=True)
+            (root / "repo" / ".claude" / "agents" / "explorer.md").write_text("# explorer\n")
+            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", edge, root)
+            text = (plugin / "__init__.py").read_text()
+            self.assertIn("SKILL_PREFIX = 'Steve'", text)
+
     def test_startup_plugin_is_installable(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", root / "edge", root)
+            plugin = _hermes_provision.install_hermes_plugin({"name": "Steve"}, root / "repo", root / "edge", root)
             self.assertTrue((plugin / "plugin.yaml").is_file())
             compile((plugin / "__init__.py").read_text(), str(plugin / "__init__.py"), "exec")
             text = (plugin / "__init__.py").read_text()
@@ -150,7 +201,7 @@ class HermesProvisionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             edge = root / "edge"
-            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", edge, root)
+            plugin = _hermes_provision.install_hermes_plugin({"name": "Steve"}, root / "repo", edge, root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             raw = "DISPATCH_ID=dispatch-assemble\n# Briefing\n## 5. Knowledge clusters\n"
@@ -176,7 +227,7 @@ class HermesProvisionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             edge = root / "edge"
-            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", edge, root)
+            plugin = _hermes_provision.install_hermes_plugin({"name": "Steve"}, root / "repo", edge, root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             # Simulate predispatch output WITHOUT a # Recall section
@@ -201,7 +252,7 @@ class HermesProvisionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             edge = root / "edge"
-            plugin = _hermes_provision.install_hermes_plugin({}, root / "repo", edge, root)
+            plugin = _hermes_provision.install_hermes_plugin({"name": "Steve"}, root / "repo", edge, root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             raw = "DISPATCH_ID=dispatch-producer\n# Briefing\n## 5. Knowledge clusters\n# Recall\nrecall brief\n"
@@ -234,7 +285,7 @@ class HermesProvisionTest(unittest.TestCase):
             edge = root / "edge"
             (repo / ".claude" / "agents").mkdir(parents=True)
             (repo / ".claude" / "agents" / "explorer.md").write_text("WORLD only")
-            plugin = _hermes_provision.install_hermes_plugin({}, repo, edge, root)
+            plugin = _hermes_provision.install_hermes_plugin({"name": "Steve"}, repo, edge, root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             roadmap = edge / "state" / "source-roadmap.md"
@@ -255,7 +306,7 @@ class HermesProvisionTest(unittest.TestCase):
             root = Path(tmp)
             repo = root / "repo"
             edge = root / "edge"
-            plugin = _hermes_provision.install_hermes_plugin({}, repo, edge, root)
+            plugin = _hermes_provision.install_hermes_plugin({"name": "Steve"}, repo, edge, root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             raw = (
@@ -284,7 +335,7 @@ class HermesProvisionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             plugin = _hermes_provision.install_hermes_plugin(
-                {}, root / "repo", root / "edge", root)
+                {"name": "Steve"}, root / "repo", root / "edge", root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             completed = type("Completed", (), {"stdout": "DISPATCH_ID=dispatch-1\nbriefing"})()
@@ -303,7 +354,7 @@ class HermesProvisionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             plugin = _hermes_provision.install_hermes_plugin(
-                {}, root / "repo", root / "edge", root)
+                {"name": "Steve"}, root / "repo", root / "edge", root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             self.assertTrue(namespace["_invokes"]("/Steve-wake", "wake"))
