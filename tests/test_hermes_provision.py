@@ -248,7 +248,7 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertNotIn("# Grounding", cached)
             self.assertNotIn("Per-source yield", cached)
 
-    def test_producer_preflight_injects_close_publish_contract_and_direction(self):
+    def test_producer_preflight_injects_rito_contract_and_direction(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             edge = root / "edge"
@@ -256,7 +256,7 @@ class HermesProvisionTest(unittest.TestCase):
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
             raw = "DISPATCH_ID=dispatch-producer\n# Briefing\n## 5. Knowledge clusters\n# Recall\nrecall brief\n"
-            completed = type("Completed", (), {"stdout": raw})()
+            completed = type("Completed", (), {"stdout": raw, "returncode": 0, "stderr": ""})()
             direction = edge / "state" / "direction.md"
             direction.parent.mkdir(parents=True, exist_ok=True)
             direction.write_text("# Direction\nactive goal: test\n")
@@ -265,17 +265,29 @@ class HermesProvisionTest(unittest.TestCase):
                 payload = namespace["producer_preflight"](
                     user_message="/Steve-research", session_id="prod-sid")
             context = payload["context"]
-            self.assertIn("EOC PRODUCER PREFLIGHT", context)
-            self.assertIn("close.run_close", context)
-            self.assertIn("publisher.publish", context)
-            self.assertIn("DISPATCH=DISPATCH_ID=dispatch-producer", context)
-            self.assertIn("research", context)
+            self.assertIn("[EoC producer=research preflight]", context)
+            self.assertIn("DISPATCH_ID=dispatch-producer", context)
+            self.assertIn("rito.run_rito", context)
+            self.assertIn("publisher.publish_rito", context)
+            self.assertIn("blog/entries", context)
+            self.assertIn("ACCEPTANCE: PASS|FAIL", context)
+            self.assertIn("resume=False", context)
+            self.assertIn("WIPE state/rito/", context)
+            self.assertIn("real LLM transport", context)
+            # close.run_close is mentioned only as forbidden path, not as the contract
+            self.assertIn("Do NOT call close.run_close", context)
+            self.assertNotIn("close.run_close(artefato", context)
             self.assertLess(len(context.encode()), 4_500)
             cache = edge / "state" / "live" / "hermes-preflight" / "prod-sid-producer-research.md"
             self.assertTrue(cache.is_file())
             cached = cache.read_text()
             self.assertIn("# Direction", cached)
-            self.assertEqual(run.call_args.args[0][-2:], ["--origin", "user_requested"])
+            self.assertIn("DISPATCH_ID=dispatch-producer", cached)
+            cmd = run.call_args.args[0]
+            self.assertIn("--origin", cmd)
+            self.assertEqual(cmd[cmd.index("--origin") + 1], "user_requested")
+            self.assertIn("--group", cmd)
+            self.assertEqual(cmd[cmd.index("--group") + 1], "hive")
             self.assertIsNone(namespace["producer_preflight"]("/Steve-mentor", "prod-sid"))
 
     def test_delta_preflight_injects_world_only_roster_without_running_world_reads(self):
