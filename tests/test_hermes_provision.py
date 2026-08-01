@@ -369,10 +369,30 @@ class HermesProvisionTest(unittest.TestCase):
                 {"name": "Steve"}, root / "repo", root / "edge", root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
-            self.assertTrue(namespace["_invokes"]("/Steve-wake", "wake"))
-            self.assertTrue(namespace["_invokes"]("/Steve-wake now", "wake"))
-            self.assertFalse(namespace["_invokes"]("/Steve-wake-anything", "wake"))
-            self.assertFalse(namespace["_invokes"]("prefix /Steve-wake", "wake"))
+            inv = namespace["_invokes"]
+            self.assertTrue(inv("/Steve-wake", "wake"))
+            self.assertTrue(inv("/Steve-wake now", "wake"))
+            self.assertFalse(inv("/Steve-wake-anything", "wake"))
+            self.assertFalse(inv("prefix /Steve-wake", "wake"))
+            # Desktop skill invoke: comma after "skill", not space/newline
+            desktop = (
+                '[IMPORTANT: The user has invoked the "Steve-research" skill, '
+                "indicating they want you to follow its instructions. "
+                "The full skill content is loaded below.]\n\n---\nname: Steve-research"
+            )
+            self.assertTrue(inv(desktop, "research"))
+            self.assertFalse(inv(desktop, "wake"))
+            # Compaction can embed the IMPORTANT block mid-message
+            compacted = (
+                "[CONTEXT COMPACTION — REFERENCE ONLY]\n"
+                "Historical snapshot...\n"
+                + desktop
+            )
+            self.assertTrue(inv(compacted, "research"))
+            # Edge wrapper prefix form
+            self.assertTrue(
+                inv("Steve-research: Edge `research` skill (`/Steve-research`).", "research")
+            )
 
     def test_provisions_prefixed_wrappers_under_hermes_home(self):
         with tempfile.TemporaryDirectory() as tmp:
