@@ -447,8 +447,6 @@ def install_hermes_plugin(cfg, repo, edge_home, hermes_root):
         "    cmd = [str(EDGE_HOME / 'tools' / 'edge-python'),\n"
         "           str(EDGE_HOME / 'tools' / 'predispatch.py'),\n"
         "           '--origin', 'user_requested']\n"
-        "    if group:\n"
-        "        cmd.extend(['--group', group])\n"
         "    completed = subprocess.run(\n"
         "        cmd, cwd=str(EDGE_HOME), env=env,\n"
         "        capture_output=True, text=True, timeout=180, check=False)\n"

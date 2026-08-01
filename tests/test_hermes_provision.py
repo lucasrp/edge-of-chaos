@@ -289,8 +289,8 @@ class HermesProvisionTest(unittest.TestCase):
             cmd = run.call_args.args[0]
             self.assertIn("--origin", cmd)
             self.assertEqual(cmd[cmd.index("--origin") + 1], "user_requested")
-            self.assertIn("--group", cmd)
-            self.assertEqual(cmd[cmd.index("--group") + 1], "hive")
+            self.assertNotIn("--group", cmd)
+            self.assertEqual(run.call_args.kwargs["env"]["EDGE_GROUP"], "hive")
             self.assertIsNone(namespace["producer_preflight"]("/Steve-mentor", "prod-sid"))
 
     def test_producer_preflight_matches_expanded_current_user_history(self):
