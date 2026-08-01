@@ -322,11 +322,13 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertIn("[EoC producer=research preflight]", payload["context"])
             self.assertTrue((edge / "state" / "live" / "hermes-preflight" /
                              "desktop-sid-producer-research.md").is_file())
-            trace = (edge / "state" / "live" / "hermes-preflight" /
-                     "hook-trace.jsonl").read_text()
+            trace_path = edge / "state" / "live" / "hermes-preflight" / "hook-trace.jsonl"
+            trace = trace_path.read_text()
             self.assertIn('"matched": "research"', trace)
             self.assertIn('"current_has_important": true', trace)
+            self.assertNotIn("desktop-sid", trace)
             self.assertNotIn("Topic: short test", trace)
+            self.assertEqual(trace_path.stat().st_mode & 0o777, 0o600)
 
     def test_current_turn_match_does_not_retrigger_old_history_invocation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -343,6 +345,20 @@ class HermesProvisionTest(unittest.TestCase):
             self.assertFalse(namespace["_current_turn_invokes"](
                 "ordinary follow-up", history, "research"))
 
+    def test_current_turn_match_does_not_retrigger_when_current_turn_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plugin = _hermes_provision.install_hermes_plugin(
+                {"name": "Steve"}, root / "repo", root / "edge", root)
+            namespace = {"__name__": "generated_eoc_plugin"}
+            exec((plugin / "__init__.py").read_text(), namespace)
+            history = [
+                {"role": "user", "content": '[IMPORTANT: The user has invoked the "Steve-research" skill, indicating ...]'},
+                {"role": "assistant", "content": "prior response"},
+            ]
+            self.assertFalse(namespace["_current_turn_invokes"](
+                "ordinary follow-up", history, "research"))
+
     def test_current_turn_match_supports_multimodal_user_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -350,12 +366,13 @@ class HermesProvisionTest(unittest.TestCase):
                 {"name": "Steve"}, root / "repo", root / "edge", root)
             namespace = {"__name__": "generated_eoc_plugin"}
             exec((plugin / "__init__.py").read_text(), namespace)
+            user_message = [{"type": "input_text", "text": "analyze this"}]
             history = [{"role": "user", "content": [
-                {"type": "input_text", "text": '[IMPORTANT: The user has invoked the "Steve-research" skill, indicating ...]'},
+                {"type": "input_text", "text": '[IMPORTANT: The user has invoked the "Steve-research" skill, indicating ...]\nanalyze this'},
                 {"type": "image_url", "image_url": "https://example.invalid/image.png"},
             ]}]
             self.assertTrue(namespace["_current_turn_invokes"](
-                "analyze this", history, "research"))
+                user_message, history, "research"))
 
     def test_delta_preflight_injects_world_only_roster_without_running_world_reads(self):
         with tempfile.TemporaryDirectory() as tmp:
