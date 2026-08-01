@@ -1200,17 +1200,31 @@ _TITLE_FIELDS = {
     "Episodic": ("name", "summary"),
 }
 
-# The whole-Cortex fold, group-scoped on BOTH endpoints of every edge. We never run a graph-wide
-# MATCH: the fleet co-locates installs in one neo4j keyed by group_id, so an unscoped query would
-# leak another install's brain — and render as a *successful* graph, not an obvious failure. Nodes
-# and edges are two scoped passes so an isolated (edgeless) node still renders.
+# Initial Cortex fold: the navigable ontology. Episodic provenance stays collapsed by default;
+# employment-gate nodes (Atividade/Objective) must not disappear behind the legacy Entity fallback.
 _CORTEX_NODES_QUERY = (
-    "MATCH (n {group_id:$g}) "
-    "RETURN elementId(n) AS id, labels(n)[0] AS label, properties(n) AS props"
+    "MATCH (n {group_id:$g}) WHERE NOT n:Episodic OPTIONAL MATCH (n)-[r]-() "
+    "RETURN elementId(n) AS id, labels(n)[0] AS label, properties(n) AS props, count(r) AS degree "
+    "ORDER BY degree DESC LIMIT 250"
 )
 _CORTEX_EDGES_QUERY = (
-    "MATCH (a {group_id:$g})-[r]->(b {group_id:$g}) "
-    "RETURN elementId(r) AS id, elementId(a) AS source, elementId(b) AS target, type(r) AS type"
+    "MATCH (n {group_id:$g}) WHERE NOT n:Episodic OPTIONAL MATCH (n)-[r]-() "
+    "WITH n, count(r) AS degree ORDER BY degree DESC LIMIT 250 "
+    "WITH collect(n) AS nodes UNWIND nodes AS a MATCH (a)-[r]->(b) WHERE b IN nodes "
+    "RETURN elementId(r) AS id, elementId(a) AS source, elementId(b) AS target, type(r) AS type LIMIT 500"
+)
+_CORTEX_ENTITY_NODES_QUERY = (
+    "MATCH (n:Entity {group_id:$g}) OPTIONAL MATCH (n)-[r]-() "
+    "RETURN elementId(n) AS id, labels(n)[0] AS label, properties(n) AS props, count(r) AS degree "
+    "ORDER BY degree DESC LIMIT 250"
+)
+_CORTEX_ENTITY_EDGES_QUERY = (
+    "MATCH (n:Entity {group_id:$g}) OPTIONAL MATCH (n)-[r]-() "
+    "WITH n, count(r) AS degree ORDER BY degree DESC LIMIT 250 "
+    "WITH collect(n) AS nodes UNWIND nodes AS a MATCH (a)-[r:RELATES_TO]->(b) "
+    "WHERE b IN nodes "
+    "RETURN elementId(r) AS id, elementId(a) AS source, elementId(b) AS target, "
+    "coalesce(r.fact, type(r)) AS type LIMIT 500"
 )
 
 
@@ -1500,6 +1514,11 @@ def _cortex_live(group):
         with drv.session() as s:
             nodes = [_map_node(r["id"], r["label"], r["props"])
                      for r in s.run(nodes_q, g=group).data()]
+            if not nodes:
+                nodes_q = _CORTEX_ENTITY_NODES_QUERY
+                edges_q = _CORTEX_ENTITY_EDGES_QUERY
+                nodes = [_map_node(r["id"], r["label"], r["props"])
+                         for r in s.run(nodes_q, g=group).data()]
             edges = [{"id": r["id"], "source": r["source"], "target": r["target"], "type": r["type"]}
                      for r in s.run(edges_q, g=group).data()]
             return {"nodes": nodes, "edges": edges}
@@ -1629,15 +1648,12 @@ _CORTEX_SPINE_LABELS = frozenset({
 })
 
 
-def _cortex_controls():
-    """The search + filter controls (Slice 6) — find-and-jump search, node-type checkboxes,
-    Earmarked-only toggle, recency slider. Static markup the island wires client-side; it reuses the
-    shared style.css component vocabulary (no one-off styling). Rendered only when there is a graph
-    to navigate (never on the dark page). Spine types checked by default; noise (Entity/Source/
-    Topic/Episodic/VozFragment) opt-in. colapsar Episodic ON by default."""
+def _cortex_controls(active_labels=()):
+    """Search/filter controls; always expose the labels present in the current fold."""
+    checked_labels = _CORTEX_SPINE_LABELS | frozenset(active_labels)
     types = "".join(
         f'<label class="ctrl-type"><input type="checkbox" name="cortex-type" value="{label}"'
-        f'{" checked" if label in _CORTEX_SPINE_LABELS else ""}> '
+        f'{" checked" if label in checked_labels else ""}> '
         f'{html.escape(label)}</label>'
         for label in _CORTEX_FILTER_LABELS
     )
@@ -1722,7 +1738,7 @@ def cortex():
         island = ""
         controls = ""
     else:
-        controls = _cortex_controls()
+        controls = _cortex_controls({n["label"] for n in payload["nodes"]})
         # the 3D mount the island draws into (M1), plus the server-rendered list fallback (M21 rung 3,
         # hidden until the island reveals it when both WebGL renderers fail / JS is dead).
         # R11 — the read-only usage heat overlay rides ABOVE the canvas when EDGE_CORTEX_USAGE=on

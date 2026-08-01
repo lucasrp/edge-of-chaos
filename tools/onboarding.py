@@ -858,7 +858,28 @@ def emit_phenotype(
         yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True, default_flow_style=False),
         encoding="utf-8",
     )
-    tmp.replace(path)
+    # Dig/delta/calibrate consume a measured source plan. Stage both artifacts
+    # before publication, then roll agent.yaml back if the roadmap commit fails.
+    import sources as _sources
+    roadmap = path.parent / "state" / "source-roadmap.md"
+    staged_roadmap = roadmap.with_suffix(".md.staged")
+    if roadmap.is_file():
+        staged_roadmap.parent.mkdir(parents=True, exist_ok=True)
+        staged_roadmap.write_bytes(roadmap.read_bytes())
+    _sources.render_source_roadmap(tmp, staged_roadmap)  # validates without publishing
+    old_agent = path.read_bytes() if path.is_file() else None
+    try:
+        tmp.replace(path)
+        staged_roadmap.replace(roadmap)
+    except Exception:
+        if old_agent is None:
+            path.unlink(missing_ok=True)
+        else:
+            rollback = path.with_suffix(".yaml.rollback")
+            rollback.write_bytes(old_agent)
+            rollback.replace(path)
+        staged_roadmap.unlink(missing_ok=True)
+        raise
     return path
 
 
@@ -967,6 +988,7 @@ def run_bootstrap(
     primary: str = "claude",
     provision_skills: bool = True,
     embedding_choice: Optional[dict] = None,
+    hermes_edge_group: str = "",
 ) -> dict:
     """Layout + secrets inventory + bootstrap.json. Never enables heartbeat."""
     home = Path(home).expanduser()
@@ -1036,10 +1058,10 @@ def run_bootstrap(
         if src_skills.is_dir():
             dst_skills = home / "skills"
             if not dst_skills.exists():
-                shutil.copytree(
-                    src_skills, dst_skills,
-                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-                )
+                prefix = str(cfg.get("skill_prefix") or cfg.get("codename") or name)
+                _provision.place_tree(src_skills, dst_skills,
+                                      {"{name}": name, "{prefix}": prefix})
+                payload["skills_seeded"] = True
             else:
                 # merge: copy any missing skill dirs
                 for child in src_skills.iterdir():
@@ -1077,8 +1099,13 @@ def run_bootstrap(
                     provisioned.append(f"grok: {row}")
             if installed.get("hermes", False) or surfaces_cfg.provision_surface("hermes", cfg=cfg):
                 hermes_home = Path.home() / ".hermes"
-                for row in _hermes_provision.provision_hermes(cfg, repo, home, hermes_home):
-                    provisioned.append(f"hermes: {row}")
+                _hermes_provision.configure_hermes_group(
+                    hermes_home, hermes_edge_group)
+                _hermes_provision.install_hermes_plugin(cfg, repo, home, hermes_home)
+                for rows in _hermes_provision.reconcile_hermes_profiles(
+                        cfg, repo, home, hermes_home).values():
+                    for row in rows if isinstance(rows, list) else []:
+                        provisioned.append(f"hermes: {row}")
             payload["provisioned_surfaces"] = provisioned
             payload["installed_surfaces"] = installed
         except Exception as e:  # noqa: BLE001 — bootstrap still succeeds; report

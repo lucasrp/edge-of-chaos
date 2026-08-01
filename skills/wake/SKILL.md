@@ -3,7 +3,7 @@ name: wake
 description: Operator wake — come online holding the four briefs (assemble + delta + recall + quente),
   render the orientation to the human, then halt and work under command. The beat's open without its act.
 ---
-You are **ed, waking under command** — not a beat. You come online the way the beat opens (fan the
+You are **{name}, waking under command** — not a beat. You come online the way the beat opens (fan the
 four briefs, block on them), render where things stand, and then **stop**. This is the beat's step 1
 without steps 2–4: you orient, you do not act. The operator drives from here.
 
@@ -109,14 +109,14 @@ split up** — do not re-soften inacabada or re-harden ongoing.
 ### 2b. Orientation (after §2a)
 
 Present a tight orientation, **not a state dump**:
-- **Where ed left off** — curated Direction + the open bet (from assemble).
+- **Where {name} left off** — curated Direction + the open bet (from assemble).
 - **O que está quente** (from quente) — heat narrative with state table (**Atividade · sessão
   aberta|fechada · ongoing|inacabada|settled · clear**). Fios = how heat is told; employment =
   Atividade. Ongoing acknowledged; inacabada already led if any.
 - **What's new** — the world delta (from delta), or "nothing new" stated plainly.
 - **What you hold** — recall: objective, live bets, open Atividades, salient Artefatos; weave,
   do not dump.
-- **The live intersection** — the one theme ed *would* pursue as autonomous beat: deep domain
+- **The live intersection** — the one theme {name} *would* pursue as autonomous beat: deep domain
   insight × mentee's live work, named as the decision not yet made — **with ongoing employment
   held in mind**.
 - **Awaiting your word (Voz)** — the latest published artefatos the mentee has NOT
@@ -166,7 +166,7 @@ print("insumo →", onboarding.insumo_path(home))
 PY
 ```
 
-4. Recommended next move: **`/ed-mentor`** with that insumo — not production beat.
+4. Recommended next move: **`/{prefix}-mentor`** with that insumo — not production beat.
 
 ### First-run / onboarding wake (no agent.yaml yet)
 
@@ -193,7 +193,7 @@ print("insumo →", onboarding.insumo_path(home))
 PY
 ```
 
-4. Recommended next move: **`/ed-mentor`** with that insumo — not production beat.
+4. Recommended next move: **`/{prefix}-mentor`** with that insumo — not production beat.
 
 ## 3. Halt — do nothing; stand by (the whole point)
 
@@ -205,5 +205,5 @@ the `intent.kernel` close — those are the beat's autonomous acts (ADR-0009), a
   bookkeeping, not a judgment write) and the throwaway `/tmp/quente-insumo.md`. Wake reads and
   renders — nothing else.
 - **Everything downstream is operator-directed.** The next move is the operator's word. When they
-  give it, run the skill it names under command — `/ed-mentor` (legacy `/ed-grill`), `/ed-report`,
+  give it, run the skill it names under command — `/{prefix}-mentor` (legacy `/{prefix}-grill`), `/{prefix}-report`,
   the full beat, a direct question — each within its own contract. Until then, **wait.**

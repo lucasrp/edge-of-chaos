@@ -87,6 +87,8 @@ class NothingChangedTracerBullet(unittest.TestCase):
             self.assertEqual(len(payload["source_hash"]), 64)
             self.assertEqual(len(payload["rationalization_id"]), 64)
             self.assertNotIn("supersedes", payload)
+            # employment-gate: single-shot path persists empty cenas (no version bump)
+            self.assertEqual(payload["cenas"], [])
             open_payload = written[1]["payload"]
             self.assertEqual(open_payload["finalidade"], "implementar as lentes")
             self.assertEqual(open_payload["tier"], "llm_judged")
@@ -635,6 +637,13 @@ class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
                 result["emitted"][0]["payload"]["stitch"]["goal"],
                 "MIDDLE_OBJECTIVE_CHANGE",
             )
+            cenas = result["emitted"][0]["payload"]["cenas"]
+            self.assertEqual(len(cenas), 3)
+            for cena in cenas:
+                self.assertIsInstance(cena.get("summary"), str)
+                self.assertTrue(cena["summary"].strip())
+                self.assertIsInstance(cena.get("human_turn_indexes"), list)
+                self.assertTrue(cena["human_turn_indexes"])
 
     def test_budget_exhaustion_leaves_no_checkpoint_and_next_call_resumes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -694,6 +703,11 @@ class MarathonMechanicalCoreAndLocalBudget(unittest.TestCase):
                 result["usage"]["input_tokens"] + result["usage"]["output_tokens"],
             )
             self.assertEqual(eventlog.read(log=log), [])
+
+
+class LooseJsonParsing(unittest.TestCase):
+    def test_accepts_unescaped_control_character_from_model(self):
+        self.assertEqual(racionalizador._loads_json_loose('{"text":"a\nb"}'), {"text": "a\nb"})
 
 
 class ProviderFreeModule(unittest.TestCase):

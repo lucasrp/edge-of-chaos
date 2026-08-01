@@ -237,6 +237,10 @@ default interval (`8h`) so a later hand-ignition has its dial.
 
 ## 2. Runtime — the graph
 
+Before bootstrap, require `secrets/openai.env` containing `OPENAI_API_KEY`. Graphiti extraction
+currently uses OpenAI directly even when embeddings use OpenRouter/Azure; do not proceed until
+`edge-apply --validate` reports the key present.
+
 ```bash
 tools/edge-python tools/edge-bootstrap runtime --home <home>
 ```
@@ -246,6 +250,13 @@ Picks the install mode automatically (`ensure_neo4j`): **docker** (Neo4j 5.x pin
 (user-space Neo4j tarball + a bundled JRE under `<home>/runtime` — no root, no docker permission).
 Password generated into `secrets/neo4j.env` (mode 600), idempotent. A host without docker no longer
 stops the install — it installs `local`. `DARK` prints only when no mode can bring the graph up.
+
+### Hermes network boundary
+
+If Hermes is installed and `edge_group` is not already declared in its config, ask whether the
+user wants a named shared EoC network. Blank means origin-only and is the safe default. Pass the
+answer to bootstrap as `--hermes-edge-group "<name>"`. Never replace an existing value, including
+an existing blank value.
 
 ## 3. First wake — the insumo, shown and explained
 

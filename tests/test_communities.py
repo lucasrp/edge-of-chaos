@@ -145,5 +145,12 @@ class TestSweepKnob(unittest.TestCase):
             os.environ.pop("EDGE_COMMUNITIES", None)
 
 
+class CommunitySchema(unittest.TestCase):
+    def test_reuses_legacy_uuid_index_without_destructive_migration(self):
+        source = Path(communities.__file__).read_text()
+        self.assertIn("CREATE INDEX community_uuid IF NOT EXISTS", source)
+        self.assertNotIn("CREATE CONSTRAINT community_uuid IF NOT EXISTS", source)
+
+
 if __name__ == "__main__":
     unittest.main()

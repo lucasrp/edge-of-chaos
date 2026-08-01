@@ -135,6 +135,12 @@ def _grok_meta_and_turns(path):
 
 
 def _meta_and_turns(path, surface="claude"):
+    if surface == "hermes":
+        turns = [("user" if t.role == "human" else "assistant", t.text)
+                 for t in sessions.read_turns(path, surface="hermes")]
+        prompts = [text for role, text in turns
+                   if role == "user" and not any(m in text[:200] for m in SCAFFOLDING)]
+        return {"op_turns": len(prompts), "op_chars": sum(map(len, prompts)), "last": ""}, turns
     if surface == "codex":
         return _codex_meta_and_turns(path)
     if surface == "grok":
@@ -146,12 +152,12 @@ def _exclude_set(exclude):
     import os
     if exclude is None:
         vals = []
-        # One seam for live identity (Claude/Codex env + Grok active_sessions.json).
-        anchor = sessions.current_session_anchor()
-        if anchor:
+        # One seam for live identity, including concurrent Hermes gateway sessions.
+        for anchor in sessions.current_session_anchors():
             vals.append(anchor)
             _surface, raw = sessions.split_session_anchor(anchor)
-            if raw and raw != anchor:
+            # Backward-compatible raw id keeps old Claude callers/tests working.
+            if raw:
                 vals.append(raw)
         extra = os.environ.get("EDGE_EXCLUDE_SESSION_IDS")
         if extra:
@@ -170,7 +176,13 @@ def _include_grok(store_dir, grok_dir):
     return surfaces_cfg.include_optional_surface("grok", store_dir, grok_dir)
 
 
-def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=None, grok_dir=None):
+def _include_hermes(store_dir, hermes_dir):
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("hermes", store_dir, hermes_dir)
+
+
+def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=None, grok_dir=None,
+                  hermes_dir=None):
     """O scan barato de metadata: seleciona as K substanciais do store (ordinal, teto wall-clock)
     e devolve (metas selecionadas, window_start_ts). COMPARTILHADO por build_bundle e pelo
     hot_cutoff do predispatch — uma seleção só, ou o §5 defere pra um quente que não cobre o
@@ -181,6 +193,7 @@ def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=N
     from datetime import datetime, timezone
     include_codex = _include_codex(store_dir, codex_dir)
     include_grok = _include_grok(store_dir, grok_dir)
+    include_hermes = _include_hermes(store_dir, hermes_dir)
     if store_dir is None:
         import _identity
         store_dir = _identity.project_dir()
@@ -229,6 +242,24 @@ def select_window(store_dir=None, k=3, max_age_days=7, exclude=None, codex_dir=N
             meta["raw_id"] = s.id
             meta["path"] = s.path
             meta["surface"] = "grok"
+            metas.append(meta)
+    if include_hermes:
+        import hermes_profiles
+        hermes_path = sessions.hermes_state_db() if hermes_dir is None else Path(hermes_dir)
+        hermes_home = hermes_path.parent if hermes_path.is_file() else hermes_path
+        for s in sessions.list_hermes_sessions(hermes_dir):
+            member = hermes_profiles.membership(hermes_home, s.profile_name)
+            if not member.enabled:
+                continue
+            sid = f"hermes:{s.id}"
+            if sid in exclude or s.id in exclude or not s.updated_at:
+                continue
+            if floor_mtime is not None and sessions.updated_epoch(s) < floor_mtime:
+                continue
+            meta, _ = _meta_and_turns(s.path, "hermes")
+            meta.update(id=sid, raw_id=s.id, path=s.path, surface="hermes",
+                        profile_name=s.profile_name, edge_group=member.edge_group,
+                        last=datetime.fromtimestamp(sessions.updated_epoch(s), timezone.utc).isoformat())
             metas.append(meta)
     sel = select_sessions(metas, k=k, max_age_days=max_age_days, now=now_dt.isoformat())
     return sel, min((m.get("last", "") for m in sel), default="")

@@ -32,6 +32,7 @@ def cmd_bootstrap(args) -> int:
             primary=args.primary,
             provision_skills=not args.no_provision_skills,
             embedding_choice=choice or None,
+            hermes_edge_group=args.hermes_edge_group,
         )
     except ValueError as e:
         print(f"edge-bootstrap: {e}", file=sys.stderr)
@@ -145,6 +146,10 @@ def main(argv=None) -> int:
     b.add_argument("--adversarial", action="append", default=[], dest="adversarials")
     b.add_argument("--primary", default="claude")
     b.add_argument("--no-provision-skills", action="store_true")
+    b.add_argument(
+        "--hermes-edge-group", default="",
+        help="shared EoC network for Hermes; empty keeps each profile origin-only",
+    )
     # o adapter de embeddings (entrevista): openai direto, openrouter, azure/base_url custom
     b.add_argument("--embedding-provider", default=None)
     b.add_argument("--embedding-var", default=None)

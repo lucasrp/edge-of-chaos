@@ -33,6 +33,7 @@ import _identity
 CURSORS = _identity.state_root() / "state" / "cursors.json"
 CODEX_BASELINE_KEY = "_codex_baselined"
 GROK_BASELINE_KEY = "_grok_baselined"
+
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
 # import-time cache (stale-copy risk), no baked-in host path (the dev's -home-<user> store
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
@@ -125,9 +126,15 @@ def _source_description(item):
     return "Claude work session (mentee<->edge)"
 
 
-def _episode_name(item, chunk_index=None):
+def _legacy_episode_name(item, chunk_index=None):
     sid = item["id"].replace(":", "-")[:24]
     base = f"session-{sid}"
+    return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
+
+
+def _episode_name(item, chunk_index=None):
+    sid = (item.get("raw_id") or item["id"]).replace(":", "-")
+    base = f"session-{item.get('surface', 'unknown')}-{sid}-w{item['watermark']}"
     return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
 
 
@@ -141,6 +148,17 @@ def _grok_enabled(project_dir, grok_dir):
     """Optional Grok surface: explicit dir / False override, else agent.yaml surfaces.grok."""
     import surfaces_cfg
     return surfaces_cfg.include_optional_surface("grok", project_dir, grok_dir)
+
+
+def _hermes_enabled(project_dir, hermes_dir):
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("hermes", project_dir, hermes_dir)
+
+
+def _session_in_window(session, window_start):
+    return window_start is None or (
+        sessions.updated_epoch(session) >= window_start if session.updated_at
+        else _in_window(session.path, window_start))
 
 
 def _film_window_start(log=None):
@@ -300,7 +318,7 @@ def _load_install_env():
 
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
 def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok_dir=None,
-               install_birth=None):
+               install_birth=None, hermes_dir=None, *, hermes_backfill=False, exclude=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
@@ -308,9 +326,11 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
     the cursor makes the full sweep resumable)."""
     include_codex = _codex_enabled(project_dir, codex_dir)
     include_grok = _grok_enabled(project_dir, grok_dir)
+    include_hermes = _hermes_enabled(project_dir, hermes_dir)
     if project_dir is None:
         project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
     cursors = cursors or {}
+    excluded = set(sessions.current_session_anchors() if exclude is None else exclude)
     window = _film_window_start()
     found = []
     for s in sessions.list_sessions(project_dir):
@@ -323,7 +343,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
         turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
         if watermark <= seen or not turns:
             continue  # no new raw lines / no new dialogue
-        found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+        found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid, None))
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
             if not _in_window(s.path, window):
@@ -335,7 +355,7 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
             if watermark <= seen or not turns:
                 continue  # no new raw lines / no new dialogue
-            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid, None))
     if include_grok:
         for s in sessions.list_grok_sessions(grok_dir):
             if not _in_window(s.path, window):
@@ -347,14 +367,35 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
             if watermark <= seen or not turns:
                 continue  # no new raw lines / no new dialogue
-            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid, None))
+    if include_hermes:
+        import hermes_profiles
+        hermes_path = sessions.hermes_state_db() if hermes_dir is None else Path(hermes_dir)
+        hermes_home = hermes_path.parent if hermes_path.is_file() else hermes_path
+        for s in sessions.list_hermes_sessions(hermes_dir):
+            if not hermes_backfill and not _session_in_window(s, window):
+                continue
+            sid = _cursor_id(s)
+            seen = cursors.get(sid, 0)
+            turns, watermark = sessions.delta(s.path, seen, surface="hermes")
+            if watermark <= seen or not turns:
+                continue
+            member = hermes_profiles.membership(hermes_home, s.profile_name)
+            if member.enabled:
+                found.append((sessions.updated_epoch(s), s, turns, watermark, sid, member.edge_group))
+    found = [item for item in found
+             if item[4] not in excluded
+             and item[1].id not in excluded
+             and f"{item[1].surface}:{item[1].id}" not in excluded]
     found.sort(key=lambda x: x[0])           # chronological
     if recent:
         found = found[-recent:]              # the N newest, still chronological
     return [{"id": sid, "raw_id": s.id, "surface": s.surface, "path": str(s.path),
+             **({"profile_name": s.profile_name} if s.profile_name else {}),
+             **({"edge_group": group} if group else {}),
              "turns": turns, "watermark": watermark,
              "body": (body := clean_body(turns)), "skip": not _qualifies(turns, body)}
-            for _, s, turns, watermark, sid in found]
+            for _, s, turns, watermark, sid, group in found]
 
 
 # --- bounded a-posteriori rationalization (log-checkpointed; no cursor) ---
@@ -389,7 +430,8 @@ def _lentes_config(path=None):
     When agent.yaml is absent (first-run), fall back to state/bootstrap.json
     ``backfill_days`` so the initial assemble uses the install lookback.
     """
-    path = REPO / "agent.yaml" if path is None else Path(path)
+    path = (Path(os.path.expanduser(os.environ.get("EDGE_HOME", str(REPO)))) / "agent.yaml"
+            if path is None else Path(path))
     try:
         import yaml
         raw = yaml.safe_load(path.read_text()) or {}
@@ -452,7 +494,7 @@ def rationalization_identity(session_id, turns, *, surface="claude", watermark=N
 
 
 def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None, grok_dir=None,
-                          backfill_days=None, now=None,
+                          hermes_dir=None, backfill_days=None, now=None,
                           racionalizador_version="racionalizador-v3-session-provenance"):
     """Return current substantial inputs lacking a log checkpoint, oldest first.
 
@@ -467,6 +509,10 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
         raise ValueError("racionalizador_version must be a non-blank string")
     include_codex = _codex_enabled(project_dir, codex_dir)
     include_grok = _grok_enabled(project_dir, grok_dir)
+    include_hermes = (
+        _hermes_enabled(project_dir, hermes_dir)
+        if project_dir is None or hermes_dir is not None else False
+    )
     if project_dir is None:
         project_dir = _identity.project_dir()
     now = datetime.now(timezone.utc) if now is None else now
@@ -493,13 +539,20 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
         discovered.extend(sessions.list_codex_sessions(codex_dir))
     if include_grok:
         discovered.extend(sessions.list_grok_sessions(grok_dir))
+    if include_hermes:
+        discovered.extend(sessions.list_hermes_sessions(hermes_dir))
     pending = []
     for session in discovered:
         path = Path(session.path)
         try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
+            mtime = sessions.updated_epoch(session)
+        except (TypeError, ValueError):
+            mtime = None
+        if mtime is None:
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                continue
         if floor is not None and mtime < floor:
             continue
         # Pre-process: operator dialogue only (no terminals/tools) + not worker/sidechain.
@@ -653,6 +706,7 @@ def rationalize_pending_sessions(
     completer_factory=None,
     log=eventlog.LOG,
     codex_dir=None,
+    hermes_dir=None,
     rationalize_fn=None,
     backfill_days=None,
     max_sessions_per_sweep=DEFAULT_MAX_SESSIONS_PER_SWEEP,
@@ -719,6 +773,7 @@ def rationalize_pending_sessions(
                 project_dir,
                 log=log,
                 codex_dir=codex_dir,
+                hermes_dir=hermes_dir,
                 backfill_days=backfill_days,
                 racionalizador_version=racionalizador_version,
             )
@@ -729,10 +784,7 @@ def rationalize_pending_sessions(
                     return 0  # watermark grew → will unpark below
                 return 1 if _softfail_is_parked(entry, item["watermark"]) else 0
 
-            pending = sorted(
-                pending,
-                key=lambda item: (_park_key(item), item["mtime"], item["surface"], item["id"]),
-            )
+            pending = sorted(pending, key=_park_key)
             for item in pending:
                 # Finding G: limit attempts (not only successes) so invalid_output cannot burn
                 # unbounded sessions past max_sessions_per_sweep.
@@ -803,6 +855,7 @@ def rationalize_pending_sessions(
                 project_dir,
                 log=log,
                 codex_dir=codex_dir,
+                hermes_dir=hermes_dir,
                 backfill_days=backfill_days,
                 racionalizador_version=racionalizador_version,
             )
@@ -819,11 +872,8 @@ def rationalize_pending_sessions(
 
 
 # --- effectful execute: log + ingest + advance cursor ---
-def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
-    """**Tier-0 is truth** (ADR-0006): write each qualifying delta as an `episode` event and advance
-    its cursor — **always, even with no graph**. The graph ingest (`ingest_fn`) is **best-effort**:
-    a missing runtime or a down Neo4j (e.g. a graph-less fleet host) is logged and skipped, never
-    fatal — the graph is a projection rebuildable from the log. Returns (cursors, n_logged)."""
+def execute(plan, cursors, log=eventlog.LOG):
+    """Persist Tier-0 episodes/cursors only. Tier-1 Graphiti intake is gated by emprego.project()."""
     qualifying = [it for it in plan if not it.get("skip") and it.get("body", "").strip()]
     for it in qualifying:                              # Tier-0: the log + cursor, unconditionally
         # R8c part 1 (F9-dep, C5): STAMP the source Medium's tier on the episode at ingest. The native
@@ -835,42 +885,11 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
                    "medium_tier": "low_tier"}
         if it.get("surface") in ("codex", "grok"):
             payload["surface"] = it["surface"]
+        if it.get("surface") == "hermes":
+            payload.update(surface="hermes", profile_name=it["profile_name"],
+                           edge_group=it["edge_group"])
         eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
-    if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
-        # BOUNDED + degrade-dark (#62): Tier-0 (episode + cursor) is ALREADY durable above, so the
-        # graph ingest must never gate the wake. It runs on a daemon thread with a hard deadline —
-        # a HANG (add_episode on a network call with no client timeout) degrades dark LOUD exactly
-        # like a raise; the graph re-projects from the log. Fail loud on a bad budget, never un-cap.
-        # Default 600s (qualidade>latência, operador 2026-07-25): extração LLM honesta
-        # passa fácil de 30s e o grafo vivia truncando em silêncio; o cap segue existindo
-        # só para HANG de rede — nunca para apressar trabalho real.
-        budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
-        try:
-            budget = float(budget_raw)
-        except (TypeError, ValueError):
-            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number — fail loud (#62)")
-        if not math.isfinite(budget) or budget < 0:
-            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a finite non-negative "
-                             "number — nan/inf/negative would un-bound the graph ingest (#62); fail loud")
-        err = []
-        done = threading.Event()
-
-        def _ingest():
-            try:
-                ingest_fn(qualifying)
-            except Exception as e:  # noqa: BLE001 — captured, surfaced on the caller thread
-                err.append(e)
-            finally:
-                done.set()
-
-        threading.Thread(target=_ingest, daemon=True).start()
-        if not done.wait(timeout=budget):
-            print(f"sweep: graph ingest EXCEEDED {budget:g}s budget — degraded DARK (Tier-0 log is "
-                  f"current; the graph is rebuildable from the log)")
-        elif err:
-            print(f"sweep: graph ingest skipped ({type(err[0]).__name__}: {err[0]}) — "
-                  f"Tier-0 log is current; the graph is rebuildable from the log")
     return cursors, len(qualifying)
 
 
@@ -888,6 +907,9 @@ def _load_openai_key():
 
 
 def _first_ts(path):
+    # Hermes sessions are SQLite virtual paths (`state.db#session_id`), not files.
+    if "#" in str(path):
+        return None
     for line in open(path):
         try:
             ts = json.loads(line).get("timestamp")
@@ -932,7 +954,24 @@ def chunk_episode_body(body, max_chars=MAX_EPISODE_CHARS):
     return chunks
 
 
-def graphiti_ingest(items):
+async def _add_episode_with_backoff(add, *, attempts=6, base_delay=15):
+    """Retry only provider throttling; every other failure remains immediately visible."""
+    import asyncio
+    for attempt in range(attempts):
+        try:
+            return await add()
+        except Exception as e:
+            quota_exhausted = getattr(e, "code", None) == "insufficient_quota" or \
+                "insufficient_quota" in str(e)
+            if (type(e).__name__ != "RateLimitError" or quota_exhausted or
+                    attempt == attempts - 1):
+                raise
+            delay = base_delay * (2 ** attempt)
+            print(f"  ~ rate limited; retrying in {delay}s")
+            await asyncio.sleep(delay)
+
+
+def _legacy_graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
     others still land). Returns the set of session ids that ingested — INFORMATIONAL: `execute`
@@ -942,13 +981,12 @@ def graphiti_ingest(items):
     import asyncio
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
-    from graphiti_core.llm_client import LLMConfig, OpenAIClient
     _load_openai_key()
     neo = _identity.neo4j_conn()
-    group = _identity.require_group()   # resolved ONCE, before any episode (codex gate)
+    install_group = _identity.require_group()   # unchanged fallback for Claude/Codex/Grok
     ok = set()
 
-    async def bounded_previous_uuids(g, ref):
+    async def bounded_previous_uuids(g, ref, group):
         """The previous-episode context add_episode would retrieve, bounded: most-recent-first
         under PREV_CONTEXT_MAX_CHARS, never an episode over MAX_EPISODE_CHARS (a legacy pre-#53
         giant — one alone can blow the window). Deterministic seam: the tool disposes what the
@@ -967,26 +1005,39 @@ def graphiti_ingest(items):
         return chosen
 
     async def go():
-        llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
-        g = Graphiti(*neo, llm_client=llm)
+        g = Graphiti(*neo)
         await g.build_indices_and_constraints()
+        groups = sorted({it.get("edge_group") or install_group for it in items})
+        records, _, _ = await g.driver.execute_query(
+            "MATCH (e:Episodic) WHERE e.group_id IN $groups "
+            "RETURN e.group_id AS group_id, e.name AS name", groups=groups)
+        existing = {(r["group_id"], r["name"]) for r in records}
         for it in items:
+            group = it.get("edge_group") or install_group
             ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
             chunks = chunk_episode_body(it["body"])   # one big session → several context-fit episodes (#53)
             failed = False
             for k, chunk in enumerate(chunks):
                 name = _episode_name(it) if len(chunks) == 1 else _episode_name(it, k)
+                legacy_name = (_legacy_episode_name(it) if len(chunks) == 1
+                               else _legacy_episode_name(it, k))
                 try:
-                    prev = await bounded_previous_uuids(g, ref)
-                    await g.add_episode(name=name, episode_body=chunk,
-                                        source=EpisodeType.message,
-                                        source_description=_source_description(it),
-                                        reference_time=ref, group_id=group,
-                                        previous_episode_uuids=prev)
+                    if (group, name) in existing or (group, legacy_name) in existing:
+                        print(f"  = exists {name}")
+                        continue
+                    prev = await bounded_previous_uuids(g, ref, group)
+                    await _add_episode_with_backoff(lambda: g.add_episode(
+                        name=name, episode_body=chunk, source=EpisodeType.message,
+                        source_description=_source_description(it), reference_time=ref,
+                        group_id=group, previous_episode_uuids=prev))
+                    existing.add((group, name))
                     print(f"  + ingested {name} ({len(chunk)} chars)")
                 except Exception as e:
                     failed = True
                     print(f"  ! FAILED {name}: {type(e).__name__}: {e}")
+                    if os.environ.get("EDGE_GRAPHITI_DEBUG") == "1":
+                        import traceback
+                        traceback.print_exc()
             if not failed:           # a session counts as ingested only if every sub-episode landed
                 ok.add(it["id"])
         await g.close()
@@ -1051,6 +1102,40 @@ def _maybe_consolidate():
         print(f"sweep: communities skipped ({type(e).__name__}: {e}) — graph/LLM leg dark")
 
 
+def _maybe_project_emprego(log=eventlog.LOG):
+    """Project only mining-accepted digests into Graphiti; Tier-0 remains truth."""
+    budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
+    try:
+        budget = float(budget_raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number")
+    if not math.isfinite(budget) or budget < 0:
+        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} must be finite and non-negative")
+    err, done = [], threading.Event()
+
+    def _run():
+        try:
+            import emprego
+            out = emprego.project(log=log)
+            if out is not None:
+                print(f"sweep: emprego project — added {out.get('added', 0)}/{out.get('total', 0)} accepted digests")
+        except Exception as exc:  # noqa: BLE001
+            err.append(exc)
+        finally:
+            done.set()
+
+    threading.Thread(target=_run, daemon=True).start()
+    if not done.wait(timeout=budget):
+        print(f"sweep: emprego project EXCEEDED {budget:g}s budget — degraded DARK")
+    elif err:
+        print(f"sweep: emprego project skipped ({type(err[0]).__name__}: {err[0]}) — Tier-0 log is current")
+
+
+def _cortex_refresh(log=eventlog.LOG):
+    _maybe_project_emprego(log=log)
+    _maybe_consolidate()
+
+
 def _topic_direction_window_days():
     raw = os.environ.get("EDGE_TOPIC_DIRECTION_WINDOW_DAYS", "7")
     try:
@@ -1099,7 +1184,7 @@ def reproject():
     eventlog.consolidate_artefato_proposals()
     eventlog.project_direction()                       # pure fold — always
     eventlog.project_corpus()                          # pure fold — always (Tier-0, no graph)
-    _maybe_consolidate()                               # communities: vazão automática, knob-gated
+    _cortex_refresh()                                  # emprego gate, then communities
     missing = cortex.artefatos_without_kernel()        # the C3 gate finally gets a reader (ADR-0009)
     if missing:
         print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "
@@ -1213,7 +1298,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
                 cursors = _grok_baseline(cursors, grok_dir, install_birth=birth)
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
                               grok_dir=grok_dir, install_birth=birth)
-            cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
+            cursors, n = execute(plan, cursors, log=log)
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
                                                        grok_dir=grok_dir, log=log)
@@ -1225,7 +1310,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     elif reproject_fn is None:
         # Communities are the automatic consolidation leg of the wake. They must still refresh on a
         # no-delta dispatch so the briefing can read the current graph before any skill reasoning.
-        _maybe_consolidate()
+        _cortex_refresh(log=log)
     # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.
     # The run's `log` is threaded through (Codex P2): a custom-log dry-run never projects the real
     # corpus (publisher.reproject_graph default-skips a non-canonical log).
@@ -1235,6 +1320,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
 
 
 def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
+                                hermes_dir=None,
                                 complete_fn=None, completer_factory=None,
                                 rationalize_fn=None, lentes_config=None,
                                 reconcile_fn=None, project_fn=None, render_fn=None,
@@ -1250,7 +1336,8 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
     version = config.get(
         "racionalizador_version", "racionalizador-v3-session-provenance")
     pending = plan_rationalizations(
-        project_dir, log=log, codex_dir=codex_dir, backfill_days=backfill_days,
+        project_dir, log=log, codex_dir=codex_dir, hermes_dir=hermes_dir,
+        backfill_days=backfill_days,
         racionalizador_version=version,
     )
     if pending:
@@ -1264,6 +1351,7 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
             completer_factory=completer_factory,
             log=log,
             codex_dir=codex_dir,
+            hermes_dir=hermes_dir,
             rationalize_fn=rationalize_fn,
             backfill_days=backfill_days,
             max_sessions_per_sweep=config.get(

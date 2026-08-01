@@ -164,13 +164,13 @@ def _loads_json_loose(raw):
     if not text:
         raise ValueError("empty JSON input")
     try:
-        return json.loads(text)
+        return json.loads(text, strict=False)
     except json.JSONDecodeError:
         pass
     fence = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL | re.IGNORECASE)
     if fence:
         try:
-            return json.loads(fence.group(1).strip())
+            return json.loads(fence.group(1).strip(), strict=False)
         except json.JSONDecodeError:
             pass
     start = text.find("{")
@@ -770,10 +770,12 @@ def rationalize(
             raise _BudgetExhausted
         return raw
 
+    # Scene summaries for long sessions (free density for employment digests).
+    # Single-shot path leaves []. Additive field — does not enter rationalization_id.
+    summaries = []
     try:
         if scene_turn_limit is not None and len(normalized_turns) > scene_turn_limit:
             scenes = _uniform_scenes(normalized_turns, scene_turn_limit, max_scenes)
-            summaries = []
             for index, scene in enumerate(scenes):
                 raw_scene = _complete({
                     "stage": "scene",
@@ -857,6 +859,7 @@ def rationalize(
         "stitch": output["stitch"],
         "epistemico": output["epistemico"],
         "organizacional": output["organizacional"],
+        "cenas": summaries,
     }
     try:
         derived_batch, pending_activity_opens = _build_derived_batch(

@@ -70,13 +70,21 @@ def place_file(src, dst):
     return True
 
 
-def place_tree(src, dst):
+def place_tree(src, dst, replacements=None):
     """copytree a genotype dir into the install home, skipping when src == dst (REPO == edge_home).
     Returns True iff copied."""
     src, dst = Path(src), Path(dst)
     if src.resolve() == dst.resolve():
         return False
     shutil.copytree(src, dst, dirs_exist_ok=True)
+    for path in dst.rglob("*") if replacements else ():
+        if path.is_file():
+            text = path.read_text()
+            rendered = text
+            for old, new in replacements.items():
+                rendered = rendered.replace(old, new)
+            if rendered != text:
+                path.write_text(rendered)
     return True
 
 

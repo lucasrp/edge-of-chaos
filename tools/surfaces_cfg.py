@@ -136,7 +136,7 @@ def surface_home(name: str, cfg: dict | None = None, agent_yaml=None, env=None) 
     Precedence for grok:  GROK_HOME env  → agent.yaml surfaces.grok.home  → ~/.grok
     """
     env = os.environ if env is None else env
-    env_key = {"codex": "CODEX_HOME", "grok": "GROK_HOME"}.get(name)
+    env_key = {"codex": "CODEX_HOME", "grok": "GROK_HOME", "hermes": "HERMES_HOME"}.get(name)
     if env_key:
         raw = env.get(env_key)
         if isinstance(raw, str) and raw.strip():
@@ -149,6 +149,8 @@ def surface_home(name: str, cfg: dict | None = None, agent_yaml=None, env=None) 
         return Path.home() / ".codex"
     if name == "grok":
         return Path.home() / ".grok"
+    if name == "hermes":
+        return Path.home() / ".hermes"
     return None
 
 

@@ -4,6 +4,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+Environment=EDGE_HOME={{edge_home}}
 ExecStart={{edge_home}}/tools/edge-python {{edge_home}}/tools/sweep.py --rationalize-only
 WorkingDirectory={{edge_home}}
 TimeoutStartSec=30min

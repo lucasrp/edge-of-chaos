@@ -15,6 +15,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import onboarding  # noqa: E402
+import _hermes_provision  # noqa: E402
 
 
 def _mk_hermes_db(home, started_days_ago):
@@ -64,6 +65,15 @@ class HermesAdversarialAndRouters(unittest.TestCase):
         cast = onboarding.resolve_adversarial_cast([], primary="hermes")
         routers = onboarding._routers_for_cfg(cast, "hermes", None)
         self.assertEqual(routers["chat"]["provider"], "hermes")
+
+
+class HermesOnboardingGroup(unittest.TestCase):
+    def test_default_is_origin_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertTrue(_hermes_provision.configure_hermes_group(root, ""))
+            cfg = __import__("yaml").safe_load((root / "config.yaml").read_text())
+            self.assertEqual(cfg["edge_group"], "")
 
 
 if __name__ == "__main__":
