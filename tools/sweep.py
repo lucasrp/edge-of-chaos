@@ -108,11 +108,9 @@ def _qualifies(turns, body):
 
 
 def _cursor_id(session):
-    """Claude keeps its historical cursor key; Codex/Grok are namespaced to avoid collisions."""
-    if session.surface == "codex":
-        return f"codex:{session.id}"
-    if session.surface == "grok":
-        return f"grok:{session.id}"
+    """Claude keeps its historical cursor key; other surfaces are namespaced."""
+    if session.surface in ("codex", "grok", "hermes"):
+        return f"{session.surface}:{session.id}"
     return session.id
 
 
@@ -122,6 +120,8 @@ def _source_description(item):
         return "Codex work session (mentee<->edge)"
     if surface == "grok":
         return "Grok work session (mentee<->edge)"
+    if surface == "hermes":
+        return "Hermes work session (mentee<->edge)"
     return "Claude work session (mentee<->edge)"
 
 
@@ -141,6 +141,35 @@ def _grok_enabled(project_dir, grok_dir):
     """Optional Grok surface: explicit dir / False override, else agent.yaml surfaces.grok."""
     import surfaces_cfg
     return surfaces_cfg.include_optional_surface("grok", project_dir, grok_dir)
+
+
+def _hermes_enabled(project_dir, hermes_dir):
+    """Optional Hermes surface: explicit normalized export dir or installed live Hermes."""
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("hermes", project_dir, hermes_dir)
+
+
+def _claude_enabled(project_dir):
+    """Claude is required only when explicit or both configured and installed on the live host."""
+    if project_dir is False:
+        return False
+    if project_dir is not None:
+        return True
+    import surfaces_cfg
+    return surfaces_cfg.include_optional_surface("claude", None, None)
+
+
+def _prepare_hermes_dir(project_dir, hermes_dir):
+    """Return an explicit normalized Hermes cache, refreshing it once for a live-host sweep."""
+    if hermes_dir is False or hermes_dir is not None:
+        return hermes_dir
+    if not _hermes_enabled(project_dir, None):
+        return False
+    import surfaces_cfg
+    home = surfaces_cfg.surface_home("hermes")
+    cache = _identity.state_root() / "state" / "hermes-sessions"
+    sessions.refresh_hermes_sessions(cache, hermes_home=home)
+    return cache
 
 
 def _film_window_start(log=None):
@@ -245,7 +274,7 @@ def _grok_baseline(cursors, grok_dir=None, install_birth=None):
 
 
 def record_session_exclusions(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
-                              grok_dir=None):
+                              grok_dir=None, hermes_dir=None):
     """Append provenance corrections for non-operator sessions, once per session.
 
     This is deliberately mechanical and model-free. The raw transcript remains intact; report
@@ -253,13 +282,17 @@ def record_session_exclusions(project_dir=None, *, log=eventlog.LOG, codex_dir=N
     """
     include_codex = _codex_enabled(project_dir, codex_dir)
     include_grok = _grok_enabled(project_dir, grok_dir)
+    include_hermes = _hermes_enabled(project_dir, hermes_dir)
     if project_dir is None:
         project_dir = _identity.project_dir()
-    discovered = list(sessions.list_sessions(project_dir))
+    discovered = (list(sessions.list_sessions(project_dir))
+                  if project_dir is not False else [])
     if include_codex:
         discovered.extend(sessions.list_codex_sessions(codex_dir))
     if include_grok:
         discovered.extend(sessions.list_grok_sessions(grok_dir))
+    if include_hermes:
+        discovered.extend(sessions.list_hermes_sessions(hermes_dir))
     already = {
         payload["sessao_id"]
         for event in eventlog.read(types=["sessao.excluded"], log=log)
@@ -300,30 +333,33 @@ def _load_install_env():
 
 # --- pure plan: the digestible deltas (reads files, no graph/LLM) ---
 def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok_dir=None,
-               install_birth=None):
+               hermes_dir=None, install_birth=None):
     """For each session, the turns after its cursor + the new watermark, in **chronological order**
     (oldest first — bi-temporal ingest wants it). `skip` marks a delta too thin to ingest (left
     un-advanced to grow). Idempotent: a session at its watermark yields nothing new. `recent=N`
     bounds a run to the N most-recently-modified sessions (the rest backfill on later sweeps —
     the cursor makes the full sweep resumable)."""
+    hermes_dir = _prepare_hermes_dir(project_dir, hermes_dir)
     include_codex = _codex_enabled(project_dir, codex_dir)
     include_grok = _grok_enabled(project_dir, grok_dir)
+    include_hermes = _hermes_enabled(project_dir, hermes_dir)
     if project_dir is None:
-        project_dir = _identity.project_dir()   # fail-loud seam (ADR-0015), never a baked-in path
+        project_dir = (_identity.project_dir() if _claude_enabled(None) else False)
     cursors = cursors or {}
     window = _film_window_start()
     found = []
-    for s in sessions.list_sessions(project_dir):
-        if not _in_window(s.path, window):
-            continue
-        if not sessions.is_user_session(s, install_birth=install_birth):
-            continue
-        sid = _cursor_id(s)
-        seen = cursors.get(sid, 0)
-        turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
-        if watermark <= seen or not turns:
-            continue  # no new raw lines / no new dialogue
-        found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+    if project_dir is not False:
+        for s in sessions.list_sessions(project_dir):
+            if not _in_window(s.path, window):
+                continue
+            if not sessions.is_user_session(s, install_birth=install_birth):
+                continue
+            sid = _cursor_id(s)
+            seen = cursors.get(sid, 0)
+            turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
+            if watermark <= seen or not turns:
+                continue  # no new raw lines / no new dialogue
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     if include_codex:
         for s in sessions.list_codex_sessions(codex_dir):
             if not _in_window(s.path, window):
@@ -347,6 +383,18 @@ def plan_sweep(project_dir=None, cursors=None, recent=None, codex_dir=None, grok
             turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
             if watermark <= seen or not turns:
                 continue  # no new raw lines / no new dialogue
+            found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
+    if include_hermes:
+        for s in sessions.list_hermes_sessions(hermes_dir):
+            if not _in_window(s.path, window):
+                continue
+            if not sessions.is_user_session(s, install_birth=install_birth):
+                continue
+            sid = _cursor_id(s)
+            seen = cursors.get(sid, 0)
+            turns, watermark = sessions.delta(s.path, seen, surface=s.surface)
+            if watermark <= seen or not turns:
+                continue
             found.append((Path(s.path).stat().st_mtime, s, turns, watermark, sid))
     found.sort(key=lambda x: x[0])           # chronological
     if recent:
@@ -851,7 +899,7 @@ def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
         # until which the read-door fail-safe (unknown ⇒ context_only) holds the C5 invariant.
         payload = {"session": it["id"], "watermark": it["watermark"], "chars": len(it["body"]),
                    "medium_tier": "low_tier"}
-        if it.get("surface") in ("codex", "grok"):
+        if it.get("surface") in ("codex", "grok", "hermes"):
             payload["surface"] = it["surface"]
         eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
@@ -1181,7 +1229,7 @@ def _acquire_cursors_lock(lk, wait_s=CURSORS_LOCK_WAIT_S, poll_s=CURSORS_LOCK_PO
 
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
         log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None,
-        grok_dir=None, cursors_lock_wait_s=None):
+        grok_dir=None, hermes_dir=None, cursors_lock_wait_s=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
@@ -1194,8 +1242,17 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     # write as anyone — Tier-0 episode appends and cursor advances ARE writes. Identity fails
     # loud HERE, before the delta is consumed, never mid-sweep (where a rerun would see the
     # delta as already eaten by a groupless ghost). Tests pass `group` explicitly (hermetic).
-    if project_dir is None:
+    live_host = project_dir is None
+    if live_host:
         _load_install_env()
+        # Resolve every installed optional surface before replacing the absent Claude store with
+        # the explicit False sentinel. This preserves Codex/Grok parity on multi-harness hosts.
+        if codex_dir is None and _codex_enabled(None, None):
+            codex_dir = sessions.codex_sessions_dir()
+        if grok_dir is None and _grok_enabled(None, None):
+            grok_dir = sessions.grok_sessions_dir()
+        hermes_dir = _prepare_hermes_dir(None, hermes_dir)
+        project_dir = (_identity.project_dir() if _claude_enabled(None) else False)
     if group is None:
         group = _identity.require_group()
     # The whole load→plan→execute→save window is serialized by an exclusive flock on a sibling
@@ -1219,7 +1276,8 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
         try:
             cursors = load_cursors(cursors_path)
             excluded = record_session_exclusions(
-                project_dir, log=log, codex_dir=codex_dir, grok_dir=grok_dir)
+                project_dir, log=log, codex_dir=codex_dir, grok_dir=grok_dir,
+                hermes_dir=hermes_dir)
             corrected = bool(excluded)
             if excluded:
                 print(f"sweep: excluded {len(excluded)} delegated/protocol session(s) "
@@ -1230,7 +1288,8 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             if _grok_enabled(project_dir, grok_dir):
                 cursors = _grok_baseline(cursors, grok_dir, install_birth=birth)
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
-                              grok_dir=grok_dir, install_birth=birth)
+                              grok_dir=grok_dir, hermes_dir=hermes_dir,
+                              install_birth=birth)
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,

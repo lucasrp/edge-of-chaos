@@ -130,13 +130,14 @@ def surface_enabled(name: str, cfg: dict | None = None, agent_yaml=None) -> bool
 
 
 def surface_home(name: str, cfg: dict | None = None, agent_yaml=None, env=None) -> Path | None:
-    """Resolved home dir for an optional surface (codex/grok), or None if unset.
+    """Resolved home dir for an optional surface (codex/grok/hermes), or None if unset.
 
     Precedence for codex: CODEX_HOME env → agent.yaml surfaces.codex.home → ~/.codex
     Precedence for grok:  GROK_HOME env  → agent.yaml surfaces.grok.home  → ~/.grok
+    Precedence for Hermes: HERMES_HOME env → agent.yaml surfaces.hermes.home → ~/.hermes
     """
     env = os.environ if env is None else env
-    env_key = {"codex": "CODEX_HOME", "grok": "GROK_HOME"}.get(name)
+    env_key = {"codex": "CODEX_HOME", "grok": "GROK_HOME", "hermes": "HERMES_HOME"}.get(name)
     if env_key:
         raw = env.get(env_key)
         if isinstance(raw, str) and raw.strip():
@@ -149,6 +150,8 @@ def surface_home(name: str, cfg: dict | None = None, agent_yaml=None, env=None) 
         return Path.home() / ".codex"
     if name == "grok":
         return Path.home() / ".grok"
+    if name == "hermes":
+        return Path.home() / ".hermes"
     return None
 
 

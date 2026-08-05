@@ -1,7 +1,7 @@
 """Session reader + delta — the raw layer of the measure-learn spike (ADR-0004 decision A).
 
-A transcript is the non-lossy raw: one `.jsonl` = one session. **Three operator surfaces** —
-Claude Code, Codex, and Grok — normalize into the same ``Turn(role, text)`` shape.
+A transcript is the non-lossy raw: one `.jsonl` = one session. **Four operator surfaces** —
+Claude Code, Codex, Grok, and Hermes — normalize into the same ``Turn(role, text)`` shape.
 
 **Dialogue filter (rationalizer / quente / employment film):** the operator-visible corpus is
 exactly the Claude Code UI filter “conversation without terminals” — **user + assistant prose
@@ -14,11 +14,14 @@ Locator/offset-based; carries no domain semantics beyond surface normalization (
 import json
 import os
 import re
+import hashlib
+import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-# Operator-facing chat surfaces the edge films. Rationalization plans over all three.
-SURFACES = ("claude", "codex", "grok")
+# Operator-facing chat surfaces the edge films. Rationalization plans over all four.
+SURFACES = ("claude", "codex", "grok", "hermes")
 
 ROLES = {"user": "human", "assistant": "edge"}
 CODEX_ROLES = {"user": "human", "assistant": "edge"}
@@ -82,6 +85,10 @@ def grok_session_anchor(session_id: str) -> str:
     return session_id if session_id.startswith("grok:") else f"grok:{session_id}"
 
 
+def hermes_session_anchor(session_id: str) -> str:
+    return session_id if session_id.startswith("hermes:") else f"hermes:{session_id}"
+
+
 def split_session_anchor(session_id):
     if isinstance(session_id, str) and session_id.startswith("codex:"):
         raw = session_id[len("codex:"):]
@@ -89,11 +96,164 @@ def split_session_anchor(session_id):
     if isinstance(session_id, str) and session_id.startswith("grok:"):
         raw = session_id[len("grok:"):]
         return ("grok", raw) if raw else (None, None)
+    if isinstance(session_id, str) and session_id.startswith("hermes:"):
+        raw = session_id[len("hermes:"):]
+        return ("hermes", raw) if raw else (None, None)
     return ("claude", session_id) if isinstance(session_id, str) and session_id else (None, None)
 
 
+_HERMES_EXCLUDED_SOURCES = frozenset({"subagent", "tool", "cron"})
+
+
+def materialize_hermes_export(export_path, output_dir) -> list:
+    """Convert ``hermes sessions export`` JSONL into one transcript per operator session.
+
+    The public export is one JSON object per session, with nested messages. Edge cursors consume
+    one JSON line per message, so the private cache keeps only active user/assistant prose. Tool
+    output, rewound rows, worker sessions and parent/child sessions never enter the cache.
+    """
+    export_path = Path(export_path)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(output_dir, 0o700)
+    for stale in output_dir.glob("*.jsonl"):
+        stale.unlink()
+    found = []
+    for raw in export_path.read_text(errors="replace").splitlines():
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        session_id = row.get("id")
+        source = str(row.get("source") or "").strip().lower()
+        if (not isinstance(session_id, str) or not session_id.strip()
+                or source in _HERMES_EXCLUDED_SOURCES
+                or row.get("parent_session_id")):
+            continue
+        lines = [{
+            "type": "hermes_session_meta",
+            "id": session_id.strip(),
+            "source": source,
+            "started_at": row.get("started_at"),
+        }]
+        for message in row.get("messages") or []:
+            if not isinstance(message, dict) or message.get("active") in (0, False):
+                continue
+            role = message.get("role")
+            content = message.get("content")
+            if (role not in ("user", "assistant") or not isinstance(content, str)
+                    or not content.strip()):
+                continue
+            lines.append({
+                "type": "hermes_message",
+                "id": message.get("id"),
+                "role": role,
+                "content": content,
+                "timestamp": message.get("timestamp"),
+            })
+        if len(lines) == 1:
+            continue
+        digest = hashlib.sha256(session_id.strip().encode()).hexdigest()
+        path = output_dir / f"{digest}.jsonl"
+        path.write_text("".join(json.dumps(item, ensure_ascii=False) + "\n" for item in lines),
+                        encoding="utf-8")
+        os.chmod(path, 0o600)
+        stamp = row.get("ended_at") or row.get("started_at")
+        if isinstance(stamp, (int, float)) and stamp > 0:
+            os.utime(path, (float(stamp), float(stamp)))
+        found.append(Session(id=session_id.strip(), path=path, surface="hermes"))
+    return found
+
+
+def refresh_hermes_sessions(output_dir, *, hermes_home=None, run=None, timeout=300) -> list:
+    """Refresh one normalized cache at a time through public ``hermes sessions export``."""
+    import fcntl
+    output_dir = Path(output_dir)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = output_dir.with_name(output_dir.name + ".refresh.lock")
+    with lock_path.open("w") as lock:
+        os.chmod(lock_path, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            return _refresh_hermes_sessions_unlocked(
+                output_dir, hermes_home=hermes_home, run=run, timeout=timeout)
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def _refresh_hermes_sessions_unlocked(
+        output_dir, *, hermes_home=None, run=None, timeout=300) -> list:
+    """Build beside the live cache and replace it only after a complete successful export.
+
+    A failed or interrupted refresh cannot erase the last readable snapshot. The public wrapper
+    serializes this operation because predispatch and heartbeat may overlap on the same install.
+    """
+    output_dir = Path(output_dir)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    export_tmp = output_dir.with_name(output_dir.name + ".export.tmp")
+    staging = output_dir.with_name(output_dir.name + ".refresh.tmp")
+    previous = output_dir.with_name(output_dir.name + ".previous.tmp")
+    for path in (staging, previous):
+        if path.exists():
+            shutil.rmtree(path)
+    export_tmp.unlink(missing_ok=True)
+    export_tmp.touch(mode=0o600)
+    env = os.environ.copy()
+    if hermes_home is not None:
+        env["HERMES_HOME"] = str(Path(hermes_home).expanduser())
+    run = subprocess.run if run is None else run
+    try:
+        result = run(
+            ["hermes", "sessions", "export", str(export_tmp)],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=timeout,
+        )
+        if result.returncode != 0 or not export_tmp.is_file():
+            raise RuntimeError(f"hermes sessions export failed with exit {result.returncode}")
+        materialize_hermes_export(export_tmp, staging)
+        if output_dir.exists():
+            output_dir.rename(previous)
+        try:
+            staging.rename(output_dir)
+        except Exception:
+            if previous.exists() and not output_dir.exists():
+                previous.rename(output_dir)
+            raise
+        if previous.exists():
+            shutil.rmtree(previous)
+        return list_hermes_sessions(output_dir)
+    finally:
+        export_tmp.unlink(missing_ok=True)
+        if staging.exists():
+            shutil.rmtree(staging)
+
+
+def list_hermes_sessions(root) -> list:
+    """Discover normalized Hermes transcripts created by ``materialize_hermes_export``."""
+    root = Path(root)
+    if not root.is_dir():
+        return []
+    found = []
+    for path in sorted(root.glob("*.jsonl")):
+        session_id = None
+        try:
+            first = json.loads(path.read_text(errors="replace").splitlines()[0])
+            if first.get("type") == "hermes_session_meta":
+                session_id = first.get("id")
+        except (OSError, ValueError, IndexError):
+            pass
+        if isinstance(session_id, str) and session_id.strip():
+            found.append(Session(id=session_id.strip(), path=path, surface="hermes"))
+    return found
+
+
 def current_session_anchor(env=None):
-    """Live session anchor: Claude first, then Codex, then Grok, else None.
+    """Live session anchor: Claude, Codex, Grok, then Hermes, else None.
 
     Grok CLI does not export GROK_SESSION_ID; when unset, resolve from
     active_sessions.json (pid match / parent chain, else sole entry).
@@ -109,6 +269,9 @@ def current_session_anchor(env=None):
     sid = env.get("GROK_SESSION_ID")
     if isinstance(sid, str) and sid.strip():
         return grok_session_anchor(sid.strip())
+    sid = env.get("HERMES_SESSION_ID")
+    if isinstance(sid, str) and sid.strip():
+        return hermes_session_anchor(sid.strip())
     live = resolve_grok_live_session_id(env=env)
     if live:
         return grok_session_anchor(live)
@@ -320,7 +483,15 @@ def _first_human_text(path, surface="claude") -> str:
             obj = json.loads(line)
         except ValueError:
             continue
-        if surface == "codex":
+        if surface == "hermes":
+            if obj.get("type") != "hermes_message" or obj.get("role") != "user":
+                continue
+            text = _text_of(obj.get("content")).strip()
+            if any(text.startswith(prefix) for prefix in AUTOMATED_SESSION_PREFIXES):
+                return text
+            if not any(text.startswith(prefix) for prefix in SCAFFOLDING_PREFIXES):
+                return text
+        elif surface == "codex":
             if obj.get("type") != "response_item":
                 continue
             payload = obj.get("payload") or {}
@@ -536,6 +707,17 @@ def _grok_turn_from_obj(obj):
     return Turn(role=role, text=text)
 
 
+def _hermes_turn_from_obj(obj):
+    """One normalized Hermes-export message → Turn; metadata/tool rows stay dark."""
+    if not isinstance(obj, dict) or obj.get("type") != "hermes_message":
+        return None
+    role = {"user": "human", "assistant": "edge"}.get(obj.get("role"))
+    text = _text_of(obj.get("content")).strip()
+    if not role or not text or _is_scaffolding_turn(role, text):
+        return None
+    return Turn(role=role, text=text)
+
+
 def _normalize_surface(surface) -> str:
     s = (surface or "claude").strip().lower()
     if s not in SURFACES:
@@ -552,7 +734,9 @@ def _turns_from_lines(lines, surface="claude") -> list:
     """
     surface = _normalize_surface(surface)
     turns = []
-    if surface == "codex":
+    if surface == "hermes":
+        turn_from_obj = _hermes_turn_from_obj
+    elif surface == "codex":
         turn_from_obj = _codex_turn_from_obj
     elif surface == "grok":
         turn_from_obj = _grok_turn_from_obj
