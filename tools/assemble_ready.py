@@ -90,10 +90,44 @@ def check_relational_act(*, log=eventlog.LOG) -> Miss | None:
     return None
 
 
+def check_employment_pipe(*, log=eventlog.LOG, bypass_fn=None) -> Miss | None:
+    """EMPLOYMENT: legacy session-* Episodic residue means raw-dialogue bypass still in graph.
+
+    Empty list or dark graph (None) → no miss. Non-empty → fail closed with migrate hint.
+    """
+    if bypass_fn is None:
+        try:
+            import emprego
+            bypass_fn = emprego.bypass_episodes
+        except Exception as exc:  # noqa: BLE001
+            return Miss(
+                code=CODE_EMPLOYMENT,
+                detail=f"could not load emprego porteiro: {type(exc).__name__}: {exc}",
+            )
+    try:
+        names = bypass_fn()
+    except Exception as exc:  # noqa: BLE001
+        return Miss(
+            code=CODE_EMPLOYMENT,
+            detail=f"bypass check raised: {type(exc).__name__}: {exc}",
+        )
+    if names is None or not names:
+        return None
+    n = len(names)
+    return Miss(
+        code=CODE_EMPLOYMENT,
+        detail=(
+            f"{n} bypass episode(s) in graph — run tools/edge-python tools/emprego.py --migrate"
+        ),
+    )
+
+
 def _default_checks(*, log) -> list[Callable[[], Miss | None]]:
     # Pending open set is the bar: per package_id on the log (sole truth). seq is audit only.
+    # Employment pipe: no session-* Graphiti residue (employment-gate ADR-0025).
     return [
         lambda: check_pending_drain(log=log),
+        lambda: check_employment_pipe(log=log),
     ]
 
 
