@@ -18,6 +18,7 @@ inject a synthetic id via the test-only helper `eventlog.test_dispatch_id()`; th
 import ast
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -539,6 +540,38 @@ class ProducerSnippetsCarryTheDispatchId(unittest.TestCase):
         self.assertIn('str(edge_home / "tools")', text)
         self.assertIn("run_dir=edge_home / 'state' / 'rito' / slug", text)
         self.assertIn('--blog-dir "${EDGE_HOME}/blog/entries"', text)
+
+    def test_research_launcher_opens_phenotype_script_from_foreign_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            edge_home = root / "phenotype"
+            foreign_cwd = root / "elsewhere"
+            (edge_home / "state" / "live").mkdir(parents=True)
+            foreign_cwd.mkdir()
+            (edge_home / "tools").symlink_to(REPO / "tools", target_is_directory=True)
+            venv_bin = edge_home / ".venv" / "bin"
+            venv_bin.mkdir(parents=True)
+            (venv_bin / "python").symlink_to(Path(sys.executable))
+            script = edge_home / "state" / "live" / "research-smoke.py"
+            script.write_text(
+                "import os, sys\n"
+                "from pathlib import Path\n"
+                "edge_home = Path(os.environ['EDGE_HOME']).resolve()\n"
+                "sys.path.insert(0, str(edge_home / 'tools'))\n"
+                "import rito, llm_routes\n"
+                "print(edge_home / 'state' / 'rito' / 'smoke')\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [str(edge_home / "tools" / "edge-python"), str(script)],
+                cwd=foreign_cwd,
+                env={**os.environ, "EDGE_HOME": str(edge_home)},
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), str(edge_home / "state" / "rito" / "smoke"))
 
     def test_snippet_dispatch_id_literal_is_valid_python(self):
         # codex S2 gate D3: an apostrophe inside the placeholder ("the wake's …") CLOSES the
