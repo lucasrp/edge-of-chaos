@@ -532,6 +532,14 @@ class ProducerSnippetsCarryTheDispatchId(unittest.TestCase):
                           f"{p} never tells the producer where the id comes from "
                           "(the wake's machine-readable DISPATCH_ID line)")
 
+    def test_research_rito_snippet_is_split_home_safe(self):
+        text = (REPO / "skills" / "research" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn('${EDGE_HOME:?EDGE_HOME is required}/tools/edge-python', text)
+        self.assertIn('Path(os.environ["EDGE_HOME"]).expanduser().resolve()', text)
+        self.assertIn('str(edge_home / "tools")', text)
+        self.assertIn("run_dir=edge_home / 'state' / 'rito' / slug", text)
+        self.assertIn('--blog-dir "${EDGE_HOME}/blog/entries"', text)
+
     def test_snippet_dispatch_id_literal_is_valid_python(self):
         # codex S2 gate D3: an apostrophe inside the placeholder ("the wake's …") CLOSES the
         # single-quoted literal and SyntaxErrors the whole edge-python -c command. Compile the
