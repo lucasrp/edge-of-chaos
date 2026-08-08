@@ -326,7 +326,8 @@ def _entries():
 
 
 def _static():
-    return Path(os.environ.get("EDGE_BLOG_STATIC", _runtime_home() / "blog" / "static"))
+    # Static assets are versioned genotype code, not mutable phenotype state.
+    return Path(os.environ.get("EDGE_BLOG_STATIC", BASE / "static"))
 
 
 def _log():

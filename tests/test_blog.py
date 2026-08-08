@@ -31,8 +31,11 @@ class TestBlogSplitHomePaths(unittest.TestCase):
                 for key in ("EDGE_BLOG_ENTRIES", "EDGE_BLOG_STATIC", "EDGE_BLOG_LOG"):
                     os.environ.pop(key, None)
                 self.assertEqual(server._entries(), runtime / "blog" / "entries")
-                self.assertEqual(server._static(), runtime / "blog" / "static")
+                self.assertEqual(server._static(), server.BASE / "static")
                 self.assertEqual(server._log(), runtime / "state" / "events" / "log.jsonl")
+                response = server.app.test_client().get("/static/style.css")
+                self.assertEqual(response.status_code, 200)
+                self.assertGreater(len(response.data), 0)
 
     def test_explicit_paths_override_edge_home(self):
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "blog"))
