@@ -309,16 +309,28 @@ def _reject_oversized_body():
     return len(body.encode("utf-8")) > MAX_BODY_BYTES
 
 
+def _runtime_home():
+    """Return the phenotype root when this checkout serves an installed Edge.
+
+    `blog/server.py` commonly runs from the genotype checkout while publishers write to
+    `EDGE_HOME`.  Keeping checkout-relative defaults in that topology produces a healthy
+    but empty blog.  Explicit EDGE_BLOG_* paths remain the highest-precedence test/operator
+    override.
+    """
+    value = os.environ.get("EDGE_HOME")
+    return Path(value).expanduser() if value else BASE.parent
+
+
 def _entries():
-    return Path(os.environ.get("EDGE_BLOG_ENTRIES", BASE / "entries"))
+    return Path(os.environ.get("EDGE_BLOG_ENTRIES", _runtime_home() / "blog" / "entries"))
 
 
 def _static():
-    return Path(os.environ.get("EDGE_BLOG_STATIC", BASE / "static"))
+    return Path(os.environ.get("EDGE_BLOG_STATIC", _runtime_home() / "blog" / "static"))
 
 
 def _log():
-    return Path(os.environ.get("EDGE_BLOG_LOG", BASE.parent / "state" / "events" / "log.jsonl"))
+    return Path(os.environ.get("EDGE_BLOG_LOG", _runtime_home() / "state" / "events" / "log.jsonl"))
 
 
 def _read_events():

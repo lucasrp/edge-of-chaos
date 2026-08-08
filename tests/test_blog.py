@@ -19,6 +19,39 @@ def _ev(seq, ts, type_, slug, payload_extra=None):
                        "payload": payload})
 
 
+class TestBlogSplitHomePaths(unittest.TestCase):
+    def test_edge_home_is_default_for_installed_runtime(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "blog"))
+        import server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / "installed-edge"
+            env = {"EDGE_HOME": str(runtime)}
+            with unittest.mock.patch.dict(os.environ, env, clear=False):
+                for key in ("EDGE_BLOG_ENTRIES", "EDGE_BLOG_STATIC", "EDGE_BLOG_LOG"):
+                    os.environ.pop(key, None)
+                self.assertEqual(server._entries(), runtime / "blog" / "entries")
+                self.assertEqual(server._static(), runtime / "blog" / "static")
+                self.assertEqual(server._log(), runtime / "state" / "events" / "log.jsonl")
+
+    def test_explicit_paths_override_edge_home(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "blog"))
+        import server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            explicit = root / "explicit"
+            with unittest.mock.patch.dict(os.environ, {
+                "EDGE_HOME": str(root / "installed-edge"),
+                "EDGE_BLOG_ENTRIES": str(explicit / "entries"),
+                "EDGE_BLOG_STATIC": str(explicit / "static"),
+                "EDGE_BLOG_LOG": str(explicit / "log.jsonl"),
+            }):
+                self.assertEqual(server._entries(), explicit / "entries")
+                self.assertEqual(server._static(), explicit / "static")
+                self.assertEqual(server._log(), explicit / "log.jsonl")
+
+
 class TestBlog(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
