@@ -1268,5 +1268,68 @@ class PendingS6Integrations(unittest.TestCase):
         self.fail("rationalize exposes per-session cost; sweep must coordinate the aggregate")
 
 
+class LiveThreadConnectionIsTheDiscriminator(unittest.TestCase):
+    """#584 — the rationalizer judged each session in isolation, so `activity_relevant`
+    collapsed to 'durable within THIS session' (frequency as proxy). A one-off new front
+    inside a live thread (the e-TCU download) never projected. The discriminator must be
+    CONNECTION to an open thread, not frequency: feed the open threads into the prompt so
+    the LLM can judge connection and let a connected front inherit the thread's salience.
+    """
+
+    def test_open_threads_reach_the_session_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            captured = []
+
+            def complete_fn(prompt):
+                captured.append(prompt)
+                return json.dumps(_nothing_changed())
+
+            turns = [
+                {"role": "human",
+                 "text": "baixa as ~4800 representações do e-TCU pro corpus v10.23"},
+                {"role": "edge", "text": "rodei o download; 3930 docx extraídos."},
+            ]
+            racionalizador.rationalize(
+                "session-etcu", turns, complete_fn, log=log,
+                surface="claude", watermark=2,
+                open_threads=[{"operacao": "edge",
+                               "finalidade": "expandir o corpus canônico v10.23instrucao"}],
+            )
+            self.assertTrue(captured, "rationalize must call the completer")
+            self.assertIn(
+                "expandir o corpus canônico v10.23instrucao", captured[-1],
+                "open threads must reach the prompt so connection is judgeable, not frequency",
+            )
+
+    def test_no_open_threads_is_backward_compatible(self):
+        """Default (None) omits the context — old behavior, no empty key noise."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            captured = []
+
+            def complete_fn(prompt):
+                captured.append(prompt)
+                return json.dumps(_nothing_changed())
+
+            racionalizador.rationalize(
+                "session-plain",
+                [{"role": "human", "text": "revisa a spec das lentes"}],
+                complete_fn, log=log, surface="claude", watermark=1,
+            )
+            self.assertTrue(captured)
+            # the instruction TEXT names open_threads (the rule), but no context DATA is injected
+            self.assertNotIn("open_threads", json.loads(captured[-1]))
+
+    def test_instruction_names_the_connection_discriminator(self):
+        instr = racionalizador._SESSION_JSON_INSTRUCTION.lower()
+        self.assertIn(
+            "open_threads", instr,
+            "the rule must reference the provided open threads it judges connection against")
+        self.assertTrue(
+            "conect" in instr or "connect" in instr,
+            "activity_relevant must admit a one-off front CONNECTED to a live thread")
+
+
 if __name__ == "__main__":
     unittest.main()

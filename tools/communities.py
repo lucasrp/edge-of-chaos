@@ -211,12 +211,12 @@ def locate(names, group=None, **kw):
 
 
 def _default_summarize(members_text):
-    """gpt-4o-mini one-shot name+summary; injected in tests. Raises on transport error —
+    """gpt-5.4-mini one-shot name+summary; injected in tests. Raises on transport error —
     consolidate catches and degrades."""
     import urllib.request
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
-        data=json.dumps({"model": "gpt-4o-mini", "max_tokens": 300, "messages": [{
+        data=json.dumps({"model": "gpt-5.4-mini", "max_completion_tokens": 300, "messages": [{
             "role": "user",
             "content": "Estas entidades formam um cluster de conhecimento das sessões de "
                        "trabalho de um operador. Dê um NOME curto (3-6 palavras, PT-BR) e um "
@@ -242,12 +242,12 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
     summarize_fn = summarize_fn or _default_summarize
     try:
         with drv.session() as s:
-            # ponytail: preserve the legacy uuid index; rebuild is the single writer and emits UUID4.
-            # Replacing it with a constraint would require a destructive schema migration.
-            s.run("CREATE INDEX community_uuid IF NOT EXISTS "
-                  "FOR (c:Community) ON (c.uuid)")
-            s.run("CREATE INDEX community_group IF NOT EXISTS "
-                  "FOR (c:Community) ON (c.group_id)")
+            # ed: no edge-owned schema on :Community. graphiti already indexes Community(uuid)
+            # and Community(group_id); a CREATE CONSTRAINT on Community(uuid) is rejected by
+            # Neo4j (Schema.IndexAlreadyExists — a constraint's backing index duplicates the
+            # existing one, name-independent), and the outer except swallowed it → silent
+            # "0 clusters" on every host graphiti touched first. uuids are uuid4 (unique by
+            # construction) and consolidate wipe-rebuilds each run, so no constraint is needed.
             # codex [medium]: uuid é load-bearing — nulos ficam fora do clustering
             ents = s.run("MATCH (n:Entity {group_id:$g}) WHERE n.uuid IS NOT NULL "
                          "RETURN n.uuid AS u, n.name AS name, "
@@ -293,5 +293,9 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
         with drv.session() as s:
             s.execute_write(_rebuild)
         return [{"name": n, "size": len(g)} for _, n, _, g in payloads]
-    except Exception:
+    except Exception as e:
+        # ed: never swallow silently — a raised consolidate reads identically to an empty
+        # graph ("0 clusters"), which hid the schema-name collision above for weeks.
+        import traceback; traceback.print_exc()
+        print(f"communities: consolidate degraded ({type(e).__name__}: {e}) — 0 clusters written")
         return None

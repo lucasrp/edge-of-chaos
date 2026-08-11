@@ -4,11 +4,14 @@ from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
+TESTS = Path(__file__).resolve().parent
+ROOT = TESTS.parent
+sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(TESTS))
 import quente
 import sessions
 import sweep
-from tests.test_hermes_sessions import HermesSessionsTest
+from test_hermes_sessions import HermesSessionsTest
 
 
 class HermesPipelineTest(HermesSessionsTest):

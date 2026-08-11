@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -27,7 +28,7 @@ class TestBlogSplitHomePaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             runtime = Path(tmp) / "installed-edge"
             env = {"EDGE_HOME": str(runtime)}
-            with unittest.mock.patch.dict(os.environ, env, clear=False):
+            with mock.patch.dict(os.environ, env, clear=False):
                 for key in ("EDGE_BLOG_ENTRIES", "EDGE_BLOG_STATIC", "EDGE_BLOG_LOG"):
                     os.environ.pop(key, None)
                 self.assertEqual(server._entries(), runtime / "blog" / "entries")
@@ -44,7 +45,7 @@ class TestBlogSplitHomePaths(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             explicit = root / "explicit"
-            with unittest.mock.patch.dict(os.environ, {
+            with mock.patch.dict(os.environ, {
                 "EDGE_HOME": str(root / "installed-edge"),
                 "EDGE_BLOG_ENTRIES": str(explicit / "entries"),
                 "EDGE_BLOG_STATIC": str(explicit / "static"),

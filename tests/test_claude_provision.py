@@ -143,5 +143,50 @@ class TestRenderClaudeMd(unittest.TestCase):
         self.assertNotIn("}}", out)
 
 
+class TestClaudeMdOwnerGuard(unittest.TestCase):
+    """The #154 guard must tell apart three states of an existing ~/.claude/CLAUDE.md:
+    the SAME edge install (reprovision), ANOTHER edge install (fail loud — the guard's real
+    job), and a NON-edge file (the operator's own CLAUDE.md). The last must never be mistaken
+    for an install named after its title line — the false-positive that read '# CLAUDE.md' as
+    owner='CLAUDE.md' and blocked every install on a host with its own CLAUDE.md."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.claude_home = Path(self._tmp.name) / ".claude"
+        self.claude_home.mkdir(parents=True)
+        self.claude_md = self.claude_home / "CLAUDE.md"
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_same_install_reprovisions(self):
+        self.claude_md.write_text(cp.render_claude_md(CFG))
+        cp.provision_claude(CFG, REPO, self.claude_home)        # no raise
+        self.assertIsNotNone(cp._claude_md_owner(self.claude_md.read_text()))
+
+    def test_other_edge_install_fails_loud(self):
+        other = dict(CFG, name="petertosh", codename="petertosh")
+        self.claude_md.write_text(cp.render_claude_md(other))
+        with self.assertRaises(RuntimeError) as ctx:
+            cp.provision_claude(CFG, REPO, self.claude_home)
+        self.assertIn("petertosh", str(ctx.exception))          # #154 protection preserved
+        self.assertIn("petertosh", self.claude_md.read_text())  # not clobbered
+
+    def test_foreign_user_claude_md_not_mistaken_for_install(self):
+        user_md = "# CLAUDE.md\n\nBehavioral guidelines. Merge with project instructions.\n"
+        self.claude_md.write_text(user_md)
+        with self.assertRaises(RuntimeError) as ctx:
+            cp.provision_claude(CFG, REPO, self.claude_home)
+        msg = str(ctx.exception)
+        self.assertNotIn("install 'CLAUDE.md'", msg)            # the false-positive is gone
+        self.assertIn("não é gerenciado", msg)                  # names the real situation
+        self.assertEqual(self.claude_md.read_text(), user_md)   # operator's file untouched
+
+    def test_owner_read_from_codename_marker_not_first_line(self):
+        text = cp.render_claude_md(CFG)
+        self.assertEqual(cp._claude_md_owner(text), "ed")
+        self.assertIsNone(cp._claude_md_owner("# some other title\n\nno identity here\n"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

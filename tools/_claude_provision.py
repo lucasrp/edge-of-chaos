@@ -47,6 +47,17 @@ def render_claude_md(cfg: dict) -> str:
     return render_text(CLAUDE_TPL.read_text(), claude_vars(cfg))
 
 
+def _claude_md_owner(text):
+    """Which install a CLAUDE.md belongs to, or None if it is NOT an edge-managed file.
+    Ownership is the rendered identity marker ('Codename: **<name>**' — templates/CLAUDE.md.tpl),
+    never the raw first line: a host's own CLAUDE.md (title '# CLAUDE.md', behavioral guidelines)
+    is owned by NO install and must be told apart from another edge install's file. The #154
+    false-positive read '# CLAUDE.md' as owner='CLAUDE.md' — a name no install matches — and so
+    blocked every install on a host that had its own CLAUDE.md."""
+    m = re.search(r"Codename:\s*\*\*(.+?)\*\*", text)
+    return m.group(1).strip() if m else None
+
+
 def memory_project_dir(cfg: dict) -> str:
     """Claude's per-project memory dir key, derived from agent.yaml `edge_home` (path → dashed key).
     No baked-in install-path literal (#21): the install root is the genotype's, not a tenant's."""
@@ -155,9 +166,18 @@ def provision_claude(cfg: dict, repo: Path, claude_home: Path) -> list:
     my_ids = {s for s in (str(cfg.get("codename") or "").strip(),
                           str(cfg.get("name") or "").strip()) if s}
     if claude_md.is_file() and my_name:
-        first = next((l.strip() for l in claude_md.read_text().splitlines() if l.strip()), "")
-        owner = first.lstrip("# ").strip()
-        if owner and owner not in my_ids:
+        owner = _claude_md_owner(claude_md.read_text())
+        if owner is None:
+            # NÃO é um CLAUDE.md do edge (falta o marcador de identidade renderizado) — é o
+            # arquivo do próprio operador. Distinto do #154: a 1ª linha "# CLAUDE.md" virava
+            # owner='CLAUDE.md' e travava TODO install num host com CLAUDE.md próprio. O edge
+            # nunca sobrescreve um arquivo que não é seu — mas diz por quê e o que fazer.
+            raise RuntimeError(
+                f"{claude_md} não é gerenciado pelo edge (falta o marcador "
+                "'Codename: **…**') — é o CLAUDE.md do próprio operador. O edge não "
+                "sobrescreve um CLAUDE.md que não é seu: faça backup e remova, ou use um "
+                "claude-home dedicado (--claude-home).")
+        if owner not in my_ids:
             raise RuntimeError(
                 f"{claude_md} pertence ao install '{owner}' — provisionar '{my_name}' "
                 "sobrescreveria a identidade dele (#154); este harness já tem dono")

@@ -57,8 +57,14 @@ _SESSION_JSON_INSTRUCTION = (
     "human initiated or continued the work, at the granularity their own turns support; "
     "human_turn_indexes cites those original human turns; edge_execution records what the AI "
     "implemented/reviewed/explained and NEVER replaces human_purpose; shared_outcome says what "
-    "that execution changed for the human purpose. Set activity_relevant=false when the scene "
-    "does not advance a durable human purpose. A technical purpose is valid when the human "
+    "that execution changed for the human purpose. Set activity_relevant=false ONLY when the "
+    "scene neither advances a durable human purpose NOR opens/continues a new front connected "
+    "to one of the request's `open_threads` (the currently-open Atividades). Frequency is NOT "
+    "the discriminator: a one-off front (a new dataset, download, pipeline, sub-goal) that "
+    "connects to an open thread is activity_relevant=true and inherits that thread's salience "
+    "even at its first appearance — reuse that thread's operacao. Discard only the one-off that "
+    "is ALSO disconnected from every open thread. "
+    "A technical purpose is valid when the human "
     "actually reasons about that technical trade-off; delegation alone does not transfer the "
     "edge's implementation vocabulary to the human. Epistemic presumptions and derived claims "
     "must likewise bear on human_purpose; edge-only implementation details may support them but "
@@ -704,11 +710,17 @@ def rationalize(
     scene_turn_limit=None,
     max_scenes=9,
     sweep_token_budget=None,
+    open_threads=None,
 ):
     """Rationalize one persisted session and atomically checkpoint its validated batch.
 
     Identical input/version returns no events.  A later input for the same session names
     the previous rationalization in ``supersedes`` under the append lock.
+
+    ``open_threads`` — the currently-open Atividades (``eventlog.atividades_at`` folded to
+    ``estado in {aberta, reaberta}``, each ``{operacao, finalidade}``). Fed into the session
+    prompt so the ``activity_relevant`` gate discriminates on CONNECTION to a live thread, not
+    on frequency: a one-off front connected to an open thread survives the sweep (#584).
     """
     session_id = _nonblank(session_id, "session_id")
     surface = _nonblank(surface, "surface")
@@ -730,6 +742,16 @@ def rationalize(
         watermark = len(normalized_turns)
     if isinstance(watermark, (dict, list)) or watermark is None:
         raise ValueError("watermark must be a scalar cursor")
+
+    # Open threads the connection discriminator judges against — {operacao, finalidade} only,
+    # blanks dropped. Empty/None omits the key (backward-compatible prompt).
+    open_context = [
+        {"operacao": t["operacao"].strip(), "finalidade": t["finalidade"].strip()}
+        for t in (open_threads or [])
+        if isinstance(t, dict)
+        and isinstance(t.get("operacao"), str) and t["operacao"].strip()
+        and isinstance(t.get("finalidade"), str) and t["finalidade"].strip()
+    ]
 
     source_hash = _digest({
         "session_id": session_id,
@@ -819,6 +841,7 @@ def rationalize(
                 "surface": surface,
                 "watermark": watermark,
                 "scene_summaries": summaries,
+                **({"open_threads": open_context} if open_context else {}),
             })
         else:
             raw_output = _complete({
@@ -832,6 +855,7 @@ def rationalize(
                 "surface": surface,
                 "watermark": watermark,
                 "turns": normalized_turns,
+                **({"open_threads": open_context} if open_context else {}),
             })
         output = _validated_output(raw_output, turns=normalized_turns)
     except _BudgetExhausted:

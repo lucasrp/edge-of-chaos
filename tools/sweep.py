@@ -699,6 +699,21 @@ def _bounded_sweep_completer(complete_fn, completer_factory, token_budget):
     return complete
 
 
+def _open_threads(log):
+    """Currently-open Atividades as {operacao, finalidade} — the connection context (#584).
+
+    Folded from the eventlog (graph-independent, works corpus-dark). Feeds the rationalizer so
+    its ``activity_relevant`` gate discriminates on connection to a live thread, not frequency:
+    a one-off front connected to an open thread survives the sweep.
+    """
+    return [
+        {"operacao": a["operacao"], "finalidade": a["finalidade"]}
+        for a in eventlog.atividades_at(log=log).values()
+        if a.get("estado") in ("aberta", "reaberta")
+        and a.get("operacao") and a.get("finalidade")
+    ]
+
+
 def rationalize_pending_sessions(
     project_dir,
     complete_fn,
@@ -817,6 +832,9 @@ def rationalize_pending_sessions(
                     racionalizador_version=racionalizador_version,
                     sweep_token_budget=remaining,
                     scene_turn_limit=scene_turn_limit,
+                    # Recomputed per session so a front connects to threads opened earlier in
+                    # THIS oldest-first sweep, not only threads open before it started (#584).
+                    open_threads=_open_threads(log),
                 )
                 if not isinstance(result, dict):
                     raise TypeError("rationalize_fn must return a dict")
