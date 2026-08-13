@@ -167,7 +167,7 @@ def render_hermes_skill(slug: str, prefix: str, canonical_skill: Path, edge_grou
         f"4. For every EoC tool command, set `EDGE_HOME={edge_home}` and run with working "
         f"directory `{edge_home}` so canonical relative paths resolve against the live install.\n"
         + (f"5. Set `EDGE_GROUP={edge_group}` for every EoC tool command.\n" if edge_group else "")
-        + ("6. WAKE TERMINAL INVARIANT: render the canonical human-facing orientation, then halt and ask what the operator wants to work on. Do not start work before their reply.\n" if slug == "wake" else "")
+        + ("6. WAKE TERMINAL INVARIANT: use only the canonical four briefs to render the human-facing orientation; do not inspect Mentor eligibility, session counts, Honcho, Graphiti, Neo4j, or dependency health. If one brief is unavailable, degrade in one sentence. Then halt, ask exactly one short question about what the operator wants to work on, and wait for their reply. Never end on tool output or an unresolved investigation.\n" if slug == "wake" else "")
     )
 
 

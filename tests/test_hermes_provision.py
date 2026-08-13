@@ -29,8 +29,12 @@ class WrapperRender(unittest.TestCase):
         self.assertIn("/x/skills/wake/SKILL.md", out)
         self.assertIn("canonical contract", out)
         self.assertIn("human-facing orientation", out)
-        self.assertIn("ask what the operator wants to work on", out)
-        self.assertIn("Do not start work before their reply", out)
+        self.assertIn("what the operator wants to work on", out)
+        self.assertIn("canonical four briefs", out)
+        self.assertIn("do not inspect Mentor eligibility", out)
+        self.assertIn("ask exactly one short question", out)
+        self.assertIn("wait for their reply", out)
+        self.assertIn("Never end on tool output", out)
 
     def test_terminal_invariant_is_wake_only(self):
      out = _hermes_provision.render_hermes_skill(

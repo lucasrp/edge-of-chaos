@@ -185,6 +185,31 @@ class TheThreeBriefFanIsPinnedInProse(unittest.TestCase):
         self.assertIn("quente", skill)
         self.assertIn("adr-0014", skill)
 
+    def test_wake_first_turn_is_bounded_orientation_only(self):
+        skill = (REPO / "skills" / "wake" / "SKILL.md").read_text(encoding="utf-8").lower()
+        for invariant in (
+            "first-turn hard boundary",
+            "only the four briefs",
+            "do not inspect mentor",
+            "exactly one short question",
+            "wait for the operator's reply",
+        ):
+            self.assertIn(invariant, skill)
+
+    def test_wake_must_degrade_and_close_instead_of_auditing_dependencies(self):
+        skill = (REPO / "skills" / "wake" / "SKILL.md").read_text(encoding="utf-8").lower()
+        for invariant in (
+            "bounded execution contract",
+            "do not open a dependency audit",
+            "neo4j",
+            "context compaction",
+            "do not repeat discovery",
+            "mandatory closure",
+            "chosen direction",
+            "next action",
+        ):
+            self.assertIn(invariant, skill)
+
     def test_pipeline_predispatch_fans_assemble_delta_recall(self):
         pipeline = (REPO / "skills" / "_shared" / "pipeline.md").read_text(encoding="utf-8").lower()
         self.assertIn("assemble + delta + recall", pipeline)
