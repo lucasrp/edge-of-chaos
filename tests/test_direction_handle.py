@@ -266,6 +266,13 @@ class TheProjectionCarriesTheHandleToTheGraph(unittest.TestCase):
 
         def run(self, cypher, **kw):
             self.calls.append((cypher, kw))
+            # O dublê tem que RESPONDER as consultas que o código faz, não só registrá-las.
+            # `merge_spine_objective` (#633) faz `.single()["id"]` sobre o MERGE da espinha; um
+            # dublê que devolve vazio ali quebra com TypeError — e, pior, um que devolvesse algo
+            # genérico esconderia a dependência. Responder só ao que é pedido mantém o dublê
+            # honesto: se a projeção passar a exigir outra coluna, isto quebra em vez de mentir.
+            if cypher.startswith("MERGE (o:Objective") and "elementId(o) AS id" in cypher:
+                return TheProjectionCarriesTheHandleToTheGraph._Rec([{"id": "e-spine-1"}])
             return TheProjectionCarriesTheHandleToTheGraph._Rec()
 
     def _project(self, log):
