@@ -398,7 +398,7 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
     if primary in ("claude", "opus", "fable"):
         routers["chat"] = {"provider": "claude", "model": "opus" if primary == "claude" else primary}
     elif primary == "codex":
-        routers["chat"] = {"provider": "codex", "model": "gpt-5.5"}
+        routers["chat"] = {"provider": "codex", "model": "gpt-5.6-luna"}
     elif primary == "grok":
         routers["chat"] = {"provider": "grok", "model": "grok-4.5"}
     elif primary == "hermes":

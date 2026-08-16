@@ -1779,7 +1779,7 @@ def _log_close_event(type_, payload):
 # presentation change) or SUBSTANTIVE (names a fix to the CONTENT — fabricated/uncited fact, an
 # unsupported number, a contradiction) is a JUDGMENT, not a lexical pattern: no keyword list can tell
 # "atenue: soa mais forte" (cosmetic) from "a conclusão é mais forte que a evidência permite"
-# (substantive). So an LLM AGENT decides it — the SAME review completer (codex/gpt-5.5 post-#55):
+# (substantive). So an LLM AGENT decides it — the SAME review completer (codex, no modelo declarado em routers.review post-#55):
 # codex gating codex's own strikes. Fail-closed: a malformed judge response is treated as SUBSTANTIVE
 # (blocks); an LLMTransportError propagates (infra ≠ veredito, issue #55).
 _COSMETIC_JUDGE_PROMPT = (
@@ -1803,7 +1803,7 @@ def _strike_texts(verdicts) -> list:
 
 
 def _strikes_are_cosmetic(verdicts, complete_fn) -> bool:
-    """SEMANTIC meta-gate (issue #65): an LLM agent (the review completer — codex/gpt-5.5) decides
+    """SEMANTIC meta-gate (issue #65): an LLM agent (the review completer — codex, no modelo declarado em routers.review) decides
     whether EVERY surviving strike is merely presentational. True ONLY iff the judge returns
     `all_cosmetic: true`. Fail-closed: no completer, or no strikes → False; a malformed/unparseable
     judge response → False (substantive, blocks). An LLMTransportError propagates (infra ≠ veredito)."""
@@ -1919,7 +1919,7 @@ def _try_residual_publish(artefato, verdicts, publish_fn, complete_fn=None):
     if not _residual_eligible(verdicts):
         return None
     # (1b) the SEMANTIC cosmetic meta-gate (issue #65): only cosmetic criticism converges to a
-    # graded publish; a substantive strike hard-gates. Judged by the codex/gpt-5.5 completer.
+    # graded publish; a substantive strike hard-gates. Judged by the codex, no modelo declarado em routers.review completer.
     if not _strikes_are_cosmetic(verdicts, complete_fn):
         _log_close_event("close.residual_substantive",
                          {"slug": artefato.get("slug"), "strikes": _strike_texts(verdicts)})
