@@ -18,6 +18,20 @@ import time
 import uuid as uuidlib
 from collections import Counter, defaultdict
 
+_AUTO = object()   # "resolva pelo seam" — DISTINTO de None/"" , que significam "sem grupo"
+
+
+def _resolve_group(group):
+    """O grupo efetivo. `_AUTO` (o default) resolve pelo seam; None ou "" são uma INSTRUÇÃO
+    explícita do chamador — sem grupo — e continuam sem grupo.
+
+    Antes o default era None e o corpo fazia `group or _group()`, o que apaga a diferença: um
+    None explícito virava "resolva um pra mim" e a chamada caía no grafo do install. Era
+    invisível enquanto a identidade vinha só de EDGE_GROUP (quase sempre ausente em teste);
+    passou a morder quando a resolução ganhou o agent.yaml."""
+    return _group() if group is _AUTO else group
+
+
 def _group():
     """O grupo, resolvido pelo seam único (ADR-0015) e SOB DEMANDA.
 
@@ -121,10 +135,10 @@ def _driver(uri=None, user=None, password=None):
         return None
 
 
-def communities(group=None, **kw):
+def communities(group=_AUTO, **kw):
     """The briefing §5 leg: [{uuid, name, summary, size, last_touched}] recency-desc.
     [] = graph reachable, no communities yet; None = dark."""
-    group = group or _group()
+    group = _resolve_group(group)
     if not group:
         return None
     drv = _driver(**kw)
@@ -145,10 +159,10 @@ def communities(group=None, **kw):
         return None
 
 
-def community(ref, group=None, **kw):
+def community(ref, group=_AUTO, **kw):
     """One cluster in full: members (with last_mentioned) + provenance (source sessions via
     MENTIONS, artefatos via DISTILLS). ref = uuid or name. None = dark/not found."""
-    group = group or _group()
+    group = _resolve_group(group)
     if not group:
         return None
     drv = _driver(**kw)
@@ -185,10 +199,10 @@ def community(ref, group=None, **kw):
         return None
 
 
-def locate(names, group=None, **kw):
+def locate(names, group=_AUTO, **kw):
     """JULGAR positioning: for each entity name, which community holds it (member), neighbours
     it (edge — RELATES_TO into a community), or none. None = dark."""
-    group = group or _group()
+    group = _resolve_group(group)
     if not group:
         return None
     if not names:
@@ -236,12 +250,12 @@ def _default_summarize(members_text):
     return body["choices"][0]["message"]["content"].strip()
 
 
-def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
+def consolidate(group=_AUTO, summarize_fn=None, min_size=3, min_cross=2, **kw):
     """The offline consolidation sweep (WRITE side — called by heartbeat/sweep, NOT the door):
     entities+RELATES_TO → cluster() → merge_pass() → summarize each → wipe-rebuild Community/
     HAS_MEMBER (their own lifecycle; the log stays the truth, ADR-0006). Returns the list of
     {name, size} written, or None on a dark graph. Dust count is logged, never silent."""
-    group = group or _group()
+    group = _resolve_group(group)
     if not group:
         return None
     drv = _driver(**kw)

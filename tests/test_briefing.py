@@ -62,6 +62,23 @@ def _genotype(memory, idiom=True, personality=True, method=True, canone=True):
     return memory
 
 
+ROSTER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "roster.agent.yaml"
+MEMORY_FIXTURE = Path(__file__).resolve().parent.parent / "seeds" / "memory"
+"""A doutrina CANONICA do genotipo (seeds/memory), nao uma inventada para o teste.
+
+O briefing exige personality/method/canone inscritos em TODO estagio (ADR-0009), e a
+doutrina viva mora na CASA do install. Os testes liam a casa do host: no genotipo (sem
+memory/) levantavam BriefingIdentityError. seeds/ e a semente versionada de onde a casa e
+provisionada — a mesma doutrina, host-independente."""
+"""O roster/identidade DECLARADOS destes testes.
+
+Antes, compose_briefing() e source_roster() caiam no agent.yaml DO HOST. No genotipo
+(que por contrato nao tem agent.yaml) as duas levantavam BriefingIdentityError e 34
+testes falhavam por construcao — sem dizer nada sobre o briefing. Os testes que exercitam
+a recusa fail-closed continuam passando o PROPRIO caminho e nao usam esta constante.
+"""
+
+
 class ObjectiveIsTheBriefingSpine(unittest.TestCase):
     """The grill's anchor surfaces as the briefing **spine** — a top section the agent orients from
     every dispatch, ABOVE Direction (the objective is what Direction is measured against). Inscribed
@@ -73,7 +90,7 @@ class ObjectiveIsTheBriefingSpine(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship durable steer before tuning the grill", log=log)
             eventlog.set_direction("a", "ship the briefing composer", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("ship durable steer before tuning the grill", text)
             self.assertLess(text.index("ship durable steer before tuning the grill"),
                             text.index("ship the briefing composer"))  # spine above Direction
@@ -83,12 +100,12 @@ class ObjectiveIsTheBriefingSpine(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("revealed objective B",
                                    rationale="says mission A, behavior shows B", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("says mission A, behavior shows B", text)
 
     def test_no_objective_yet_renders_marker_without_crashing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl")
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("no confirmed objective yet", text.lower())
 
 
@@ -102,7 +119,7 @@ class DirecionamentoReportInjectedAsMentoring(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.report_direction("the steer toward the objective, live", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("the steer toward the objective, live", text)
 
     def test_only_latest_report_shows_not_the_whole_lineage(self):
@@ -110,13 +127,13 @@ class DirecionamentoReportInjectedAsMentoring(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.report_direction("stale prior steer", log=log)
             eventlog.report_direction("the current live steer", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("the current live steer", text)
             self.assertNotIn("stale prior steer", text)
 
     def test_no_report_yet_renders_marker_without_crashing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl")
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("no direcionamento report yet", text.lower())
 
 
@@ -129,7 +146,7 @@ class DirectionInscribedCuratedFirst(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.set_direction("a", "ship the briefing composer", log=log)
             eventlog.propose("b", "explore Tier-1 clusters", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("ship the briefing composer", text)
             self.assertIn("explore Tier-1 clusters", text)
             self.assertLess(text.index("ship the briefing composer"),
@@ -137,7 +154,7 @@ class DirectionInscribedCuratedFirst(unittest.TestCase):
 
     def test_no_direction_yet(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl")
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("no direction set yet", text.lower())
 
 
@@ -152,7 +169,7 @@ class ContinuityInscribesTheLatestKernel(unittest.TestCase):
             eventlog._append_orphan_published_for_test("recall-report", log=log)
             eventlog.kernel("recall-report",
                             "open: read-budget unnamed; bet: name it next beat", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("open / the next bet", text.lower())
             self.assertIn("open: read-budget unnamed; bet: name it next beat", text)
 
@@ -163,7 +180,7 @@ class ContinuityInscribesTheLatestKernel(unittest.TestCase):
             eventlog.kernel("older", "old intent", log=log)
             eventlog._append_orphan_published_for_test("newer", log=log)
             eventlog.kernel("newer", "fresh intent — the live continuity", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("fresh intent — the live continuity", text)
 
 
@@ -179,7 +196,7 @@ class CorpusListsRecentStepsAndC3Debt(unittest.TestCase):
             eventlog.kernel("older-report", "why older", log=log)
             eventlog._append_orphan_published_for_test("newer-report", log=log)
             eventlog.kernel("newer-report", "why newer", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("older-report", text)
             self.assertIn("newer-report", text)
             self.assertLess(text.index("newer-report"), text.index("older-report"))
@@ -188,7 +205,7 @@ class CorpusListsRecentStepsAndC3Debt(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog._append_orphan_published_for_test("bare-report", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("bare-report", text)
             self.assertIn("C3 debt", text)
 
@@ -202,7 +219,7 @@ class SourceOrientationRendersYield(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.source_signal("r", "github:abc", "atividade", 0.9, log=log)
             eventlog.source_signal("r", "mundo:arxiv", "mundo", 0.3, log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("github:abc", text)
             self.assertIn("mundo:arxiv", text)
             self.assertLess(text.index("github:abc"), text.index("mundo:arxiv"))  # higher yield first
@@ -217,13 +234,13 @@ class SourceRosterIsTheNeverBlankFloor(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             roster = [{"name": "exa", "kind": "api", "label": "exa"},
                       {"name": "github", "kind": "cli", "label": "github"}]
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", roster=roster)
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", roster=roster, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertNotIn("no source signals yet", text.lower())
             self.assertIn("exa", text)
             self.assertIn("github", text)
 
     def test_source_roster_helper_reads_agent_yaml_and_native_source(self):
-        roster = briefing.source_roster()
+        roster = briefing.source_roster(agent_yaml=ROSTER_FIXTURE)
         names = [r["name"] for r in roster]
         self.assertIn("exa", names)        # from agent.yaml sources:
         self.assertIn("github", names)     # the cli source
@@ -234,7 +251,7 @@ class SourceRosterIsTheNeverBlankFloor(unittest.TestCase):
         roster = [{"name": "s1", "kind": "api", "label": "a transcript on the Drive"},  # description
                   {"name": "s2", "kind": "api", "label": "GET https://api…"},            # via
                   {"name": "s3", "kind": "api", "label": "s3"}]                           # bare name
-        text = briefing.compose_briefing(log=Path("/nonexistent"), roster=roster)
+        text = briefing.compose_briefing(log=Path("/nonexistent"), roster=roster, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
         self.assertIn("a transcript on the Drive", text)
         self.assertIn("GET https://api", text)
         self.assertIn("s3", text)
@@ -250,7 +267,7 @@ class SourceCuratedStratumRendersAboveYield(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.source_signal("r", "exa", "mundo", 0.7, log=log)
             eventlog.source_curated("exa", "valued: recent-paper recall", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("valued: recent-paper recall", text)
             # curated stratum is above the per-source yield line
             self.assertLess(text.index("valued: recent-paper recall"),
@@ -261,7 +278,7 @@ class SourceCuratedStratumRendersAboveYield(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             eventlog.source_curated("exa", "valued: recent-paper recall", log=log)
             eventlog.source_dropped("exa", "went cold", log=log)
-            text = briefing.compose_briefing(log=log)
+            text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertNotIn("valued: recent-paper recall", text)
 
     def test_replay_to_past_cursor_shows_past_curated_stratum(self):
@@ -269,9 +286,9 @@ class SourceCuratedStratumRendersAboveYield(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             c = eventlog.source_curated("exa", "valued: recall", log=log)   # seq 1
             eventlog.source_dropped("exa", "cold", log=log)                 # seq 2
-            past = briefing.compose_briefing(log=log, seq=c["seq"])
+            past = briefing.compose_briefing(log=log, seq=c["seq"], agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("valued: recall", past)
-            now = briefing.compose_briefing(log=log)
+            now = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertNotIn("valued: recall", now)
 
 
@@ -281,14 +298,14 @@ class ClustersDegradeOnTier0(unittest.TestCase):
 
     def test_none_renders_tier0_degrade_note_without_crashing(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None)
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("Tier-0", text)
             self.assertIn("clusters unavailable", text.lower())
 
     def test_provided_clusters_render(self):
         with tempfile.TemporaryDirectory() as tmp:
             text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl",
-                                             clusters=["recall budget", "source feedback"])
+                                             clusters=["recall budget", "source feedback"], agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("recall budget", text)
             self.assertIn("source feedback", text)
 
@@ -296,7 +313,7 @@ class ClustersDegradeOnTier0(unittest.TestCase):
         # The degrade note must give the agent concrete checks (secrets-load, group, validate),
         # not just "graph offline" — so a claude -p dispatch stops mis-narrating an outage.
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None)
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             low = text.lower()
             self.assertIn("_secrets", text)
             self.assertIn("edge_group", low)
@@ -309,14 +326,14 @@ class RecapSlotOrInscribedText(unittest.TestCase):
 
     def test_none_renders_slot_marker(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", recap=None)
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", recap=None, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("Recap synthesized at compose-time", text)
 
     def test_recap_text_is_inscribed(self):
         with tempfile.TemporaryDirectory() as tmp:
             text = briefing.compose_briefing(
                 log=Path(tmp) / "log.jsonl",
-                recap="Your recall-report relates to the mentee's cursor refactor commit.")
+                recap="Your recall-report relates to the mentee's cursor refactor commit.", agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("Your recall-report relates to the mentee's cursor refactor commit.", text)
 
 
@@ -326,7 +343,7 @@ class BriefingIsBannered(unittest.TestCase):
 
     def test_banner_marks_generated_orientation(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl")
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("generated", text.lower())
 
 
@@ -346,20 +363,20 @@ class FactsLegNavigatesTheCortex(unittest.TestCase):
 
     def test_empty_clusters_is_a_distinct_state_from_outage(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=[])
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=[], agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("no clusters yet", text.lower())
             self.assertNotIn("clusters unavailable", text.lower())
 
     def test_auto_fetch_with_no_group_renders_the_degrade_note(self):
         # the sentinel path resolves group→graph_clusters→None when no group is declared
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", group="")
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", group="", agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("clusters unavailable", text.lower())
 
     def test_provided_clusters_with_counts_render(self):
         with tempfile.TemporaryDirectory() as tmp:
             text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl",
-                                             clusters=["Beat lifecycle (8)", "Dev practice (6)"])
+                                             clusters=["Beat lifecycle (8)", "Dev practice (6)"], agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("Beat lifecycle (8)", text)
             self.assertIn("Dev practice (6)", text)
 
@@ -370,7 +387,7 @@ class FactsLegNavigatesTheCortex(unittest.TestCase):
         rows = [{"name": "Beat lifecycle", "summary": "o pulso e seus atos", "size": 8,
                  "last_touched": "2026-07-01T00:00:00Z"}]
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=rows)
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=rows, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("**Beat lifecycle** (8 · tocado 2026-07-01", text)
             self.assertIn("o pulso e seus atos", text)
             self.assertIn("HIPÓTESE", text)
@@ -389,14 +406,14 @@ class HotCutoffTempoDivideDonos(unittest.TestCase):
     def test_cluster_inside_hot_window_defers_to_quente(self):
         with tempfile.TemporaryDirectory() as tmp:
             text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=self.ROWS,
-                                             hot_cutoff="2026-07-04T00:00:00Z")
+                                             hot_cutoff="2026-07-04T00:00:00Z", agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("coberto no quente", text)
             self.assertNotIn("o resumo frio do tema", text)   # o quente é o dono da história
             self.assertIn("consolidação antiga", text)        # fora da janela → expande normal
 
     def test_without_hot_cutoff_everything_expands(self):
         with tempfile.TemporaryDirectory() as tmp:
-            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=self.ROWS)
+            text = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=self.ROWS, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("o resumo frio do tema", text)
             self.assertNotIn("coberto no quente", text)
 
@@ -410,12 +427,17 @@ class ImmutableTattoosAreTheBriefingHead(unittest.TestCase):
     def test_immutable_head_carries_personality_and_method_above_the_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"  # empty log — the tattoos do not depend on state
-            out = briefing.compose_briefing(log=log, clusters=None, roster=[])
+            out = briefing.compose_briefing(log=log, clusters=None, roster=[], agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
         self.assertIn("Initial tattoos", out)
         self.assertIn("### Personality", out)
         self.assertIn("### Method", out)
         self.assertIn("### Cânone", out)                                        # o gosto (ticket 05)
-        self.assertIn("Feynman Method", out)                                   # the method doctrine
+        # a doutrina do método é ancorada pela SUBSTÂNCIA, não pelo rótulo: seeds/memory/method.md
+        # foi reescrito de "Feynman Method" para "The Method — o abate", e a asserção antiga
+        # (um bigrama que a doutrina não carrega mais) ficou vermelha sem que nada tivesse
+        # quebrado. Rótulo é o que envelhece; os dois motores do método é que identificam o texto.
+        self.assertIn("Feynman", out)                                          # o motor de derivação
+        self.assertIn("o abate", out)                                          # o motor de abate
         self.assertIn("distrust the rationality, not the person", out)         # the curated principle
         self.assertIn("## Idiom", out)                                         # the mentee's terms, required
         # the immutable head sits ABOVE the mutable state (the objective spine, Direction)
@@ -424,7 +446,7 @@ class ImmutableTattoosAreTheBriefingHead(unittest.TestCase):
 
     def test_present_even_on_empty_log(self):
         with tempfile.TemporaryDirectory() as tmp:
-            out = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None, roster=[])
+            out = briefing.compose_briefing(log=Path(tmp) / "log.jsonl", clusters=None, roster=[], agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
         self.assertNotIn("_no doctrine inscribed yet._", out)  # docs exist → inscribed, not the marker
 
 
@@ -599,7 +621,7 @@ class IdiomSectionIsRequired(unittest.TestCase):
     install declares ground_truth), or it renders honestly — never absent, never a silent blank."""
 
     def test_idiom_section_is_in_the_compose_output(self):
-        out = briefing.compose_briefing(log=Path("/nonexistent"), clusters=None, roster=[])
+        out = briefing.compose_briefing(log=Path("/nonexistent"), clusters=None, roster=[], agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
         self.assertIn("## Idiom", out)
         self.assertIn("beat", out)  # a live term from the real ground_truth CONTEXT.md glossary
 
