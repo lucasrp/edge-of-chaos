@@ -80,7 +80,10 @@ def leveling(kind, content, root=None, log=eventlog.LOG):
         raise ValueError(f"leveling kind must be one of {LEVELING_KINDS}, got {kind!r}")
     if not (isinstance(content, str) and content.strip()):
         raise ValueError(f"refusing a blank leveling {kind} — a hollow persona file is worse than none")
-    root = Path(root) if root else REPO / "memory" / "leveling"
+    # O leveling-store é IDENTIDADE do mentorado: mora na casa do install, não no clone do
+    # genótipo (ADR-0015; _identity: "o repo é genótipo puro, sem identidade"). Um literal do
+    # repo faz dois installs que partilham um clone sobrescreverem a persona um do outro.
+    root = Path(root) if root else _identity.identity_path("memory") / "leveling"
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{kind}.md"
     stripped = content.strip()
