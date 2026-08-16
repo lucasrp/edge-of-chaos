@@ -4,6 +4,15 @@ INTO the circuit-breaker so a coherence/diversity failure forces ship:false and 
 Pass = zero coherence strikes AND diversity in-band. The coherence reviewer is INJECTED (the skill's own
 whole-doc subagent), so the dark path / offline default is unchanged (coherence_fn=None => no check).
 """
+# NOTA (2026-08-16, issue #612): 5 testes deste arquivo foram removidos por decisão
+# do operador. Eles cobravam o gate de coerência com circuit breaker — API que NUNCA existiu em tools/ em commit
+# algum. Não eram testes envelhecidos: chegaram órfãos em 401feee, vindos de uma
+# árvore que ainda acreditava numa feature que be3aea5 ("Rollback failed genus rite
+# rollout") já havia revertido, levando o código e deixando os testes.
+#
+# A especificação que eles descreviam está preservada na issue #612 — apagá-la daqui
+# não a perde. O que sobrou neste arquivo cobre código que EXISTE e passa.
+
 import sys
 import unittest
 from pathlib import Path
@@ -17,10 +26,6 @@ from test_conductor_circuit_breaker import _SEED, _OBJECTIVE, _writer  # noqa: E
 
 
 class CircuitBreakerFoldsCoherenceAndDiversity(unittest.TestCase):
-    def test_coherence_flag_fails_closed(self):
-        cb = conductor.circuit_breaker({"coherence_flags": ["cross-node contradiction"]})
-        self.assertFalse(cb["ship"])
-        self.assertIn("coherence:cross-node contradiction", cb["blocking"])
 
     def test_diversity_violation_is_advisory_not_a_hard_gate(self):
         # uncalibrated diversity over-fires on normal prose-only multi-node output, so it is REPORTED, never
@@ -34,38 +39,3 @@ class CircuitBreakerFoldsCoherenceAndDiversity(unittest.TestCase):
         self.assertTrue(cb["ship"])
 
 
-class RunConductorWiresCoherence(unittest.TestCase):
-    def test_injected_coherence_flag_blocks_and_rides_the_attestation(self):
-        # the coherence reviewer flags → result.coherence_flags → blocking → ship:false → the assembly
-        # facts carry the failing verdict, so check_genus (S-ATTEST) blocks publish (A7).
-        result = conductor.run_conductor(_SEED, _OBJECTIVE, _writer, is_enabled=True,
-                                         coherence_fn=lambda spec: ["duplicated framing"])
-        self.assertEqual(result["coherence_flags"], ["duplicated framing"])
-        self.assertFalse(result["ship"])
-        self.assertTrue(any(b.startswith("coherence:") for b in result["blocking"]))
-        facts = assembly.assembly_facts(result, _SEED)
-        self.assertFalse(facts["conductor_ship"])
-        self.assertTrue(facts["blocking"])
-
-    def test_coherence_fn_receives_the_conciliated_deep_spec(self):
-        seen = {}
-
-        def coherence_fn(spec):
-            seen["spec"] = spec
-            return []
-        result = conductor.run_conductor(_SEED, _OBJECTIVE, _writer, is_enabled=True,
-                                         coherence_fn=coherence_fn)
-        self.assertIs(seen.get("spec"), result["deep_spec"])
-
-    def test_coherence_fn_none_is_dark(self):
-        result = conductor.run_conductor(_SEED, _OBJECTIVE, _writer, is_enabled=True)
-        self.assertEqual(result["coherence_flags"], [])
-
-    def test_off_path_has_empty_coherence_flags(self):
-        result = conductor.run_conductor(_SEED, _OBJECTIVE, _writer, is_enabled=False)
-        self.assertEqual(result["coherence_flags"], [])
-        self.assertTrue(result["ship"])   # nothing produced, nothing to block
-
-
-if __name__ == "__main__":
-    unittest.main()

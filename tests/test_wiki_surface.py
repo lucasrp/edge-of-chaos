@@ -359,23 +359,22 @@ class TestWikiReachableFromBriefingAndDistills(unittest.TestCase):
         os.environ.pop("EDGE_WIKI_ROOT", None)
         self.tmp.cleanup()
 
-    def test_artefato_distills_a_cluster_link_into_the_wiki(self):
-        # an Artefato's distilled cluster (`distills: ["cluster:foo"]`) is a live drill-down into the
-        # cluster thread — the graph→knowledge bridge from the work feed.
-        #
-        # KNOWN RED — an unresolved conflict between two LIVE documents, deliberately left failing
-        # rather than relaxed (a green bought by dropping this assertion would hide the conflict):
-        #   * PLAN.md §"Slice 5b … Accept" still reads "clusters are reachable from /briefing AND
-        #     from an Artefato's `distills` (not just a standalone route)";
-        #   * commit b4f917a (ADR-0018, "blog home: layout A … artifact chips removed") deleted
-        #     `_artifact_items` from blog/server.py, so `_render_post` no longer emits the
-        #     cites/distills/proposes chips and /wiki/<id> is now linked ONLY from /wiki itself.
-        # The layout decision was intentional; the Slice 5b criterion was never amended to match.
-        # Resolving it is an operator call — either restore a distills→/wiki/<id> affordance in the
-        # feed, or amend PLAN.md Slice 5b to drop the `distills` half of the reachability criterion.
-        # The two sibling tests below still guard the half that survives (the wiki is not orphaned).
-        html = self.client.get("/").get_data(as_text=True)
-        self.assertIn("/wiki/foo", html)
+    def test_artefato_distills_no_longer_bridges_into_the_wiki(self):
+        """O feed NÃO emite mais chip de `distills` — e isso é contrato, não regressão.
+
+        ADR-0018 (`b4f917a`, "blog home: layout A … artifact chips removed") removeu
+        `_artifact_items` de propósito. O `PLAN.md` §Slice 5b ainda exigia alcançabilidade
+        "from an Artefato's `distills`" e nunca foi emendado, então este teste ficou vermelho
+        contra uma decisão deliberada. Emendado em 2026-08-16 por palavra do operador.
+
+        O teste inverte de lado em vez de sumir: ele agora GUARDA a decisão da ADR — se alguém
+        reintroduzir os chips sem revisitar a ADR, isto acusa. E os irmãos abaixo seguem
+        guardando a metade que sobreviveu: o wiki não fica órfão, é alcançável por /briefing e
+        por /wiki."""
+        feed = self.client.get("/").data.decode()
+        self.assertNotIn("/wiki/", feed,
+                         "o chip de distills foi removido pela ADR-0018; se voltou ao feed, a "
+                         "ADR precisa ser revisitada ANTES de mexer neste teste")
 
     def test_briefing_links_to_the_wiki(self):
         html = self.client.get("/briefing").get_data(as_text=True)

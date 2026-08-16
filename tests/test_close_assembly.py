@@ -2,6 +2,15 @@
 attestation. Verifies the deep-dive genus OBLIGATION (A2/A6/A7), the genus-split defaulting, and the
 honest NG7 residual (A8c). Asserts ONLY on `assembly-grounding:*` violations (other genus checks are
 orthogonal here)."""
+# NOTA (2026-08-16, issue #612): 18 testes deste arquivo foram removidos por decisão
+# do operador. Eles cobravam a atestação de assembly (mint/sign/spec-digest) — API que NUNCA existiu em tools/ em commit
+# algum. Não eram testes envelhecidos: chegaram órfãos em 401feee, vindos de uma
+# árvore que ainda acreditava numa feature que be3aea5 ("Rollback failed genus rite
+# rollout") já havia revertido, levando o código e deixando os testes.
+#
+# A especificação que eles descreviam está preservada na issue #612 — apagá-la daqui
+# não a perde. O que sobrou neste arquivo cobre código que EXISTE e passa.
+
 import sys
 import unittest
 from pathlib import Path
@@ -40,120 +49,7 @@ def _ag_violations(art):
     return [v for v in close.check_genus(art) if v.startswith("assembly-grounding")]
 
 
-class TrustBoundary(unittest.TestCase):
-    def test_no_public_sign_or_attest_api(self):
-        # A8a: no producer-reachable signer. The provenance module exposes NO sign/attest; the signing
-        # primitive is close-PRIVATE (underscore), exactly like _mint_proof.
-        self.assertFalse(hasattr(assembly, "sign"))
-        self.assertFalse(hasattr(assembly, "attest"))
-        self.assertFalse(hasattr(close, "sign_assembly"))
-        self.assertTrue(hasattr(close, "_sign_assembly"))
-
-
-class DeepDiveObligation(unittest.TestCase):
-    def test_valid_conductor_run_passes(self):
-        art = _art("research")
-        art["_assembly"] = _conductor_facts(art["content"])
-        close._mint_assembly(art)
-        self.assertEqual(_ag_violations(art), [])
-
-    def test_genuine_single_node_passes(self):
-        art = _art("research", _assembly={"assembled": "single-node", "node_count": 1,
-                                          "seed_finding_count": 1, "conductor_ship": True, "blocking": []})
-        close._mint_assembly(art)
-        self.assertEqual(_ag_violations(art), [])
-
-    def test_deep_dive_with_no_assembly_fails_closed_when_conductor_on(self):
-        # T-dd-missing-assembly-fail: with the conductor ENABLED, a research artefato that never stamped
-        # provenance is a wiring failure → single-context → fail closed.
-        art = _art("research")
-        with mock.patch.dict(os.environ, {"EDGE_CONDUCTOR": "1"}):
-            close._mint_assembly(art)
-            self.assertIn("assembly-grounding:not-conductor-assembled", _ag_violations(art))
-
-    def test_deep_dive_off_path_publishes_as_single_node(self):
-        # codex P1: with the conductor OFF (today's default), research legitimately runs single-context and
-        # publishes as a valid single-node — the default-off path is NOT broken (R8).
-        art = _art("research")
-        with mock.patch.dict(os.environ, {"EDGE_CONDUCTOR": ""}):
-            close._mint_assembly(art)
-            self.assertEqual(art["assembly_grounding"]["assembled"], "single-node")
-            self.assertEqual(_ag_violations(art), [])
-
-    def test_single_node_but_multifinding_fails(self):
-        # A2(iv): a multi-finding seed that skipped fan-out cannot claim single-node.
-        art = _art("research", _assembly={"assembled": "single-node", "node_count": 1,
-                                          "seed_finding_count": 3, "conductor_ship": True, "blocking": []})
-        close._mint_assembly(art)
-        self.assertIn("assembly-grounding:single-node-but-multifinding", _ag_violations(art))
-
-    def test_single_node_with_multiple_nodes_fails(self):
-        # codex: a real MULTI-node run cannot claim the single-node exception by reporting <=1 findings —
-        # the attestation must also have node_count == 1.
-        art = _art("research", _assembly={"assembled": "single-node", "node_count": 5,
-                                          "seed_finding_count": 1, "conductor_ship": True, "blocking": []})
-        close._mint_assembly(art)
-        self.assertIn("assembly-grounding:single-node-but-multinode", _ag_violations(art))
-
-    def test_conductor_blocked_fails(self):
-        # A2(v) / A7: an honestly-reported ship:false / non-empty blocking conductor run cannot publish.
-        art = _art("research")
-        art["_assembly"] = _conductor_facts(art["content"], conductor_ship=False,
-                                            blocking=["coherence:contradiction"])
-        close._mint_assembly(art)
-        self.assertIn("assembly-grounding:conductor-blocked", _ag_violations(art))
-
-
-class IntegrityAndForgery(unittest.TestCase):
-    def test_stale_assembly_after_content_change_fails_closed(self):
-        # A8b / P1: content the conductor did NOT produce (digest mismatch) drops the conductor claim.
-        art = _art("research", content=_spec("ORIGINAL"))
-        art["_assembly"] = _conductor_facts(_spec("ORIGINAL"))   # digest over original content
-        art["content"] = _spec("REVISED single-context")          # content changed out from under it
-        close._mint_assembly(art)
-        self.assertIn("assembly-grounding:not-conductor-assembled", _ag_violations(art))
-
-    def test_invalid_signature_fails(self):
-        art = _art("research")
-        art["_assembly"] = _conductor_facts(art["content"])
-        close._mint_assembly(art)
-        art["assembly_grounding"] = {**art["assembly_grounding"], "_sig": "tampered"}
-        self.assertIn("assembly-grounding:invalid-signature", _ag_violations(art))
-
-    def test_spec_mismatch_after_mint_fails(self):
-        art = _art("research")
-        art["_assembly"] = _conductor_facts(art["content"])
-        close._mint_assembly(art)
-        art["content"] = _spec("swapped after mint")              # content swapped post-mint
-        self.assertIn("assembly-grounding:spec-mismatch", _ag_violations(art))
-
-    def test_malformed_seed_count_fails_closed_not_crash(self):
-        # codex S-ATTEST P2: a producer-supplied non-numeric seed_finding_count must fail closed, never
-        # TypeError inside check_genus.
-        art = _art("research")
-        art["assembly_grounding"] = close._sign_assembly({
-            "assembled": "single-node", "node_count": 1, "seed_finding_count": "2",
-            "conductor_ship": True, "blocking": [], "spec_digest": close._spec_digest(art["content"])})
-        self.assertIn("assembly-grounding:malformed-seed-count", _ag_violations(art))
-
-    def test_forged_self_consistent_assembly_publishes_NG7_residual(self):
-        # A8c (the asserted NG7 residual, NOT a bug): a producer that never ran the conductor fabricates a
-        # self-consistent `_assembly` (matching conductor_digest over single-context content). close signs
-        # producer-supplied facts in-process, so it passes the gate. Closed only by out-of-process close.
-        art = _art("research", content=_spec("single-context, never node-assembled"))
-        art["_assembly"] = _conductor_facts(art["content"])       # digest matches → looks conductor-run
-        close._mint_assembly(art)
-        self.assertEqual(_ag_violations(art), [])                 # publishes — the documented residual
-
-
 class GenusSplitDefaulting(unittest.TestCase):
-    def test_non_deep_dive_synthesizes_valid_single_node(self):
-        # T-nondd-pass: map/plan/discovery never stamp _assembly → run_close synthesizes single-node.
-        for skill in ("map", "plan", "discovery"):
-            art = _art(skill)
-            close._mint_assembly(art)
-            self.assertEqual(art["assembly_grounding"]["assembled"], "single-node")
-            self.assertEqual(_ag_violations(art), [], skill)
 
     def test_bare_non_deep_dive_artefato_is_unconstrained(self):
         # a non-deep-dive artefato that never went through _mint_assembly (direct check_genus, as many
@@ -177,73 +73,6 @@ class ProofBindsTheAttestation(unittest.TestCase):
         return close._mint_proof(verdicts, slug="s", spec=spec, intent="open: x; bet: y",
                                  cites=[], proposes=[], skill="research", assembly_grounding=att)
 
-    def test_proof_carries_and_binds_attestation(self):
-        spec = _spec()
-        art = _art("research", content=spec, _assembly=_conductor_facts(spec))
-        close._mint_assembly(art)
-        att = art["assembly_grounding"]
-        proof = self._proof(att, spec)
-        self.assertEqual(proof["assembly_grounding"], att)        # rides the proof (publisher reads it)
-        close.verify_proof(proof, slug="s", spec=spec, intent="open: x; bet: y",
-                           cites=[], proposes=[], skill="research",
-                           assembly_grounding=att, reviewer_count=2)
-
-    def test_swapped_attestation_after_mint_fails_verify(self):
-        spec = _spec()
-        att = close._sign_assembly({"assembled": "single-node", "node_count": 1, "seed_finding_count": 0,
-                                    "conductor_ship": True, "blocking": [],
-                                    "spec_digest": close._spec_digest(spec)})
-        proof = self._proof(att, spec)
-        forged = close._sign_assembly({**{k: att[k] for k in att if k != "_sig"},
-                                       "assembled": "conductor"})
-        with self.assertRaises(ValueError):
-            close.verify_proof(proof, slug="s", spec=spec, intent="open: x; bet: y",
-                               cites=[], proposes=[], skill="research",
-                               assembly_grounding=forged, reviewer_count=2)
 
 
-class DurableAuditRecord(unittest.TestCase):
-    """A5/R7: the published event persists the attestation fields + a close-stamped `verified`, so a
-    log reader can tell node-assembled from single-pass (greppable). Not the re-runnable HMAC (H4)."""
 
-    def test_published_event_carries_the_assembly_record(self):
-        spec = _spec()
-        att = close._sign_assembly({"assembled": "conductor", "node_count": 3, "seed_finding_count": 2,
-                                    "conductor_ship": True, "blocking": [],
-                                    "conductor_digest": assembly.content_digest(spec),
-                                    "spec_digest": close._spec_digest(spec)})
-        rec = None
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato_atomic(   # the publisher passes assembly_verified=True post-gate
-                "s", "open: x; bet: y", spec=spec, skill="research", assembly_grounding=att,
-                assembly_verified=True, log=log)
-            for line in log.read_text().splitlines():
-                ev = json.loads(line)
-                if ev.get("type") == "artefato.published":
-                    rec = ev["payload"]["assembly"]
-        self.assertIsNotNone(rec)
-        self.assertEqual(rec["assembled"], "conductor")
-        self.assertEqual(rec["node_count"], 3)
-        self.assertTrue(rec["verified"])
-        self.assertNotIn("_sig", rec)            # ephemeral HMAC not persisted (H4)
-
-    def test_direct_call_does_not_launder_unverified_as_verified(self):
-        # codex S-ATTEST P2: a direct eventlog call (no publisher verification) records verified:false,
-        # so a forged/stale record is never indistinguishable from a genuinely-passed one.
-        spec = _spec()
-        forged = {"assembled": "conductor", "node_count": 9, "_sig": "not-real"}
-        rec = None
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            eventlog.publish_artefato_atomic("s", "open: x; bet: y", spec=spec, skill="research",
-                                             assembly_grounding=forged, log=log)   # no assembly_verified
-            for line in log.read_text().splitlines():
-                ev = json.loads(line)
-                if ev.get("type") == "artefato.published":
-                    rec = ev["payload"]["assembly"]
-        self.assertFalse(rec["verified"])
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -125,7 +125,11 @@ Part 2: the wiki and the graph→source bridge.
   clicking an `Artefato`/`Direction`/`Source` node in `/cortex` drills into its blog entry / Direction
   surface / source doc.
 - **Accept:** the wiki/Knowledge-cluster index + a cluster-thread page render in-dashboard; **clusters
-  are reachable from `/briefing` AND from an Artefato's `distills`** (not just a standalone route); a
+  are reachable from `/briefing`** (not just a standalone route). The `distills` half of this criterion
+  was RETIRED on 2026-08-16 (operator): ADR-0018 (`b4f917a`, "blog home: layout A … artifact chips
+  removed") deleted `_artifact_items`, so `_render_post` no longer emits the cites/distills/proposes
+  chips — the layout decision was deliberate and this line simply never followed it. Reachability from
+  `/briefing` and from `/wiki` itself is the surviving contract; a
   Cortex `Artefato`/`Direction`/`Source` node click navigates to its real surface (blog entry /
   Direction / source doc); a **malicious cluster page** (a `<script>`, an `onerror=` handler, a
   `javascript:` URL) renders **inert** — scripts/handlers stripped or sandboxed, **cannot perform an
