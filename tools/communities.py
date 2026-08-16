@@ -265,7 +265,7 @@ def locate(names, group=_AUTO, **kw):
 
 
 def _default_summarize(members_text):
-    """gpt-5.4-mini one-shot name+summary; injected in tests. Raises on transport error —
+    """One-shot name+summary pelo modelo de chat do host (gpt-5.6-luna neste install); injected in tests. Raises on transport error —
     consolidate catches and degrades."""
     import urllib.request
     req = urllib.request.Request(
