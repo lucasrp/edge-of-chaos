@@ -1441,6 +1441,26 @@ def _project_backbone(s, g, log):
     _project_parceiros(s, g, log)
 
 
+def _announce_new_tenant(s, g):
+    """SAY IT when this sweep is about to mint the identity root of a NEW tenant (#634).
+
+    `_project_backbone` MERGEs `(:Genesis {group_id:$g})` unconditionally — correct for a fresh
+    install, and exactly how a renamed agent.yaml forks its own memory into a second tenant while
+    the old one goes quiet. Nobody can fix what nobody was told, so the birth of a second root on
+    a Bolt that already has one is ANNOUNCED, with the migrate offered. Announce only: the beat
+    must never die on a gardening problem, and the refusal belongs at install time
+    (`_validate.check_tenant`), where the operator is present to answer.
+
+    Best-effort and silent on any failure — this is a print, not a gate."""
+    try:
+        import group_admin
+        v = group_admin.tenant_verdict(s, g)
+        if v["status"] in ("fork_suspect", "forked"):
+            print("backbone: %s — %s" % (v["status"].upper(), v["detail"]))
+    except Exception:  # noqa: BLE001 — a notice must never break the sweep
+        pass
+
+
 def project_backbone(log=eventlog.LOG):
     """Open a session and project the canonical spine backbone (Codex P2): the ANCHORS rebuild must
     run EVERY canonical sweep so newly-folded Directions get anchored even when no artefato changed.
@@ -1458,6 +1478,7 @@ def project_backbone(log=eventlog.LOG):
         return
     try:
         with drv.session() as s:
+            _announce_new_tenant(s, g)
             _project_backbone(s, g, log)
     except Exception as ex:  # noqa: BLE001 — best-effort, never fatal
         print("backbone sync failed (best-effort):", ex)
