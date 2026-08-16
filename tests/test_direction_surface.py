@@ -576,7 +576,8 @@ class TestDirectionLiveRoundTrip(_DirectionBase):
         folds it to direction.set. NO LLM call (a live one would spend the edge's OpenAI API)."""
         def gen(comment):
             return {"reply": "folding this into a curated steer",
-                    "directive": True, "direction_body": "standing: " + comment["body"]}
+                    "directive": True, "direction_title": "standing steer",
+                    "direction_body": "standing: " + comment["body"]}
         return gen
 
     def test_a_new_directive_lands_as_a_set_steer_linked_to_its_comment(self):

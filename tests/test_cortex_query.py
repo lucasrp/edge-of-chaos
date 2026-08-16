@@ -35,7 +35,7 @@ class TestFrontDoor(unittest.TestCase):
         phenotype relies on (test_sweep._isolate), and the red that created these wrappers."""
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("d1", "steer body", log=log)
+            eventlog.propose("d1", "steer body", log=log, title="steer body")
             d = cortex.direction_at(log=log)
             self.assertIn("d1", [i["id"] for i in d["proposed"]])
         original = eventlog.direction_at

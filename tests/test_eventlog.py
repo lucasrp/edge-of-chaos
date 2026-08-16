@@ -95,8 +95,8 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_two_tiers_by_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "explore X", log=log)
-            eventlog.set_direction("b", "ship Y", log=log)
+            eventlog.propose("a", "explore X", log=log, title="explore X")
+            eventlog.set_direction("b", "ship Y", log=log, title="ship Y")
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["proposed"]], ["a"])
             self.assertEqual([i["id"] for i in d["set"]], ["b"])
@@ -104,9 +104,9 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_set_outranks_proposed_same_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "maybe X", log=log)
-            eventlog.set_direction("a", "X ratified", log=log)
-            eventlog.propose("a", "waffle", log=log)  # cannot demote a set id
+            eventlog.propose("a", "maybe X", log=log, title="maybe X")
+            eventlog.set_direction("a", "X ratified", log=log, title="X ratified")
+            eventlog.propose("a", "waffle", log=log, title="waffle")  # cannot demote a set id
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["set"]], ["a"])
             self.assertEqual(d["proposed"], [])
@@ -114,7 +114,7 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_dropped_removes_and_stays_gone(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "X", log=log)
+            eventlog.propose("a", "X", log=log, title="X")
             eventlog.drop("a", "noise", log=log)
             self.assertEqual(eventlog.direction_at(log=log), {"set": [], "proposed": []})
 
@@ -135,7 +135,7 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
         # `set` tier; a proposed item carries from_artefato/relates_to and origin_comment_id is None.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "explore X", from_artefato="alpha-post", log=log)
+            eventlog.propose("a", "explore X", from_artefato="alpha-post", log=log, title="explore X")
             d = eventlog.direction_at(log=log)
             self.assertIsNone(d["proposed"][0].get("origin_comment_id"))
             self.assertEqual(d["proposed"][0]["from_artefato"], "alpha-post")
@@ -147,8 +147,9 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
         # active alongside the new ruling.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("introspection-ratio-watch", "watch recall/research ratio", log=log)
+            eventlog.propose("introspection-ratio-watch", "watch recall/research ratio", log=log, title="watch recall/research ratio")
             eventlog.set_direction("worthwhile-test", "ship the worthwhile-test metric",
+                                   title="the worthwhile test",
                                    supersedes="introspection-ratio-watch", log=log)
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["set"]], ["worthwhile-test"])
@@ -159,8 +160,8 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
         # guard: supersedes pointing at the set's own id must NOT delete the item it just set.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "maybe X", log=log)
-            eventlog.set_direction("a", "X ratified", supersedes="a", log=log)
+            eventlog.propose("a", "maybe X", log=log, title="maybe X")
+            eventlog.set_direction("a", "X ratified", supersedes="a", log=log, title="X ratified")
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["set"]], ["a"])
             self.assertEqual(d["proposed"], [])
@@ -168,8 +169,8 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_replay_to_past_cursor(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            p = eventlog.propose("a", "X", log=log)              # seq 1
-            eventlog.set_direction("a", "X ratified", log=log)   # seq 2
+            p = eventlog.propose("a", "X", log=log, title="X")              # seq 1
+            eventlog.set_direction("a", "X ratified", log=log, title="X ratified")   # seq 2
             past = eventlog.direction_at(seq=p["seq"], log=log)
             self.assertEqual([i["id"] for i in past["proposed"]], ["a"])
             self.assertEqual(past["set"], [])
@@ -289,8 +290,8 @@ class ProjectDirectionRendersBothTiers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             out = Path(tmp) / "direction.md"
-            eventlog.set_direction("b", "ship Y", kind="priority", log=log)
-            eventlog.propose("c", "name the full-read budget", from_artefato="recall-report", log=log)
+            eventlog.set_direction("b", "ship Y", kind="priority", log=log, title="ship Y")
+            eventlog.propose("c", "name the full-read budget", from_artefato="recall-report", log=log, title="name the full-read budget")
             eventlog.project_direction(log=log, out=out)
             text = out.read_text()
             self.assertIn("do not edit", text.lower())
@@ -304,8 +305,8 @@ class ProjectDirectionRendersBothTiers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             out = Path(tmp) / "direction.md"
-            eventlog.propose("a", "alpha", log=log)
-            eventlog.set_direction("a", "omega", log=log)
+            eventlog.propose("a", "alpha", log=log, title="alpha")
+            eventlog.set_direction("a", "omega", log=log, title="omega")
             eventlog.project_direction(seq=1, log=log, out=out)
             text = out.read_text()
             self.assertIn("alpha", text)
@@ -914,7 +915,7 @@ class WriteHelpersRejectEmptyBodies(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             for bad in ("", "   ", "\n\t "):
                 with self.assertRaises(ValueError):
-                    eventlog.propose("d1", bad, log=log)
+                    eventlog.propose("d1", bad, title="a valid handle", log=log)
             self.assertEqual(eventlog.read(log=log), [])
 
     def test_set_direction_rejects_empty_and_whitespace(self):
@@ -922,7 +923,7 @@ class WriteHelpersRejectEmptyBodies(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             for bad in ("", "   ", "\n\t "):
                 with self.assertRaises(ValueError):
-                    eventlog.set_direction("d1", bad, log=log)
+                    eventlog.set_direction("d1", bad, title="a valid handle", log=log)
             self.assertEqual(eventlog.read(log=log), [])
 
     def test_report_direction_rejects_empty_and_whitespace(self):
@@ -937,8 +938,8 @@ class WriteHelpersRejectEmptyBodies(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
-            eventlog.set_direction("d2", "ratify the steer", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
+            eventlog.set_direction("d2", "ratify the steer", log=log, title="ratify the steer")
             eventlog.report_direction("the steer prose", log=log)
             self.assertEqual(len(eventlog.read(log=log)), 4)
 

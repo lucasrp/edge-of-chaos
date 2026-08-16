@@ -970,6 +970,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 "topic-7d:session-memory-navigation",
                 "Construir memoria navegavel por Voz -> Topic -> Thread.",
                 kind="thread",
+                title="Memoria de sessoes navegavel",
                 log=log,
             )
             seen = []
@@ -2131,6 +2132,137 @@ class PublishCarriesResidualsFromTheProof(unittest.TestCase):
                               verdict=_passing_proof(slug, _spec(), intent))
             ev = eventlog.read(types=["artefato.published"], log=log)[-1]
             self.assertIsNone(ev["payload"]["residuals"])
+
+
+class _RecordingSession:
+    """Grava as queries que a projeção emite — o grau de HAS_TOPIC é contável sem Neo4j."""
+
+    def __init__(self):
+        self.calls = []
+
+    def run(self, query, **params):
+        self.calls.append((query, params))
+        return []
+
+    def edges(self, rel):
+        return [p for q, p in self.calls if f"MERGE (se)-[r:{rel}]" in q or f"MERGE (vf)-[r:{rel}]" in q]
+
+
+class SessionTopicDegreeHasACeiling(unittest.TestCase):
+    """#635, o segundo dente. O vocabulário de Topic é global e pequeno (8 specs + o genérico
+    `session-voice`) e a indexação usa `min_score=1`: um fragmento que cita um termo já abre um
+    Topic para a sessão. Sem teto, a frota mediu 21357 arestas HAS_TOPIC contra ~15400 nós — cada
+    sessão ancorando na maioria do vocabulário. Um grafo em que tudo é sobre tudo não aponta."""
+
+    TOPICS = ["edge-episteme-install", "mentor-experiment", "report-rite", "artifact-html-js",
+              "source-sufficiency", "session-memory-navigation"]
+
+    def _log_with_a_wide_session(self, tmp):
+        """Uma sessão ancorada em 6 tópicos. A FORÇA por sessão é o nº de fragmentos DESTA
+        sessão sob o tópico: os dois primeiros da lista são os fortes (3 e 2 fragmentos), os
+        outros quatro têm 1 — o teto tem que ficar com os fortes, não com os primeiros."""
+        log = Path(tmp) / "log.jsonl"
+        strength = {"report-rite": 3, "mentor-experiment": 2}
+        for topic_id in self.TOPICS:
+            n = strength.get(topic_id, 1)
+            eventlog.record_session_topic(
+                "s1", topic_id, title=f"titulo {topic_id}", surface="claude",
+                path="/tmp/s1.jsonl", score=1,
+                fragments=[{"turn": i, "snippet": f"{topic_id} fragmento {i}"}
+                           for i in range(1, n + 1)],
+                log=log)
+        return log
+
+    def _project(self, log):
+        session = _RecordingSession()
+        publisher._project_session_topic_index(
+            session, "g1", eventlog.session_topics_at(log=log), log=log)
+        return session
+
+    def test_has_topic_degree_is_capped_at_three(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log_with_a_wide_session(tmp)
+            index = eventlog.session_topics_at(log=log)
+            self.assertEqual(len(index["sessions"]["s1"]["topics"]), 6)   # o fold guarda TUDO
+            anchored = [p["tid"] for p in self._project(log).edges("HAS_TOPIC")]
+            self.assertEqual(len(anchored), 3)                            # o grafo, não
+
+    def test_the_cap_keeps_the_strongest_topics_of_this_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log_with_a_wide_session(tmp)
+            anchored = sorted(p["tid"] for p in self._project(log).edges("HAS_TOPIC"))
+            self.assertIn("report-rite", anchored)        # 3 fragmentos desta sessão
+            self.assertIn("mentor-experiment", anchored)  # 2
+
+    def test_a_narrow_session_is_untouched(self):
+        """Compatibilidade: quem já está abaixo do teto não perde nenhuma aresta."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for topic_id in ("report-rite", "mentor-experiment"):
+                eventlog.record_session_topic(
+                    "s1", topic_id, title="t", surface="claude",
+                    fragments=[{"turn": 1, "snippet": f"{topic_id} um"}], log=log)
+            anchored = sorted(p["tid"] for p in self._project(log).edges("HAS_TOPIC"))
+            self.assertEqual(anchored, ["mentor-experiment", "report-rite"])
+
+    def test_a_cut_topic_does_not_come_back_through_about(self):
+        """O ABOUT do fragmento é a porta dos fundos do mesmo grau: um tópico cortado não pode
+        continuar com membros — senão a limpeza de Topic órfão nunca o apaga."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log_with_a_wide_session(tmp)
+            session = self._project(log)
+            anchored = {p["tid"] for p in session.edges("HAS_TOPIC")}
+            about = {p["tid"] for p in session.edges("ABOUT")}
+            self.assertTrue(about <= anchored, f"ABOUT vazou para {about - anchored}")
+
+    def test_the_ceiling_is_a_knob(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log_with_a_wide_session(tmp)
+            try:
+                os.environ["EDGE_TOPIC_MAX_PER_SESSION"] = "1"
+                self.assertEqual(len(self._project(log).edges("HAS_TOPIC")), 1)
+                os.environ["EDGE_TOPIC_MAX_PER_SESSION"] = "0"   # 0 = sem teto (escape hatch)
+                self.assertEqual(len(self._project(log).edges("HAS_TOPIC")), 6)
+            finally:
+                os.environ.pop("EDGE_TOPIC_MAX_PER_SESSION", None)
+
+    def test_the_cap_scales_the_edge_count_the_fleet_arithmetic_assumes(self):
+        """O que o teto GARANTE, e é o passo de que a conta da frota depende: o total de
+        HAS_TOPIC do group vira `teto / grau_médio` do que era, porque o teto morde toda sessão
+        larga e não mexe em nó nenhum. Em `group_health` (#638) o critério é por NÓ
+        (`HAS_TOPIC_DEGREE_CEILING`), e o denominador é o grafo inteiro — Entity, Direction,
+        Artefato — que esta projeção não controla; por isso a conta 21357/15400 = 1.39 -> ~0.73
+        vive na frota real, e o que se pina AQUI é o numerador."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            for i in range(1, 41):                       # 40 sessões, 6 tópicos globais cada
+                for topic_id in self.TOPICS:
+                    eventlog.record_session_topic(
+                        f"s{i}", topic_id, title="t", surface="claude",
+                        fragments=[{"turn": 1, "snippet": f"{topic_id} s{i}"}], log=log)
+
+            def edges(cap):
+                os.environ["EDGE_TOPIC_MAX_PER_SESSION"] = str(cap)
+                try:
+                    return len(self._project(log).edges("HAS_TOPIC"))
+                finally:
+                    os.environ.pop("EDGE_TOPIC_MAX_PER_SESSION", None)
+
+            before = edges(0)                            # 0 = sem teto = comportamento antigo
+            after = edges(publisher.SESSION_TOPIC_CAP_DEFAULT)
+            self.assertEqual(before, 40 * len(self.TOPICS))
+            self.assertEqual(after, 40 * publisher.SESSION_TOPIC_CAP_DEFAULT)
+            self.assertAlmostEqual(after / before,
+                                   publisher.SESSION_TOPIC_CAP_DEFAULT / len(self.TOPICS))
+
+    def test_a_topic_with_no_members_is_deleted(self):
+        """"Topic sem membros some" — a limpeza roda em toda projeção, não só quando dá sorte."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = self._log_with_a_wide_session(tmp)
+            joined = "\n".join(q for q, _ in self._project(log).calls)
+            self.assertIn("MATCH (t:Topic {group_id:$g}) "
+                          "WHERE NOT (()-[:HAS_TOPIC]->(t)) AND NOT (()-[:ABOUT]->(t)) "
+                          "DETACH DELETE t", joined)
 
 
 if __name__ == "__main__":

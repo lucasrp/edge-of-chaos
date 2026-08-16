@@ -514,7 +514,9 @@ def propose_recent_topic_directions(
             continue
         if state == "proposed" and body == direction.body:
             continue
-        eventlog.propose(direction.id, direction.body, kind="thread",
+        # The inferred topic already HAS a handle (TOPIC_SPECS['title']); it used to be dropped on
+        # the floor here, which is one of the ways body-only Directions piled up (#632).
+        eventlog.propose(direction.id, direction.body, kind="thread", title=direction.title,
                          relates_to=direction.relates_to, log=log)
         status[direction.id] = ("proposed", direction.body)
         written += 1
@@ -558,7 +560,9 @@ def sync_recent_topic_memory(
             continue
         if state == "proposed" and body == direction.body:
             continue
-        eventlog.propose(direction.id, direction.body, kind="thread",
+        # The inferred topic already HAS a handle (TOPIC_SPECS['title']); it used to be dropped on
+        # the floor here, which is one of the ways body-only Directions piled up (#632).
+        eventlog.propose(direction.id, direction.body, kind="thread", title=direction.title,
                          relates_to=direction.relates_to, log=log)
         status[direction.id] = ("proposed", direction.body)
         directions_written += 1

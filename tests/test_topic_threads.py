@@ -70,6 +70,7 @@ class TopicThreadsProjectDirection(unittest.TestCase):
                             "snippet": "arbitrary delegated content"}], log=log)
             eventlog.propose(
                 "topic-7d:implementation-noise", "automatic proposal",
+                title="implementation noise",
                 relates_to=[{"kind": "voz.fragment", "session": "grok:delegated"}], log=log)
             eventlog.append("sessao.excluded", "sessao:grok:delegated", {
                 "sessao_id": "grok:delegated", "surface": "grok",
@@ -184,6 +185,7 @@ class TopicThreadsProjectDirection(unittest.TestCase):
             eventlog.set_direction(
                 "topic-7d:topic-thread-direction",
                 "Ratified direction already owns this thread",
+                title="Topics -> Threads -> Direction",
                 log=log,
             )
 
