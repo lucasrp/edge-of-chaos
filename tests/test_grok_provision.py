@@ -52,7 +52,10 @@ class TestGrokProvision(unittest.TestCase):
                 self.assertIn(f"name: {prefix}-{skill_dir.name}", text)
                 self.assertIn(f"@{prefix}-{skill_dir.name}", text)
                 self.assertIn(str(self.edge_home / "skills" / skill_dir.name / "SKILL.md"), text)
-                self.assertNotIn(f"/{prefix}-{skill_dir.name}", text)
+                # O Grok invoca skill por SLASH (palavra do operador, 2026-08-16) — ao contrário do
+                # Codex, que é @. Este assertNotIn exigia o contrário do produto e
+                # deixava o teste vermelho contra código correto.
+                self.assertIn(f"/{prefix}-{skill_dir.name}", text)
 
     def test_shared_skill_is_not_global_invocable(self):
         gp.provision_grok(CFG, REPO, self.edge_home, self.grok_home)

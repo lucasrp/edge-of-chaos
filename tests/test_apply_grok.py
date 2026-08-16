@@ -58,7 +58,9 @@ class ApplyGrok(unittest.TestCase):
             self.assertIn(f"name: {name}", text)
             self.assertIn(f"@{name}", text)
             self.assertIn(str(self.edge_home / "skills" / "wake" / "SKILL.md"), text)
-            self.assertNotIn(f"/{name}", text)
+            # O Grok invoca skill por SLASH — ao contrário do Codex, que é @ (palavra do
+            # operador, 2026-08-16). Este assertNotIn exigia o contrário do produto.
+            self.assertIn(f"/{name}", text)
 
     def test_stdout_reports_grok_home(self):
         self.assertIn("provisionando Grok skills", self.res.stdout)
