@@ -113,12 +113,12 @@ def mcp_config(group=None, home=None, subject=None):
         # agent.yaml (graph_group → name → codename, read straight from the file, never the launcher
         # checkout). The resolved value is BAKED, so it overrides any stale inherited env in the
         # subprocess; an unresolved identity bakes empty (the scrub above) and the server fails loud.
-        group = os.environ.get("EDGE_GROUP")
-        if not group and home:
-            target_yaml = Path(os.path.expanduser(home)) / "agent.yaml"
-            if target_yaml.exists():
-                cfg = _identity._cfg(target_yaml)
-                group = cfg.get("graph_group") or cfg.get("name") or cfg.get("codename")
+        # A precedência (EDGE_GROUP → graph_group → name → codename) vive em _identity.group();
+        # reimplementá-la aqui era um segundo seam (ADR-0015). Passando o agent.yaml do home
+        # ALVO, a mesma função resolve o grupo daquele install — e, quando ele ainda não tem
+        # fenótipo, cai no ovo dele em vez de devolver nada (#586).
+        target_yaml = (Path(os.path.expanduser(home)) / "agent.yaml") if home else None
+        group = _identity.group(target_yaml) if target_yaml else _identity.group_env_override()
     if not _granted(subject):
         # FAIL-CLOSED (N5): a delta/world OR omitted/unknown subject gets a config with NO cortex
         # server at all — the strongest deny (nothing to inherit). Only an explicit self-cognition is

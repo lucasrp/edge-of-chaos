@@ -18,7 +18,15 @@ import time
 import uuid as uuidlib
 from collections import Counter, defaultdict
 
-GROUP = os.environ.get("EDGE_GROUP")
+def _group():
+    """O grupo, resolvido pelo seam único (ADR-0015) e SOB DEMANDA.
+
+    Era uma constante de módulo lendo a variável de ambiente do grupo direto, no topo do arquivo:
+    um segundo seam E um cache de identidade em tempo de import — o mesmo par que
+    test_sweep_has_no_import_time_identity_cache já proíbe no sweep. Cache de identidade no import
+    guarda a identidade de quem importou, não a do install que vai ser consultado."""
+    import _identity
+    return _identity.group()
 
 
 # --- pure core (bare python; the internal seam the tests hold) ---
@@ -116,7 +124,7 @@ def _driver(uri=None, user=None, password=None):
 def communities(group=None, **kw):
     """The briefing §5 leg: [{uuid, name, summary, size, last_touched}] recency-desc.
     [] = graph reachable, no communities yet; None = dark."""
-    group = group or GROUP
+    group = group or _group()
     if not group:
         return None
     drv = _driver(**kw)
@@ -140,7 +148,7 @@ def communities(group=None, **kw):
 def community(ref, group=None, **kw):
     """One cluster in full: members (with last_mentioned) + provenance (source sessions via
     MENTIONS, artefatos via DISTILLS). ref = uuid or name. None = dark/not found."""
-    group = group or GROUP
+    group = group or _group()
     if not group:
         return None
     drv = _driver(**kw)
@@ -180,7 +188,7 @@ def community(ref, group=None, **kw):
 def locate(names, group=None, **kw):
     """JULGAR positioning: for each entity name, which community holds it (member), neighbours
     it (edge — RELATES_TO into a community), or none. None = dark."""
-    group = group or GROUP
+    group = group or _group()
     if not group:
         return None
     if not names:
@@ -216,7 +224,7 @@ def _default_summarize(members_text):
     import urllib.request
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
-        data=json.dumps({"model": "gpt-5.4-mini", "max_completion_tokens": 300, "messages": [{
+        data=json.dumps({"model": "gpt-5.6-luna", "max_completion_tokens": 300, "messages": [{
             "role": "user",
             "content": "Estas entidades formam um cluster de conhecimento das sessões de "
                        "trabalho de um operador. Dê um NOME curto (3-6 palavras, PT-BR) e um "
@@ -233,7 +241,7 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
     entities+RELATES_TO → cluster() → merge_pass() → summarize each → wipe-rebuild Community/
     HAS_MEMBER (their own lifecycle; the log stays the truth, ADR-0006). Returns the list of
     {name, size} written, or None on a dark graph. Dust count is logged, never silent."""
-    group = group or GROUP
+    group = group or _group()
     if not group:
         return None
     drv = _driver(**kw)
