@@ -17,6 +17,18 @@ language: pt-BR
 mission: Missao de fixture — existe para os testes terem identidade conhecida.
 voice: Voz de fixture — deterministica, igual em qualquer host.
 mentee: Fixture Mentee
+# blog_domain e DERIVADO desta URL por tools/edge-render (derive_vars), nunca
+# declarado direto — declarar `blog_domain:` nao tem efeito nenhum.
+blog_public_url: https://edge.edgeofchaos.net
+blog_port: 8766
+routers:
+  # com secret_ref declarado, o apply CHECA a credencial e relata quando falta — que é
+  # exatamente o que test_reports_missing_credentials exercita. Um roster todo keyless
+  # não tem o que cobrar, e o substrate-check passa a não ter nada para dizer.
+  embedding:
+    provider: openai
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: text-embedding-3-small
 sources:
   - name: exa
     kind: api
