@@ -37,7 +37,67 @@ GLOSSARY_HEADER = re.compile(r"^\*\*[^*]+\*\*:\s*$", re.MULTILINE)
 # off-truth-path read telemetry — distinct from value/correction feedback) → 44.
 # 2026-07-03 grounding iteration S8 (R1.1, Voz-ratified): +1 Grounding (the claim↔evidence
 # relation, traceable — the arc's naming deliverable in the Language section) → 45.
-EXPECTED_GLOSSARY_COUNT = 45
+# 2026-08-16 (#620): o pin deixa de ser uma CONTAGEM e passa a ser o CONJUNTO DE NOMES.
+# A contagem não pegou a perda de 13 entidades no merge 9221924 porque a ADR-0024 somou 9 no
+# mesmo intervalo — as duas derivas quase se cancelaram e 45 -> 42 pareceu manutenção.
+GLOSSARY_ENTITIES = {
+    "Artefato / Artifact",
+    "Assemble / Consolidação prévia",
+    "Atividade / Activity",
+    "Briefing",
+    "Briefing",
+    "Catálogo",
+    "Close",
+    "Consolidação de hipóteses / Hypothesis consolidation",
+    "Convergence",
+    "Coringa / serendipidade (`ser`)",
+    "Corpus",
+    "Cortex",
+    "Curated",
+    "Delta",
+    "Direction",
+    "Directive",
+    "Dispatch",
+    "Domain",
+    "Envelhecimento / Aging",
+    "Experiment / Experimento",
+    "Gate de PROPOSTA / plan-gate",
+    "Genotype",
+    "Grill",
+    "Grounding",
+    "Harm potential",
+    "Hypothesis",
+    "Idiom",
+    "Install",
+    "Intent kernel",
+    "Knowledge cluster",
+    "Lint",
+    "Medium / Meio",
+    "Mentee",
+    "Mineração / Mining",
+    "Mundo / World",
+    "PROPOSTA",
+    "Pauta",
+    "Producer-skill / Producer",
+    "Recall",
+    "Recap",
+    "Rich rite / Rito rico",
+    "Shortlist A",
+    "Source feedback",
+    "Source roadmap",
+    "Space-0",
+    "Standing page",
+    "Steer",
+    "Usage signal",
+    "Vote",
+    "Voz / Voice",
+    "Wake",
+    "Worthwhile content",
+    "delta_voz / Redigest",
+    "llm-wiki",
+}
+
+GLOSSARY_HEADER_NAMED = re.compile(r"^\*\*([^*]+)\*\*:\s*$", re.MULTILINE)
 
 
 def _glossary_header_count(text):
@@ -63,14 +123,25 @@ class NoInsumosRemain(unittest.TestCase):
             "files still contain 'insumos': %s" % offenders,
         )
 
-    def test_glossary_entity_count_unchanged(self):
+    def test_glossary_entities_are_exactly_the_declared_set(self):
+        """O pin é o CONJUNTO DE NOMES, não a contagem — e a diferença não é estilo.
+
+        Até 2026-08-16 este guarda fixava um número (45). Ele não pegou a perda de 13 entidades
+        no merge `9221924` porque a ADR-0024 adicionou 9 no mesmo intervalo: -13 e +9 viraram uma
+        diferença de 4, pequena o bastante para parecer manutenção. Uma contagem sabe QUANTOS;
+        só um conjunto sabe QUAIS. Ver issue #620.
+
+        Quem adicionar ou aposentar uma entidade acrescenta ou remove o nome aqui no mesmo
+        commit — e o diff passa a mostrar o termo, não um número."""
         with open(CONTEXT, encoding="utf-8") as fh:
-            count = _glossary_header_count(fh.read())
+            found = {m.group(1).strip() for m in GLOSSARY_HEADER_NAMED.finditer(fh.read())}
+        missing = sorted(GLOSSARY_ENTITIES - found)
+        added = sorted(found - GLOSSARY_ENTITIES)
         self.assertEqual(
-            count,
-            EXPECTED_GLOSSARY_COUNT,
-            "CONTEXT.md glossary entity count changed (no NEW entity allowed): "
-            "got %d, expected %d" % (count, EXPECTED_GLOSSARY_COUNT),
+            (missing, added), ([], []),
+            "o glossário do CONTEXT.md divergiu do conjunto declarado.\n"
+            "  SUMIRAM (doutrina perdida — restaure ou aposente explicitamente): %s\n"
+            "  ENTRARAM (declare no conjunto, no mesmo commit): %s" % (missing, added),
         )
 
 
