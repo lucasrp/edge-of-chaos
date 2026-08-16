@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""edge-group — migrate a graph tenant (group_id), and bury a dead one (#634).
+
+  edge-group rename OLD NEW                      # dry-run: prints the plan, writes nothing
+  edge-group rename OLD NEW --apply --confirm NEW
+  edge-group gc [--stale] [--keep G]             # lists groups + ungrouped nodes
+  edge-group gc --delete G --stale-since DATE --confirm G
+
+`group_id` IS identity: changing name/codename/graph_group in agent.yaml does not migrate the
+graph, it forks it.
+
+The gc delete leg refuses ANY group holding a `:Genesis` — an identity root means a living agent
+owns that tenant, and on a shared Bolt it may belong to a user this process cannot see. Migrate
+such a group with `rename`; do not collect it. All the surgery lives in group_admin.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import group_admin
+
+if __name__ == "__main__":
+    sys.exit(group_admin.main())
