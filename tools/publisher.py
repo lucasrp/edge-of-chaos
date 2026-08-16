@@ -2505,7 +2505,14 @@ def _graph_present_slugs():
     ONLY as project_artefato's last step) OR STALE (its `projected_at` is older than the log's latest
     published ts for that slug — a republish whose projection never reached the graph). Returns a dict
     `{slug: projected_at}`, or None on a degrade (no group / no driver / unreachable) — the caller then
-    skips the replay entirely (there is nothing to recover into a graph it cannot read)."""
+    skips the replay entirely (there is nothing to recover into a graph it cannot read).
+
+    A node with `pending_distills` is ALSO withheld from the present set. Distills are soft since the
+    projection stopped stranding `projection_complete=false` on an unresolved ref (that hid Artefatos
+    from recall); the promise that replaced the hard gate is "retried on reproject", and that promise
+    is only real if the sweep still VISITS the slug. Filtered in PYTHON, not in the Cypher WHERE, so
+    the rule is provable offline. The mark is REMOVEd as soon as every ref resolves, so a settled
+    slug drops straight back out of the sweep."""
     try:
         import _identity
         from neo4j import GraphDatabase
@@ -2518,7 +2525,9 @@ def _graph_present_slugs():
         with drv.session() as s:
             return {r["slug"]: r["pat"] for r in s.run(
                 "MATCH (a:Artefato {group_id:$g}) WHERE a.projection_complete = true "
-                "RETURN a.slug AS slug, a.projected_at AS pat", g=g)}
+                "RETURN a.slug AS slug, a.projected_at AS pat, "
+                "a.pending_distills AS pending", g=g)
+                if not r["pending"]}
     except Exception:  # noqa: BLE001
         return None
     finally:
