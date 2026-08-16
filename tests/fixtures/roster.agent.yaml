@@ -13,6 +13,10 @@ name: fixture
 codename: fixture
 graph_group: fixture
 edge_home: ~/edge/
+language: pt-BR
+mission: Missao de fixture — existe para os testes terem identidade conhecida.
+voice: Voz de fixture — deterministica, igual em qualquer host.
+mentee: Fixture Mentee
 sources:
   - name: exa
     kind: api

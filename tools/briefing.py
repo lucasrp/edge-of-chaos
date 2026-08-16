@@ -58,16 +58,25 @@ def _onboarding_roster_from_bootstrap(agent_yaml=AGENT_YAML):
     except ImportError:
         return None
     p = Path(agent_yaml)
-    # home: EDGE_HOME → parent of agent_yaml if under an install → edge_home from bootstrap
-    home = os.environ.get("EDGE_HOME")
-    if home:
-        home = Path(os.path.expanduser(home))
+    # home: a ÁRVORE NOMEADA primeiro, EDGE_HOME só quando ninguém nomeou uma.
+    #
+    # A ordem era inversa (EDGE_HOME vencendo sempre) e isso é vazamento cross-tenant: um
+    # chamador que passa o agent.yaml de OUTRO install (inspeção cross-home) recebia o
+    # inventário de secrets do LANÇADOR como roster daquele install. Mesma família do #154 e do
+    # mesmo defeito corrigido em _identity._ovo — a perna do HOME só vale para o caso em que o
+    # caminho caiu no default do módulo, nunca para uma árvore que o chamador nomeou.
+    named = p != Path(AGENT_YAML)
+    env_home = os.environ.get("EDGE_HOME")
+    if named:
+        # o chamador nomeou uma árvore: é DELA que se lê, nunca do EDGE_HOME do lançador
+        home = p.parent if p.parent.is_dir() else None
+    elif env_home:
+        home = Path(os.path.expanduser(env_home))
     elif p.exists():
         home = p.parent
     else:
-        # bootstrap may live under cwd install
-        cand = Path.cwd() / "state" / "bootstrap.json"
-        home = Path.cwd() if cand.is_file() else None
+        # último recurso: um install sob o cwd
+        home = Path.cwd() if (Path.cwd() / "state" / "bootstrap.json").is_file() else None
     if home is None or not (Path(home) / "state" / "bootstrap.json").is_file():
         return None
     inv = onboarding.inventory_secrets(onboarding.secrets_dir(home))
