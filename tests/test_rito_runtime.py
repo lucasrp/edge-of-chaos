@@ -25,6 +25,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
@@ -67,13 +68,18 @@ CANNED = {
     "author_correction": (
         "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
         "> o indice vence onde a estrutura importa."),
+    "reader_probe": (
+        "MOTIVACAO: SIM\nFRICTION_POINTS: 0\n\n"
+        "Sem friccoes; o texto pede a rodada 4 e da o caminho sozinho."),
     "final_review": (
-        "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
+        "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n"
+        "CLARITY_STRIKES: 0\n\n"
         "Revisao qualitativa: util por si so."),
 }
 
 LLM_ORDER = ["first_authorial_draft", "gap_critique", "grounding2_targeted",
-             "provisional_rewrite", "fact_audit", "author_correction", "final_review"]
+             "provisional_rewrite", "fact_audit", "author_correction", "reader_probe",
+             "final_review"]
 
 
 def _prompts():
@@ -154,7 +160,7 @@ class StageTableTest(unittest.TestCase):
             [name for _, name, _, _, _ in rito.STAGES],
             ["grounding1_dossier", "first_authorial_draft", "gap_critique",
              "grounding2_targeted", "provisional_rewrite", "fact_audit",
-             "author_correction", "treatment_cleanup", "final_html", "final_review",
+             "author_correction", "treatment_cleanup", "reader_probe", "final_html", "final_review",
              "publication"])
 
     def test_author_and_reviewer_routes_are_the_experiments(self):
@@ -221,7 +227,7 @@ class FullRiteTest(unittest.TestCase):
             sealed_md = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
             expected = render.markdown_page_bytes(sealed_md)
             self.assertEqual((blog / f"{SLUG}.html").read_bytes(), expected)
-            self.assertEqual((run_dir / "09_FINAL.html").read_bytes(), expected)
+            self.assertEqual((run_dir / "10_FINAL.html").read_bytes(), expected)
 
     def test_publication_event_is_bound_to_manifest_and_page(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -340,7 +346,7 @@ class NegativePathsTest(unittest.TestCase):
         'any matching event for the slug' — a receipt pointing at a different event fails."""
         with tempfile.TemporaryDirectory() as tmp:
             _, run_dir, log, blog = _green_run(tmp)
-            receipt_path = run_dir / "11_PUBLICATION.json"
+            receipt_path = run_dir / "12_PUBLICATION.json"
             receipt = json.loads(receipt_path.read_text())
             receipt["event_seq"] = receipt["event_seq"] + 999
             receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
@@ -419,7 +425,8 @@ class NegativePathsTest(unittest.TestCase):
     def test_acceptance_fail_closes_the_rite_before_publication(self):
         canned = dict(CANNED)
         canned["final_review"] = ("ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 2\n"
-                                  "TREATMENT_LEAK: NO\n\nduas alegacoes sem lastro.")
+                                  "TREATMENT_LEAK: NO\nCLARITY_STRIKES: 0\n\n"
+                                  "duas alegacoes sem lastro.")
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(rito.StageFailure):
                 _green_run(tmp, canned=canned)
@@ -428,6 +435,49 @@ class NegativePathsTest(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             evs = [e for e in eventlog.read(log=log) if e["type"] == "artefato.published"]
             self.assertEqual(evs, [])
+
+    def test_clarity_strikes_block_publication(self):
+        """#625: a PASS header with a nonzero CLARITY_STRIKES count is not package_allowed —
+        the 2026-08-16 Vaswani regression (4 named strikes under a PASS) cannot recur."""
+        canned = dict(CANNED)
+        canned["final_review"] = ("ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\n"
+                                  "TREATMENT_LEAK: NO\nCLARITY_STRIKES: 4\n\n"
+                                  "quatro defeitos concretos de clareza nomeados no corpo.")
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(rito.StageFailure):
+                _green_run(tmp, canned=canned)
+            self.assertFalse((Path(tmp) / "blog" / f"{SLUG}.html").exists())
+
+    def test_three_line_header_is_fail_closed(self):
+        """The old 3-line header no longer parses — fail-closed, never silently clarity-blind."""
+        canned = dict(CANNED)
+        canned["final_review"] = ("ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\n"
+                                  "TREATMENT_LEAK: NO\n\nsem a linha de clareza.")
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(rito.StageFailure):
+                _green_run(tmp, canned=canned)
+
+    def test_reader_probe_motivation_blocks_publication(self):
+        """#625 development gate: a probe MOTIVACAO below SIM fails the rite before the
+        render — the outcome gate padding cannot satisfy (operator killed the word floor)."""
+        canned = dict(CANNED)
+        canned["reader_probe"] = ("MOTIVACAO: PARCIAL\nFRICTION_POINTS: 3\n\n"
+                                  "Cai no meio de uma conversa que nao vi comecar.")
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(rito.StageFailure):
+                _green_run(tmp, canned=canned)
+            manifest = json.loads((Path(tmp) / "run" / "00_MANIFEST.json").read_text())
+            self.assertEqual(manifest["failed_stage"], "reader_probe_motivation")
+            self.assertFalse((Path(tmp) / "blog" / f"{SLUG}.html").exists())
+
+    def test_reader_probe_header_is_fail_closed(self):
+        """A probe without the deterministic two-line header fails the rite — never a
+        silently unparsed probe."""
+        canned = dict(CANNED)
+        canned["reader_probe"] = "li tudo e achei bom."
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(rito.StageFailure):
+                _green_run(tmp, canned=canned)
 
 
 class PublishRitoSeamTest(unittest.TestCase):
@@ -452,7 +502,7 @@ class PublishRitoSeamTest(unittest.TestCase):
             html_stage = next(s for s in data["stages"] if s["name"] == "final_html")
             html_stage["output"]["sha256"] = "0" * 64
             manifest_path.write_text(json.dumps(data))
-            (run_dir / "09_FINAL.html").write_bytes(b"<!doctype html>legacy bytes\n")
+            (run_dir / "10_FINAL.html").write_bytes(b"<!doctype html>legacy bytes\n")
             _stamp_wake(log)
             with self.assertRaises(ValueError):
                 publisher.publish_rito(SLUG, run_dir, intent=INTENT, skill="report",

@@ -58,9 +58,10 @@ STAGES = [
     (6, "fact_audit", "06_FACT_AUDIT.md", "review", 9_000),
     (7, "author_correction", "07_AUDITED_FINAL.md", "chat", 14_000),
     (8, "treatment_cleanup", "08_BLIND_SAFE_FINAL.md", "chat", 14_000),
-    (9, "final_html", "09_FINAL.html", None, None),
-    (10, "final_review", "10_FINAL_REVIEW.md", "review", 9_000),
-    (11, "publication", "11_PUBLICATION.json", None, None),
+    (9, "reader_probe", "09_READER_PROBE.md", "review", 9_000),
+    (10, "final_html", "10_FINAL.html", None, None),
+    (11, "final_review", "11_FINAL_REVIEW.md", "review", 9_000),
+    (12, "publication", "12_PUBLICATION.json", None, None),
 ]
 
 LLM_STAGES = tuple(name for _, name, _, route, _ in STAGES if route)
@@ -149,26 +150,121 @@ def treatment_leaks(text: str) -> list[dict[str, Any]]:
 
 
 def parse_acceptance(text: str) -> dict[str, Any]:
-    """The fail-closed final-review header (run.py parse_final_review_acceptance, verbatim)."""
-    header = [line.strip() for line in text.splitlines() if line.strip()][:3]
-    if len(header) != 3:
+    """The fail-closed final-review header — FOUR lines since 2026-08-16 (#625).
+
+    The 2026-08-16 Vaswani review stamped PASS while naming four concrete clarity strikes in
+    its body: the old 3-line header had no slot for them, so `package_allowed` was blind to
+    clarity by construction. The reviewer now COUNTS the clarity defects it names and the
+    count gates exactly like UNSUPPORTED_CLAIMS — clarity strikes are strikes."""
+    header = [line.strip() for line in text.splitlines() if line.strip()][:4]
+    if len(header) != 4:
         raise StageFailure(
-            "final review lacks deterministic ACCEPTANCE/UNSUPPORTED_CLAIMS/TREATMENT_LEAK header")
+            "final review lacks deterministic ACCEPTANCE/UNSUPPORTED_CLAIMS/TREATMENT_LEAK/"
+            "CLARITY_STRIKES header")
     acceptance = re.fullmatch(r"ACCEPTANCE:\s*(PASS|FAIL)", header[0], re.IGNORECASE)
     unsupported = re.fullmatch(r"UNSUPPORTED_CLAIMS:\s*(\d+)", header[1], re.IGNORECASE)
     treatment = re.fullmatch(r"TREATMENT_LEAK:\s*(YES|NO)", header[2], re.IGNORECASE)
-    if not (acceptance and unsupported and treatment):
+    clarity = re.fullmatch(r"CLARITY_STRIKES:\s*(\d+)", header[3], re.IGNORECASE)
+    if not (acceptance and unsupported and treatment and clarity):
         raise StageFailure(
-            "final review's first three non-empty lines are not the required acceptance header")
+            "final review's first four non-empty lines are not the required acceptance header")
     parsed = {
         "acceptance": acceptance.group(1).upper(),
         "unsupported_claims": int(unsupported.group(1)),
         "treatment_leak": treatment.group(1).upper(),
+        "clarity_strikes": int(clarity.group(1)),
     }
     parsed["package_allowed"] = (
         parsed["acceptance"] == "PASS"
         and parsed["unsupported_claims"] == 0
-        and parsed["treatment_leak"] == "NO")
+        and parsed["treatment_leak"] == "NO"
+        and parsed["clarity_strikes"] == 0)
+    return parsed
+
+
+# The header contract the runtime itself appends to every final_review prompt — it supersedes
+# any older "3-line header" wording carried by a skill template, so the contract can never
+# drift per-skill (the fleet regression of 2026-08-16: prose in pipeline.md moved nothing;
+# only what the runtime enforces reproduces).
+FINAL_REVIEW_HEADER_CONTRACT = """\
+## Header contract (supersedes any "3-line header" instruction above)
+
+Begin your review with EXACTLY these four lines, nothing before them:
+
+ACCEPTANCE: PASS|FAIL
+UNSUPPORTED_CLAIMS: <n>
+TREATMENT_LEAK: YES|NO
+CLARITY_STRIKES: <n>
+
+CLARITY_STRIKES counts every CONCRETE clarity defect you name in the body — a symbol used
+before it is introduced, a referent with no address, a load-bearing gloss missing, an opening
+that never says where the problem came from and what is at stake (problem-placement). Count
+honestly: a nonzero count blocks publication, exactly like an unsupported claim (2026-08-16:
+a PASS carried four named clarity strikes the old header could not see). Never soften a defect
+to keep the count at zero — name it, count it; the producer re-grounds at the source and fixes
+it on the next round."""
+
+
+# Development telemetry — counts only, NEVER a gate (operator decision 2026-08-16: a word
+# floor is an invitation to the oco eloquente — producers pad to the number; Goodhart wins).
+# The counts ride the manifest so thinness stays observable for calibration; what actually
+# GATES development is the reader probe below: an outcome measure padding cannot satisfy
+# (length without teaching raises friction, never lowers it).
+def development_telemetry(markdown_text: str) -> dict[str, Any]:
+    """Structural counts of the sealed markdown — observability, not verdict."""
+    prose = re.sub(r"```.*?```", " ", markdown_text, flags=re.S)
+    words = len(re.findall(r"[^\s#|*`>\-]+", prose))
+    sections = len(re.findall(r"(?m)^#{2,3}\s+\S", markdown_text))
+    return {"words": words, "sections": sections}
+
+
+# The reader probe — stage 9, independent route (#625; validated by hand 2026-08-16 on the
+# Vaswani v1→v2→v3 rerun: the probe's MOTIVAÇÃO verdict flipped PARCIAL→SIM exactly where the
+# operator judged the text ready, and its friction list rediscovered the review's clarity
+# strikes independently). A cold reader in the mentee's seat reads the SEALED text only —
+# no production material — and reports whether the text places its problem and where it
+# rubs. Antecedents: teach-back (AHRQ tool 5), cloze testing (Taylor 1953).
+READER_PROBE_CONTRACT = """\
+You are the artefato's target reader — the mentee, meeting this text COLD. You have seen no
+production material, no dossier, no review; only the text below. Read it ONCE, then report.
+
+Begin with EXACTLY these two lines, nothing before them:
+
+MOTIVACAO: SIM|PARCIAL|NAO
+FRICTION_POINTS: <n>
+
+- MOTIVACAO: did the text tell you, before it started teaching, where its problem came from
+  and why it matters to you now — the originating event, the stakes, the clock if there is
+  one (problem-placement)? SIM only when origin AND stakes are in the text itself; PARCIAL
+  when you understood the what but not the why-now; NAO when you fell into the middle of a
+  conversation you never saw begin.
+- FRICTION_POINTS: count your CONCRETE reading frictions — a symbol used before it is
+  introduced, a referent you could not place, a load-bearing gloss missing, a sentence you
+  had to guess at. Count honestly; zero is a claim like any other.
+
+Body: list each friction, quoting the exact spot. Close with 2-3 lines: what is this text
+asking you to DO next, and could you do it from the text alone?
+
+Padding cannot satisfy this probe: length without teaching raises friction, never lowers it.
+
+## The sealed text
+
+"""
+
+
+def parse_reader_probe(text: str) -> dict[str, Any]:
+    """Fail-closed probe header: MOTIVACAO + FRICTION_POINTS as the first two lines."""
+    header = [line.strip() for line in text.splitlines() if line.strip()][:2]
+    if len(header) != 2:
+        raise StageFailure("reader probe lacks deterministic MOTIVACAO/FRICTION_POINTS header")
+    motivacao = re.fullmatch(r"MOTIVACAO:\s*(SIM|PARCIAL|NAO)", header[0], re.IGNORECASE)
+    friction = re.fullmatch(r"FRICTION_POINTS:\s*(\d+)", header[1], re.IGNORECASE)
+    if not (motivacao and friction):
+        raise StageFailure(
+            "reader probe's first two non-empty lines are not the required header")
+    parsed = {"motivacao": motivacao.group(1).upper(),
+              "friction_points": int(friction.group(1))}
+    parsed["probe_allowed"] = parsed["motivacao"] == "SIM"
     return parsed
 
 
@@ -446,7 +542,30 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             run.save(manifest)
             raise exc
 
-        # 9 — final_html: the PINNED render (renderer id sealed; one byte seam)
+        # development telemetry (#625): counts only, never a gate — the operator killed the
+        # word floor (an invitation to padding); the probe below is the development gate.
+        cleanup_stage["development_telemetry"] = development_telemetry(blind_safe)
+        run.save(manifest)
+
+        # 9 — reader probe (#625): a cold reader on the SEALED text only, independent route.
+        # The outcome gate a word count cannot be: MOTIVACAO must be SIM (the text places its
+        # problem), and the friction list feeds the final reviewer's CLARITY_STRIKES count.
+        probe_text = _llm_stage(run, manifest, "reader_probe",
+                                READER_PROBE_CONTRACT + blind_safe, complete_fn, outputs)
+        probe = parse_reader_probe(probe_text)
+        _stage_record(manifest, "reader_probe")["probe"] = probe
+        run.save(manifest)
+        if not probe["probe_allowed"]:
+            exc = StageFailure(
+                f"reader probe rejected the text: MOTIVACAO {probe['motivacao']} — the sealed "
+                "text does not place its own problem (origin + stakes); re-ground and rewrite "
+                "the opening, never bolt on a disclaimer")
+            manifest.update({"status": "failed", "failed_stage": "reader_probe_motivation",
+                             "finished_at": now()})
+            run.save(manifest)
+            raise exc
+
+        # 10 — final_html: the PINNED render (renderer id sealed; one byte seam)
         if _completed_output(run, manifest, "final_html") is None:
             _begin(run, manifest, "final_html")
             try:
@@ -461,13 +580,17 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
                 _fail(run, manifest, "final_html", exc)
                 raise
 
-        # 10 — final review, fail-closed acceptance header + local scan.
+        # 11 — final review, fail-closed acceptance header + local scan.
         # A lente lectures-on-physics é parte fixa da revisão (feynman_gate.LENS_BLOCK):
         # clareza pedagógica é critério de strike, com os contrapesos vinculantes
         # (fato é do fact-audit; enchimento ≠ crescimento) escritos na própria lente.
         import feynman_gate as _feynman_gate
         final_review_prompt = (prompts["final_review"](outputs)
-                               + "\n\n" + _feynman_gate.LENS_BLOCK)
+                               + "\n\n" + _feynman_gate.LENS_BLOCK
+                               + "\n\n## Blind reader probe (independent; frictions are "
+                               "clarity-strike candidates — count every one you judge "
+                               "concrete into CLARITY_STRIKES)\n\n" + probe_text
+                               + "\n\n" + FINAL_REVIEW_HEADER_CONTRACT)
         if theme_review_contract:
             final_review_prompt = f"{final_review_prompt}\n\n{theme_review_contract}"
         final_review = _llm_stage(run, manifest, "final_review",
@@ -495,7 +618,7 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         if draft_sealed_sha != current_draft_sha:
             raise StageFailure("first authorial draft changed during the rite")
 
-        # 11 — PUBLICATION, inside the rite. The publisher recomputes the pinned render from
+        # 12 — PUBLICATION, inside the rite. The publisher recomputes the pinned render from
         # the sealed markdown and refuses a mismatch; the receipt (event + page + binding)
         # seals as the terminal stage.
         if _stage_record(manifest, "publication")["status"] != "completed":
@@ -639,6 +762,12 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
         sealed = (by_name.get("final_html") or {}).get("output") or {}
         if sealed.get("sha256") != sha_bytes(expected_page):
             failures.append("form-renderer-mismatch")
+        # reader probe (#625): a completed run must carry the probe's parsed verdict and it
+        # must have allowed the text — same fail-closed shape as the acceptance check below
+        # (runs sealed before 2026-08-16 predate the stage and fail stage-order upstream)
+        probe_receipt = (by_name.get("reader_probe") or {}).get("probe")
+        if not (probe_receipt or {}).get("probe_allowed"):
+            failures.append("reader-probe-fail")
         if not (page_path and page_path.is_file()
                 and page_path.read_bytes() == expected_page):
             failures.append("page-bytes-mismatch")
