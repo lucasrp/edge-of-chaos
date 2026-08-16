@@ -389,7 +389,7 @@ def _lentes_config(path=None):
     When agent.yaml is absent (first-run), fall back to state/bootstrap.json
     ``backfill_days`` so the initial assemble uses the install lookback.
     """
-    path = REPO / "agent.yaml" if path is None else Path(path)
+    path = _identity.identity_path("agent.yaml") if path is None else Path(path)
     try:
         import yaml
         raw = yaml.safe_load(path.read_text()) or {}
@@ -985,6 +985,10 @@ def graphiti_ingest(items):
         return chosen
 
     async def go():
+        # gpt-5.6-luna NÃO serve aqui: graphiti_core fixa reasoning.effort="minimal"
+        # (openai_base_client.py:36) e o luna recusa esse valor — o extractor morre com 400 e
+        # a sessão inteira deixa de ser filmada. 9d330ea já mantinha 4o-mini neste caminho por
+        # custo (extractor = linha #1 da fatura); agora há também um motivo de compatibilidade.
         llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
         g = Graphiti(*neo, llm_client=llm)
         await g.build_indices_and_constraints()
