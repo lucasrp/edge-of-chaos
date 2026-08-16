@@ -9,7 +9,11 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 APPLY = REPO / "tools" / "edge-apply"
-YAML = REPO / "agent.yaml"
+# O fenotipo NAO existe no genotipo (contrato: agent.yaml e output do onboarding, e
+# gitignored). Apontar para REPO/agent.yaml fazia estes testes falharem por construcao com
+# FileNotFoundError — sobre o edge-apply, nada. A fixture versionada e um agent.yaml completo
+# e igual em qualquer host.
+YAML = REPO / "tests" / "fixtures" / "roster.agent.yaml"
 sys.path.insert(0, str(REPO / "tools"))
 from _grok_provision import grok_prefixes  # noqa: E402
 

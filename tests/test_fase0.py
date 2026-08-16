@@ -3,15 +3,22 @@
 Sucesso: `edge-apply --yaml agent.yaml --home <tmp>` produz um layout instalado,
 com Caddyfile pro domínio, server.py no lugar, e um relatório do que falta (credenciais).
 """
+import re
 import subprocess
 import sys
 import tempfile
+
+import yaml
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 APPLY = REPO / "tools" / "edge-apply"
-YAML = REPO / "agent.yaml"
+# O fenotipo NAO existe no genotipo (contrato: agent.yaml e output do onboarding, e
+# gitignored). Apontar para REPO/agent.yaml fazia estes testes falharem por construcao com
+# FileNotFoundError — sobre o edge-apply, nada. A fixture versionada e um agent.yaml completo
+# e igual em qualquer host.
+YAML = REPO / "tests" / "fixtures" / "roster.agent.yaml"
 
 
 def run_apply(home: Path, claude_home: Path, codex_home: Path):
@@ -48,9 +55,16 @@ class Fase0(unittest.TestCase):
         caddy = self.home / "Caddyfile"
         self.assertTrue(caddy.exists(), "Caddyfile renderizado")
         txt = caddy.read_text()
-        self.assertIn("edge.edgeofchaos.net", txt)
+        # lê do yaml em vez de cravar o domínio de produção: o que se testa é o RENDER
+        # (o template recebeu as variáveis e as substituiu), não uma string mágica que
+        # amarra o teste ao host de um install específico. `blog_domain` é DERIVADO de
+        # `blog_public_url` por tools/edge-render (derive_vars) — declarar blog_domain
+        # direto no yaml não tem efeito nenhum, então o teste deriva do mesmo jeito.
+        cfg = yaml.safe_load(YAML.read_text()) or {}
+        domain = re.sub(r"^https?://", "", str(cfg["blog_public_url"])).rstrip("/")
+        self.assertIn(domain, txt)
         self.assertIn("reverse_proxy", txt)
-        self.assertIn("8766", txt)
+        self.assertIn(str(cfg.get("blog_port", 8766)), txt)
 
     def test_blog_server_placed(self):
         self.assertTrue((self.home / "blog" / "server.py").exists())
