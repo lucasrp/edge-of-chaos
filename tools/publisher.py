@@ -1410,7 +1410,7 @@ def _project_backbone(s, g, log):
     ANCHORS stay current with the log every canonical sync, regardless of which artefatos exist."""
     import yaml
     try:
-        cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
+        cfg = yaml.safe_load(_identity.identity_path("agent.yaml").read_text()) or {}
     except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
         cfg = {}
     s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "

@@ -37,8 +37,9 @@ def _load_key():
 
 def render_model():
     """The `render` router model from agent.yaml (ADR-0005); falls back to a known mini id."""
-    m = re.search(r"render:.*?\n(?:.*\n)*?\s*model:\s*(\S+)", (REPO / "agent.yaml").read_text())
-    return m.group(1) if m else "gpt-5.4-mini"
+    m = re.search(r"render:.*?\n(?:.*\n)*?\s*model:\s*(\S+)",
+                  _identity.identity_path("agent.yaml").read_text())
+    return m.group(1) if m else "gpt-5.6-luna"
 
 
 def idiom():

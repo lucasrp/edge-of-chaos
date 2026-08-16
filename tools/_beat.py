@@ -8,6 +8,8 @@ import argparse
 import fcntl
 import json
 import os
+
+import _identity
 import random
 import shutil
 import sys
@@ -213,9 +215,9 @@ def pick_heartbeat_cli(mix=None, rng=None) -> str:
 def _load_heartbeat_cfg(home=None) -> dict:
     try:
         import yaml
-        path = Path(os.path.expanduser(str(home or REPO))) / "agent.yaml"
-        if not path.exists():
-            path = REPO / "agent.yaml"
+        path = Path(os.path.expanduser(str(home))) / "agent.yaml" if home else None
+        if path is None or not path.exists():
+            path = _identity.identity_path("agent.yaml")
         cfg = yaml.safe_load(path.read_text()) or {}
         hb = cfg.get("heartbeat") or {}
         return hb if isinstance(hb, dict) else {}
