@@ -1164,6 +1164,8 @@ _TRUST_BY_LABEL = {
     "Experiment": "asserted",
     # Structured Activity/Direction lenses: log-fold spine (mirrors cortex_provenance._ASSERTED_LABELS).
     "Atividade": "asserted", "Map": "asserted", "Ticket": "asserted",
+    # #633 — the per-`operacao` MARCO_OF hub; it used to borrow the :Objective label.
+    "Operacao": "asserted",
     "Entity": "extracted", "Source": "extracted", "Topic": "extracted",
     "Episodic": "episodic", "VozFragment": "episodic",
 }
@@ -1193,6 +1195,7 @@ _TITLE_FIELDS = {
     "Atividade": ("finalidade", "num", "ref", "ulid"),
     "Map": ("titulo", "num", "ref", "ulid"),
     "Ticket": ("titulo", "question", "num", "ref", "ulid"),
+    "Operacao": ("operacao", "ref"),
     "Entity": ("name",),
     "Source": ("name", "source_description", "key"),
     "Topic": ("title", "name", "topic_id", "key"),
@@ -1419,7 +1422,7 @@ def _context_only(label, props):
         # would mis-mark a low-tier Episodic as order-bearing, codex final [P3]). Asserted spine →
         # order-bearing; everything else (extracted, episodic, unknown) → context_only (fail-safe).
         return label not in ("Genesis", "Objective", "Direction", "Artefato", "Experiment",
-                             "Atividade", "Map", "Ticket")
+                             "Atividade", "Map", "Ticket", "Operacao")
 
 
 def _map_node(id_, label, props):
@@ -1654,7 +1657,7 @@ def _cortex_dark():
 # the island maps a label → its node class and shows/hides deterministically over the loaded payload.
 # Every known projected label is listed so noise can be opted in (Finding D — Community/Claim/…).
 _CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Experiment",
-                         "Atividade", "Map", "Ticket",
+                         "Atividade", "Map", "Ticket", "Operacao",
                          "Entity", "Source", "Topic", "Episodic", "VozFragment",
                          "Hypothesis", "Claim", "Community", "Doc")
 
@@ -1662,7 +1665,7 @@ _CORTEX_FILTER_LABELS = ("Genesis", "Objective", "Direction", "Artefato", "Exper
 # readable. Non-spine labels in _CORTEX_FILTER_LABELS are opt-in only.
 _CORTEX_SPINE_LABELS = frozenset({
     "Genesis", "Objective", "Direction", "Artefato", "Experiment",
-    "Atividade", "Map", "Ticket",
+    "Atividade", "Map", "Ticket", "Operacao",
 })
 
 
