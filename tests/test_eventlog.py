@@ -17,6 +17,13 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog  # noqa: E402
 
+# The CANONICAL batch one `publish_artefato_atomic` lands, in order — named ONCE so the batch's
+# shape is asserted in a single place instead of being re-typed (and left behind) in every test
+# that reads a publish back. It grew: published+kernel (#3) → +adoption (R6/S10) → +assembly.pending
+# (tkt-003, the Assemble queue is log truth). Extend HERE when the canon grows again, never inline.
+ATOMIC_PUBLISH_BATCH = ["artefato.published", "intent.kernel", "artefato.adoption",
+                        "assembly.pending"]
+
 
 class AppendThenReadRoundTrips(unittest.TestCase):
     """The tracer bullet: an appended event lands as one JSONL line, stamped with a
@@ -726,8 +733,7 @@ class ExperimentCurationFoldsCuratedFirst(unittest.TestCase):
                 log=log)
             events = eventlog.read(log=log)
             self.assertEqual([e["type"] for e in events],
-                             ["artefato.published", "intent.kernel", "artefato.adoption",
-                              "experiment.curated"])
+                             ATOMIC_PUBLISH_BATCH + ["experiment.curated"])
             exp = eventlog.experiment_at("exp40", log=log)
             self.assertEqual(exp["canonical"]["typed"]["claim"], "GN wins.")
             self.assertEqual(exp["canonical_artifacts"][0],
@@ -1181,9 +1187,9 @@ class AtomicPublishHasNoCrashWindow(unittest.TestCase):
             # batch also carries the adoption telemetry (here synthesized: no caller-supplied payload).
             self.assertEqual(writes["count"], 1)
             evs = eventlog.read(log=log)
-            self.assertEqual([e["type"] for e in evs],
-                             ["artefato.published", "intent.kernel", "artefato.adoption"])
-            self.assertEqual([e["seq"] for e in evs], [1, 2, 3])
+            self.assertEqual([e["type"] for e in evs], ATOMIC_PUBLISH_BATCH)
+            self.assertEqual([e["seq"] for e in evs],
+                             list(range(1, len(ATOMIC_PUBLISH_BATCH) + 1)))
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
 
@@ -1204,8 +1210,7 @@ class ProducerFacingPublishPairsItsKernel(unittest.TestCase):
             # the adoption telemetry in the same indivisible batch (synthesized here).
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
             evs = eventlog.read(log=log)
-            self.assertEqual([e["type"] for e in evs],
-                             ["artefato.published", "intent.kernel", "artefato.adoption"])
+            self.assertEqual([e["type"] for e in evs], ATOMIC_PUBLISH_BATCH)
 
     def test_publish_artefato_with_empty_intent_raises_and_lands_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1257,10 +1262,13 @@ class AppendBatchIsSerializedAcrossConcurrentWriters(unittest.TestCase):
                     t.join()
 
                 seqs = [e["seq"] for e in eventlog.read(log=log)]
-                # each atomic publish lands THREE events under R6 (published + kernel + adoption) → 3n
-                # events, seqs 1..3n with no dupes
-                self.assertEqual(len(seqs), 3 * n)
-                self.assertEqual(sorted(seqs), list(range(1, 3 * n + 1)))
+                # each atomic publish lands the canonical batch (published + kernel + adoption +
+                # assembly.pending) → k*n events, seqs 1..k*n with no dupes. k comes from the named
+                # canon, not a hand-typed literal: what this test guards is the flock serialization
+                # (unique, strictly-monotonic seqs), and that guard must not rot when the batch grows.
+                k = len(ATOMIC_PUBLISH_BATCH)
+                self.assertEqual(len(seqs), k * n)
+                self.assertEqual(sorted(seqs), list(range(1, k * n + 1)))
                 self.assertEqual(seqs, sorted(seqs))  # strictly monotonic in file order
 
 

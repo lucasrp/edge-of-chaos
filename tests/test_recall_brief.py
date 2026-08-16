@@ -15,6 +15,16 @@ sys.path.insert(0, str(REPO / "tools"))
 import briefing   # noqa: E402
 import recall     # noqa: E402
 
+ROSTER_FIXTURE = REPO / "tests" / "fixtures" / "roster.agent.yaml"
+MEMORY_FIXTURE = REPO / "seeds" / "memory"
+"""A identidade DECLARADA destes testes — a fixture de roster e a doutrina canônica de seeds/.
+
+`compose_briefing` é fail-closed (ADR-0009): sem personality/method/canone inscritos ele levanta
+`BriefingIdentityError`. Por default ele lê o `memory/` e o `agent.yaml` DA CASA de quem roda a
+suíte — e o genótipo, por contrato, não tem nenhum dos dois. Os dois testes abaixo, que só querem
+saber se a perna de recall SAIU do briefing, morriam nessa recusa antes de olhar o texto. Com as
+fixtures versionadas eles medem o composer, igual em qualquer host."""
+
 
 class RecallSubgraphLivesInRecallModule(unittest.TestCase):
     """The salient-subgraph read moves out of briefing.py into tools/recall.py, keeping its
@@ -145,7 +155,8 @@ class BriefingNoLongerCarriesTheRecallLeg(unittest.TestCase):
     def test_compose_briefing_emits_no_recall_section(self):
         with tempfile.TemporaryDirectory() as tmp:
             text = briefing.compose_briefing(
-                log=Path(tmp) / "log.jsonl", clusters=None, roster=[])
+                log=Path(tmp) / "log.jsonl", clusters=None, roster=[],
+                agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertNotIn("recall — your own memory", text.lower())
 
     def test_briefing_module_no_longer_owns_the_subgraph_leg(self):
@@ -158,7 +169,8 @@ class BriefingNoLongerCarriesTheRecallLeg(unittest.TestCase):
         # the four parts all survive the extraction — only the recall leg leaves
         with tempfile.TemporaryDirectory() as tmp:
             text = briefing.compose_briefing(
-                log=Path(tmp) / "log.jsonl", clusters=None, roster=[])
+                log=Path(tmp) / "log.jsonl", clusters=None, roster=[],
+                agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             low = text.lower()
             for marker in ("objective — the anchor", "1. direction", "2. what is open",
                            "3. corpus", "4. source orientation", "5. knowledge clusters", "recap"):
