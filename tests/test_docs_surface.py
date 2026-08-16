@@ -22,6 +22,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -59,6 +60,7 @@ class _DocsBase(unittest.TestCase):
         self.log = root / "log.jsonl"
         self.log.write_text("\n".join(self.LOG_LINES) + ("\n" if self.LOG_LINES else ""))
 
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root / "entries")
         os.environ["EDGE_BLOG_STATIC"] = str(root / "static")
         os.environ["EDGE_BLOG_LOG"] = str(self.log)

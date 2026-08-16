@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 BLOG = Path(__file__).resolve().parent.parent / "blog"
 sys.path.insert(0, str(BLOG))
@@ -62,6 +63,7 @@ class FlaskUsesJinja(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
         # /ux-catalog parseia os tokens AO VIVO de <static>/style.css, e `_static()` resolve
         # por EDGE_BLOG_STATIC. Dez módulos de teste setam essa variável e NENHUM a limpa
@@ -83,6 +85,7 @@ class FlaskUsesJinja(unittest.TestCase):
         if self._static_before is None:
             os.environ.pop("EDGE_BLOG_STATIC", None)
         else:
+            guard_blog_env(self)
             os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_app_has_jinja_template_folder(self):
@@ -107,6 +110,7 @@ class SelfHostedJS(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
         self.fix = Path(self.tmp.name) / "cortex.json"
         self.fix.write_text(json.dumps(
@@ -190,6 +194,7 @@ class UxCatalog(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
         # mesma razão da classe acima: `_static()` resolve por EDGE_BLOG_STATIC, dez módulos a
         # setam e nenhum a limpa — sem declarar o próprio static, este teste herda o tmpdir já
@@ -205,6 +210,7 @@ class UxCatalog(unittest.TestCase):
         if self._static_before is None:
             os.environ.pop("EDGE_BLOG_STATIC", None)
         else:
+            guard_blog_env(self)
             os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_ux_catalog_route_lists_tokens_and_macros(self):
@@ -234,6 +240,7 @@ class TablerOverDarkIdentity(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
         # mesma razão da classe acima: `_static()` resolve por EDGE_BLOG_STATIC, dez módulos a
         # setam e nenhum a limpa — sem declarar o próprio static, este teste herda o tmpdir já
@@ -249,6 +256,7 @@ class TablerOverDarkIdentity(unittest.TestCase):
         if self._static_before is None:
             os.environ.pop("EDGE_BLOG_STATIC", None)
         else:
+            guard_blog_env(self)
             os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_tabler_vendored_and_loaded(self):

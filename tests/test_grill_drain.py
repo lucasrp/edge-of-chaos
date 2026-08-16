@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 BLOG = Path(__file__).resolve().parent.parent / "blog"
 sys.path.insert(0, str(BLOG))
@@ -46,6 +47,7 @@ class _Base(unittest.TestCase):
             _ev(3, "2026-06-12T15:30:00+00:00", "artefato.published", "artefato:beta-post",
                 {"slug": "beta-post", "cites": [], "distills": [], "proposes": []}),
         ]) + "\n")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root)
         os.environ["EDGE_BLOG_STATIC"] = str(root)
@@ -452,6 +454,7 @@ class TestClarifyAnswerGated(unittest.TestCase):
         self.log.write_text(_ev(1, "2026-06-10T09:00:00+00:00", "voz.clarify", "voz:alpha-post",
                                  {"comment_id": "c1", "clarify_id": "q1", "question": "which?",
                                   "grill_run_id": "g0"}) + "\n")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root)
         os.environ["EDGE_BLOG_STATIC"] = str(root)
@@ -492,6 +495,7 @@ class TestStartupMigrationGuarded(unittest.TestCase):
             '{"seq": 1, "type": "voz.comment", "payload": {"target_ref": null, '
             '"comment_id": "c1", "body": "oi"}}\n'
             '{"seq": 3, "type": "voz.reply", "payload": {"comment_id": "c1", "body": "hand reply"}}\n')
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root)
         os.environ["EDGE_BLOG_STATIC"] = str(root)
@@ -523,6 +527,7 @@ class TestDrainRouteAuthGate(unittest.TestCase):
             _ev(1, "2026-06-10T09:00:00+00:00", "artefato.published", "artefato:alpha-post",
                 {"slug": "alpha-post", "cites": [], "distills": [], "proposes": []}),
         ]) + "\n")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root)
         os.environ["EDGE_BLOG_STATIC"] = str(root)

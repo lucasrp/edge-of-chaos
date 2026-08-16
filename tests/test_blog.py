@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 
 def _ev(seq, ts, type_, slug, payload_extra=None):
@@ -44,6 +45,7 @@ class TestBlog(unittest.TestCase):
                 {"text": "First teaser paragraph.\n\nSecond teaser paragraph."}),
         ]) + "\n")
 
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(entries)
         os.environ["EDGE_BLOG_STATIC"] = str(root)
         os.environ["EDGE_BLOG_LOG"] = str(log)
@@ -115,6 +117,7 @@ class TestVozRail(unittest.TestCase):
                 {"intent": "open: beta."}),
         ]) + "\n")
 
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(entries)
         os.environ["EDGE_BLOG_STATIC"] = str(root)
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
