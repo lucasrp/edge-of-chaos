@@ -1,0 +1,83 @@
+# Roster DECLARADO para os testes que derivam do seam S3 (sources -> recognizers).
+#
+# Por que existe: `harvest.build_recognizers()` e `briefing` leem o agent.yaml DO HOST. Num
+# genótipo (que por contrato não tem agent.yaml) a tabela nasce vazia e ~133 testes falham por
+# construção — sem dizer nada sobre o código. Num install com roster mínimo, falham igual.
+#
+# Os módulos usam o roster REAL quando ele existe (a intenção original: validar o seam do install
+# de verdade) e caem nesta fixture quando não existe. Assim o teste mede o CÓDIGO no genótipo e o
+# INSTALL num install — em vez de medir "quem está rodando a suíte".
+#
+# As vias abaixo espelham as invocações reais gravadas em tests/fixtures/harvest/*.jsonl.
+name: fixture
+codename: fixture
+graph_group: fixture
+edge_home: ~/edge/
+sources:
+  - name: exa
+    kind: api
+    lens: mundo
+    description: Busca neural/semântica sobre web e papers.
+    interfaces:
+      - interface_id: search-deep
+        via: POST https://api.exa.ai/search — corpo JSON com {query, numResults}
+        dry_semantics: never-dry
+      - interface_id: contents
+        via: POST https://api.exa.ai/contents — corpo JSON com {ids}
+        dry_semantics: never-dry
+  - name: x
+    kind: api
+    lens: mundo
+    description: Conversa de praticantes no X.
+    interfaces:
+      - interface_id: v2-recent
+        via: GET https://api.twitter.com/2/tweets/search/recent?query=<termos>&max_results=10 — busca recente
+        idiom:
+          max_terms: 3
+          style: termos curtos, sem operadores booleanos longos
+        # a contagem de resultados vive em dado do operador, nunca num host hardcoded
+        hit_count: '"result_count"\s*:\s*(\d+)' 
+      - interface_id: xai-responses
+        via: POST https://api.x.ai/v1/responses — corpo JSON
+  - name: arxiv
+    kind: api
+    lens: mundo
+    description: Preprints.
+    interfaces:
+      - interface_id: api-query
+        via: GET https://export.arxiv.org/api/query?search_query=<termos>&max_results=10 — preprints
+        idiom:
+          https_only: true
+  - name: hn
+    kind: api
+    lens: mundo
+    description: Hacker News via Algolia.
+    interfaces:
+      - interface_id: algolia-search
+        via: GET https://hn.algolia.com/api/v1/search?query=<termos> — busca no HN
+        dry_semantics: real
+  - name: overleaf
+    kind: api
+    lens: mundo
+    description: Busca em documentos do Overleaf.
+    interfaces:
+      - interface_id: v2-search
+        via: GET https://www.overleaf.com/api/v2/search?q=<termos> — busca em documentos
+  - name: github
+    kind: cli
+    lens: atividade
+    description: GitHub pela CLI gh autenticada.
+    interfaces:
+      - interface_id: gh-cli
+        via: gh api / gh search — read-only
+  - name: gdrive-consortium
+    kind: cli
+    lens: atividade
+    description: Drive do consórcio via rclone, somente leitura.
+    interfaces:
+      # O guarda exige o literal COMPLETO do remote, nunca só o nome: o mesmo remote `gdrive`
+      # alcança outros drives, e uma leitura deles não pode dobrar nesta fonte (contaminação
+      # de fronteira). O identificador abaixo é o mesmo que as fixtures de tests/fixtures/harvest
+      # já carregam.
+      - interface_id: rclone-read
+        via: rclone ls/lsd/copy FROM 'gdrive,team_drive=0ANpsQbmPpJ3WUk9PVA:' — leitura
