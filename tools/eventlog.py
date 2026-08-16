@@ -3216,7 +3216,12 @@ def _foldable_map_open(payload):
         and all(isinstance(payload.get(field), str) and payload[field].strip()
                 for field in ("titulo", "rationale", "dispatch_id"))
         and tier in _LENS_TIERS and isinstance(author, str) and author.strip()
-        and ((tier == "asserted" and author in ("operador", "grill"))
+        # "mentor" is the operator's own surface vocabulary (2026-07-13 rename). The WRITE path
+        # (_wayfinder_curation) and _foldable_ticket_open both accept it; this reader was missed,
+        # so a mentor-authored map was written, accepted by grill_gate (which counts map.opened by
+        # TYPE), and then invisible to the lens forever — taking its tickets with it, since a
+        # ticket cannot fold without resolving its parent map. Close mapped, portfolio empty.
+        and ((tier == "asserted" and author in ("operador", "grill", "mentor"))
              or (tier == "llm_judged" and author in ("edge", "racionalizador")))
     ):
         return False
