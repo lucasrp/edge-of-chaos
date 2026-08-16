@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 AGENT_YAML = """\
 name: tester
@@ -46,6 +47,7 @@ class TestLLMPanel(unittest.TestCase):
             "subject": "close", "payload": {"status": 429, "detail": "insufficient_quota"},
         }) + "\n")
 
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root / "entries")
         os.environ["EDGE_BLOG_STATIC"] = str(root)
         os.environ["EDGE_BLOG_LOG"] = str(log)

@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import eventlog          # noqa: E402
 import grounding_yield   # noqa: E402
+from _blog_env import guard_blog_env
 
 
 class BriefingNeverBlank(unittest.TestCase):
@@ -169,6 +170,7 @@ class SourcesPanel(unittest.TestCase):
                                             "kind": "mundo", "similarity": 0.7})
         log.write_text("\n".join(rows) + "\n")
 
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root / "entries")
         os.environ["EDGE_BLOG_STATIC"] = str(root)
         os.environ["EDGE_BLOG_LOG"] = str(log)

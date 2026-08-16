@@ -30,6 +30,7 @@ import eventlog  # noqa: E402
 import predispatch  # noqa: E402
 import producer_descriptor as pd  # noqa: E402
 import publisher  # noqa: E402
+from _blog_env import guard_blog_env
 
 
 # --- origin: user_requested | beat -----------------------------------------------------------
@@ -181,6 +182,7 @@ class ProtoPagesAreServedUnderARestrictiveCSP(unittest.TestCase):
             (entries / "demo.proto.abc123def456.html").write_text(PAGE)
             (entries / "normal-entry.html").write_text("<html><body>ok</body></html>")
             import os
+            guard_blog_env(self)
             os.environ["EDGE_BLOG_ENTRIES"] = str(entries)
             os.environ["EDGE_BLOG_STATIC"] = str(root)
             os.environ["EDGE_BLOG_LOG"] = str(root / "log.jsonl")
