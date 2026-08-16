@@ -9,10 +9,17 @@ state/cortex/
 .env
 state/harvest-cursors.json
 docs/.loopR_research_raw.json
-.agents/
+# .agents/ NÃO é ignorado: `tests/test_codex_skill_wrappers.py` o define como "REPO-LOCAL,
+# versioned genotype content" e `_grok_provision`/`_codex_provision` o consomem como ENTRADA.
+# fea9407 adicionou este ignore no MESMO commit em que adicionou arquivos rastreados aqui —
+# 51 seguem rastreados apesar dele. O efeito não era inofensivo: todo wrapper novo exigia
+# `git add -f`, e por isso as skills setup/autonomia/onboard (2026-07-13) nunca ganharam o seu.
 memory/*token*.md
 agent.yaml
 /state/
 /memory/
 /blog/entries/
 /drafts/
+
+# worktrees efêmeros de subagentes — criados e removidos por sessão, nunca genótipo
+.claude/worktrees/
