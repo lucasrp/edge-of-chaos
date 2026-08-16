@@ -27,7 +27,12 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import sources  # noqa: E402
 
-AGENT_YAML = REPO / "agent.yaml"
+# O fenotipo e OUTPUT do onboarding e e gitignored: no genotipo nao existe, e a classe
+# RealAgentYaml morria com FileNotFoundError antes de validar qualquer coisa. A fixture
+# versionada e um roster completo e igual em qualquer host, entao o que se mede volta a
+# ser o VALIDADOR (canary, idiom, secret_ref, acts fora de sources) em vez da instalacao
+# de quem apertou enter.
+AGENT_YAML = REPO / "tests" / "fixtures" / "roster.agent.yaml"
 ROADMAP = REPO / "state" / "source-roadmap.md"
 
 
@@ -384,6 +389,19 @@ class RoadmapReplaced(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        # state/source-roadmap.md e ESTADO DE INSTALL, nao artefato de genotipo: ele e escrito
+        # pela operacao (linhas de yield datadas, intent priors, medicoes de canary) e por isso
+        # legitimamente NAO existe num clone limpo. Antes, a classe inteira morria de
+        # FileNotFoundError no setUpClass — um vermelho que so dizia "este host nao e um install".
+        #
+        # Pular aqui NAO e afrouxar: as assercoes seguem valendo integralmente onde o arquivo
+        # existe. Fabricar um roadmap de fixture seria pior — o conteudo que estes testes cobram
+        # (provenance seed:loopR-2026-07-01, o datapoint de reCAPTCHA, os priors do operador) e
+        # historia operacional real, e inventa-la para ficar verde seria falsificar evidencia.
+        if not ROADMAP.is_file():
+            raise unittest.SkipTest(
+                f"{ROADMAP} ausente — estado de install, nao de genotipo; as assercoes deste "
+                "arquivo so sao aplicaveis num install real")
         cls.text = ROADMAP.read_text()
         cls.parsed = sources.parse_roadmap(cls.text)
 

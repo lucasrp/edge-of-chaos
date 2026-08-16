@@ -32,7 +32,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 
 import eventlog       # noqa: E402
-import harvest        # noqa: E402
+import harvest
+import sources        # noqa: E402
 import predispatch    # noqa: E402
 
 
@@ -85,6 +86,24 @@ def _tick_clock():
 # =============================================================================================
 # A — predispatch: identity precedes grounding
 # =============================================================================================
+
+ROSTER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "roster.agent.yaml"
+
+
+def _seam_recognizers():
+    """A tabela do seam S3 a partir do roster DECLARADO da fixture, nunca do agent.yaml do host.
+
+    Sem isto, `harvest.harvest(recognizers=_RECS)` constroi a tabela do agent.yaml de quem estiver rodando a
+    suite: no genotipo (que por contrato nao tem um) ela nasce vazia, nada e reconhecido e os
+    testes falham com "0 != 1" — sobre o orcamento e os cursores do harvest, nada. Mesmo motivo
+    e mesma fixture de test_harvest.
+    """
+    srcs, _ = sources.load_sources(ROSTER_FIXTURE)
+    return harvest.build_recognizers(sources=srcs)
+
+
+_RECS = _seam_recognizers()
+
 
 class IdentityPrecedesGrounding(unittest.TestCase):
     def test_R1a_id_written_even_when_harvest_raises(self):
@@ -246,7 +265,7 @@ class HarvestLockIsNonBlocking(unittest.TestCase):
                 err = io.StringIO()
                 t0 = time.monotonic()
                 with contextlib.redirect_stderr(err):
-                    n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                    n = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
                 self.assertEqual(n, 0, "a contended harvest is DARK, not blocked")
                 self.assertLess(time.monotonic() - t0, 5, "must NOT block on the held lock")
                 self.assertIn("DARK", err.getvalue(), "the dark-and-retry is LOUD on stderr")
@@ -267,7 +286,7 @@ class HarvestIsBudgetBounded(unittest.TestCase):
             with mock.patch.dict(os.environ, {"EDGE_HARVEST_BUDGET_S": "3"}), \
                  mock.patch.object(harvest.time, "monotonic", _tick_clock()), \
                  contextlib.redirect_stdout(out):
-                n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                n = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertIn("CAPPED", out.getvalue(), "the cap is LOUD")
             self.assertEqual(n, 3, "only the 3 completed files emitted")
             saved = json.loads(cursors.read_text())
@@ -283,7 +302,7 @@ class HarvestIsBudgetBounded(unittest.TestCase):
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             with mock.patch.dict(os.environ, {"EDGE_HARVEST_BUDGET_S": "soon"}):
                 with self.assertRaises(ValueError):
-                    harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                    harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
 
 
 class HarvestResumesWithoutReappend(unittest.TestCase):
@@ -295,18 +314,18 @@ class HarvestResumesWithoutReappend(unittest.TestCase):
             with mock.patch.dict(os.environ, {"EDGE_HARVEST_BUDGET_S": "3"}), \
                  mock.patch.object(harvest.time, "monotonic", _tick_clock()), \
                  contextlib.redirect_stdout(io.StringIO()):
-                n1 = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                n1 = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertEqual(n1, 3)
             self.assertEqual(len(json.loads(cursors.read_text())), 3, "K watermarks persisted")
             self.assertEqual(len(eventlog.read(types=["grounding.manifest"], log=log)), 3)
             # resume with the real clock (no cap): the 3 completed are stat-skipped, the rest emit
             with contextlib.redirect_stdout(io.StringIO()):
-                n2 = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                n2 = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertEqual(n2, 3, "the resume emits ONLY the not-yet-completed files")
             self.assertEqual(len(eventlog.read(types=["grounding.manifest"], log=log)), 6,
                              "no re-append of the already-cursored K files")
             with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store), 0,
+                self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS), 0,
                                  "a third run stat-skips everything")
 
 
@@ -322,7 +341,7 @@ class StatSkipAvoidsRereadingUnchangedFiles(unittest.TestCase):
             _write(fc, _tool_pair("c", "tc", "2026-07-01T10:00:00.000Z"))
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             with contextlib.redirect_stdout(io.StringIO()):
-                harvest.harvest(log=log, cursors_path=cursors, store_root=store)   # reads all 3
+                harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)   # reads all 3
             # append one row to ONE file and bump its mtime deterministically
             with fb.open("a") as fh:
                 for o in _tool_pair("b", "tb2", "2026-07-01T11:00:00.000Z"):
@@ -339,7 +358,7 @@ class StatSkipAvoidsRereadingUnchangedFiles(unittest.TestCase):
 
             with mock.patch.object(harvest, "_scan_file", spy), \
                  contextlib.redirect_stdout(io.StringIO()):
-                n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                n = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertEqual(seen, [fb], f"only the changed file is re-read, got {seen}")
             self.assertEqual(n, 1, "only the appended row is emitted; unchanged files not read")
 
@@ -356,7 +375,7 @@ class ConcurrentHarvestsEmitEachRowOnce(unittest.TestCase):
             def worker(name):
                 start.wait()
                 # no stdout/stderr redirect in a thread (it is process-global) — noise is harmless
-                results[name] = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                results[name] = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
 
             ts = [threading.Thread(target=worker, args=(f"w{i}",)) for i in range(2)]
             for t in ts:
@@ -381,13 +400,13 @@ class CrashBetweenAppendAndFlushIsAbsorbed(unittest.TestCase):
                                    side_effect=RuntimeError("killed mid-flush")), \
                  contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaises(RuntimeError):
-                    harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                    harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertGreater(len(eventlog.read(types=["grounding.manifest"], log=log)), 0,
                                "the appends landed before the cursor flush died")
             self.assertFalse(cursors.exists(), "the cursor was never durably written")
             # re-run clean: the ranked/brute dedup absorbs the re-read
             with contextlib.redirect_stdout(io.StringIO()):
-                harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+                harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             refs = [tuple(m["payload"]["raw_ref"])
                     for m in eventlog.read(types=["grounding.manifest"], log=log)]
             self.assertEqual(len(refs), len(set(refs)), "no duplicate raw_refs after the re-run")
