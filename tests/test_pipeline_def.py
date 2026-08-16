@@ -9,7 +9,9 @@ it names live in tools/. This test pins the load-bearing claims:
     run_close bounce/brake) and tools/publisher.py (atomic publish + C3 kernel);
   * the close lives at the SKILL'S EXIT — a standalone /ed-report observes the same close
     (honors ADR-0008);
-  * the close-roles (reviewers, publisher) are NOT round-robinable (only producer-skills are).
+  * the close-roles (reviewers, publisher) are NOT selectable — they are not producers, they
+    run at every producer's exit (ADR-0024 replaced the beat's round-robin rotation with the
+    Pauta's `forma` selection; the guard is unchanged, only the word for "chooseable" moved).
 
 Grep-based, case-insensitive: the doc is prose, so the test reads it and asserts the
 load-bearing tokens are present.
@@ -57,10 +59,15 @@ class PipelineHasThreePhasesAndCloseAtExit(unittest.TestCase):
         self.assertIn("/ed-report", self.lower)
         self.assertIn("standalone", self.lower)
 
-    def test_close_roles_are_not_round_robinable(self):
-        self.assertIn("round-robin", self.lower)
-        # the close-roles (reviewers, publisher) are NOT round-robinable; only producers are.
-        self.assertIn("not round-robinable", self.lower)
+    def test_close_roles_are_not_selectable(self):
+        # ADR-0024 (a9a6b17, "beat rotation + its test" demolished) killed the round-robin: the
+        # Pauta's PROPOSTA now names the `forma`/producer. The guard this test exists for did not
+        # move — the close-roles are still the fixed gate every producer funnels through — so it is
+        # re-pinned to the CURRENT word for "chooseable" instead of the retired one.
+        self.assertIn("pauta", self.lower)
+        self.assertIn("not selectable", self.lower)
+        # and the roles it applies to are still named as the close-roles
+        self.assertIn("close-roles", self.lower)
 
     def test_is_the_deyamld_publish_only_rewrite(self):
         self.assertIn("consolidate-state", self.lower)
