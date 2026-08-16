@@ -8,4 +8,7 @@ neo4j==6.2.0
 openai==2.41.0
 flask==3.0.3
 PyYAML==6.0.3
-vl-convert-python
+# the visual backend (tools/render.py's closed Vega recipe set) — pinned like every other
+# runtime dep: f40c4cd landed it unpinned, so two hosts provisioned from the same genotype could
+# render different SVG bytes. The pin is the version the recipe set was verified on.
+vl-convert-python==1.9.0.post1
