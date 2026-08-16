@@ -40,8 +40,11 @@ SPINE_QUERY = (
     "MATCH (gen:Genesis {group_id:$g}) "
     "OPTIONAL MATCH (gen)-[:GROUNDS]->(o:Objective {group_id:$g}) "
     "OPTIONAL MATCH (o)-[:ANCHORS]->(d:Direction {group_id:$g}) "
+    # The bets are listed by HANDLE, not by a truncated paragraph (#632 acceptance): d.title is the
+    # short name the write path now requires, and coalesce falls back to d.body for a legacy node
+    # the backfill has not reached — the brief keeps working over the old graph either way.
     "RETURN gen.codename AS codename, gen.voice AS voice, o.body AS objective, "
-    "collect(DISTINCT d.body) AS bets")
+    "collect(DISTINCT coalesce(d.title, d.body)) AS bets")
 ARTEFATOS_QUERY = (
     "MATCH (a:Artefato {group_id:$g})-[:SERVES]->(:Objective {group_id:$g}) "
     "WHERE a.projection_complete = true AND coalesce(a.kind,'published') <> 'asset' "

@@ -50,7 +50,7 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             self.assertEqual(
                 set(grill_gate.grill_complete(log=log)), {"leveling", "wayfind"})
@@ -60,7 +60,7 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling(
@@ -75,7 +75,7 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             root = Path(tmp) / "lv"
             import grill_writeback
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             grill_writeback.leveling("diario", "early", root=root, log=log)
             eventlog.report_direction("the steer after leveling", log=log)
             self.assertIn("leveling", grill_gate.grill_complete(log=log))
@@ -88,12 +88,12 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.set_direction("d1", "tighten the close", log=log)
+            eventlog.set_direction("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
             _wayfind(log)
-            eventlog.propose("topic-7d:report-rite", "inferida pelo sweep", log=log)
+            eventlog.propose("topic-7d:report-rite", "inferida pelo sweep", log=log, title="inferida pelo sweep")
             self.assertEqual(grill_gate.grill_complete(log=log), [])
 
     def test_direction_set_also_satisfies_direction(self):
@@ -101,7 +101,7 @@ class GrillCompleteNamesMissingPieces(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.set_direction("d1", "tighten the close", log=log)
+            eventlog.set_direction("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
@@ -129,7 +129,7 @@ class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             self._append_empty_objective(log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             self.assertIn("objective", grill_gate.grill_complete(log=log))
 
@@ -145,7 +145,7 @@ class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             self._append_empty_report(log)
             self.assertIn("direcionamento", grill_gate.grill_complete(log=log))
 
@@ -153,7 +153,7 @@ class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             self._append_empty_report(log)  # report event present but its body is whitespace
             res = subprocess.run(
                 [sys.executable, str(GATE), "close", "--log", str(log)],
@@ -167,7 +167,7 @@ class EmptyBodiedFeedersDoNotCountAsLanded(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
@@ -194,7 +194,7 @@ class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
@@ -205,7 +205,7 @@ class AssertGrillCompleteRaisesOnGaps(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             with self.assertRaises(ValueError) as ctx:
                 grill_gate.assert_grill_complete(log=log)
@@ -240,7 +240,7 @@ class CloseCLIIsFailClosed(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             root = Path(tmp) / "lv"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             import grill_writeback
             grill_writeback.leveling("diario", "close", root=root, log=log)
@@ -252,7 +252,7 @@ class CloseCLIIsFailClosed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
             eventlog.report_direction("the steer", log=log)
             res = self._close(log)
             self.assertNotEqual(res.returncode, 0)

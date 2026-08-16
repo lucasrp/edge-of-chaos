@@ -89,7 +89,7 @@ class ObjectiveIsTheBriefingSpine(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship durable steer before tuning the grill", log=log)
-            eventlog.set_direction("a", "ship the briefing composer", log=log)
+            eventlog.set_direction("a", "ship the briefing composer", log=log, title="ship the briefing composer")
             text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("ship durable steer before tuning the grill", text)
             self.assertLess(text.index("ship durable steer before tuning the grill"),
@@ -144,8 +144,8 @@ class DirectionInscribedCuratedFirst(unittest.TestCase):
     def test_set_appears_before_proposed(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.set_direction("a", "ship the briefing composer", log=log)
-            eventlog.propose("b", "explore Tier-1 clusters", log=log)
+            eventlog.set_direction("a", "ship the briefing composer", log=log, title="ship the briefing composer")
+            eventlog.propose("b", "explore Tier-1 clusters", log=log, title="explore Tier-1 clusters")
             text = briefing.compose_briefing(log=log, agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE)
             self.assertIn("ship the briefing composer", text)
             self.assertIn("explore Tier-1 clusters", text)

@@ -664,6 +664,7 @@ class TestCorrectionRoundTrip(_Base):
         # the stub classifies it a STANDING Directive → the drain folds it to a curated steer
         stub = lambda comment: {"reply": "agreed — retiring that trust.",
                                 "directive": True,
+                                "direction_title": "distrust the flagged source",
                                 "direction_body": "Distrust the unsafe source flagged on the node."}
         drain.drain(self.log, stub, grill_run_id="g2")
         # the terminal outcome carries the fold provenance: origin_comment_id == the correction comment

@@ -970,6 +970,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                 "topic-7d:session-memory-navigation",
                 "Construir memoria navegavel por Voz -> Topic -> Thread.",
                 kind="thread",
+                title="Memoria de sessoes navegavel",
                 log=log,
             )
             seen = []

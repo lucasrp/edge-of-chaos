@@ -41,11 +41,21 @@ proposed (2026-06-06; Voz ratifies)
   `curado > hipótese`: `set` outranks `proposed`. "A correção sempre ganha" — `set` is always Voz-originated.
 - **Addressable items.** Each thread has a stable `id` and an optional `kind ∈ {phase, priority,
   constraint, thread}`. Events (asserted per ADR-0006 — direct Cypher, no LLM, replayable):
-  - `direction.proposed {id, body, kind, from_artefato?, relates_to?}`
-  - `direction.set {id, body, supersedes?}`
+  - `direction.proposed {id, title, body, kind, expires_at?, title_generated?, from_artefato?, relates_to?}`
+  - `direction.set {id, title, body, expires_at?, supersedes?}`
   - `direction.dropped {id, reason}`
-- **Persist-until-dropped.** A thread survives until an explicit `direction.dropped`. Never lost by
-  omission — the anti-evaporation property, the whole point.
+- **A thread has a HANDLE (#632).** `title` (≤ 80 chars, one line) is REQUIRED on a new write —
+  `eventlog.propose` / `eventlog.set_direction` raise without it, and the Voz drain parks the chat
+  rather than land a body-only steer. Rationale: a group with 788 body-only Directions cannot
+  answer "what is this agent working on?" without opening 788 paragraphs, and `consolidate` has no
+  short name to merge on, so every beat appends one more. `title_generated: true` marks a handle
+  DERIVED from the body by the backfill — legible, but never mistaken for one somebody authored.
+- **Persist-until-dropped, unless an end was declared.** A thread survives until an explicit
+  `direction.dropped` — never lost by omission, the anti-evaporation property. The one exception is
+  a steer that named its own end: `expires_at` (ISO date/datetime, date-only = inclusive of that
+  day) leaves the live fold once passed, and `expired_directions` still lists it, so the successor
+  is an open hole in the map rather than silence. `supersedes` retires a steer BY NAME, `expires_at`
+  BY DATE with no beat present to do it — peers, not alternatives.
 - **Fold/replay per id.** Last event per `id` wins; `set` outranks `proposed` for the same `id`;
   `dropped` removes it. `direction_at(t)` folds to the as-of-then page (both tiers). **Strategic
   versioning = replay.**
