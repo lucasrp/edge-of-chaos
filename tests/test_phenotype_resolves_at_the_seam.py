@@ -37,5 +37,35 @@ class PhenotypeResolvesAtTheSeam(unittest.TestCase):
             + "\n  ".join(offenders))
 
 
+class NoInstallLiteralInGenotypeScripts(unittest.TestCase):
+    """Os wrappers de shell do genótipo também não podem carregar caminho de install.
+
+    `test_no_install_literals_in_genotype` varre apenas `tools/*.py` — foi por essa fresta que
+    `rq` viveu com `cd ~/edge` e `./tools/...` embutidos: um tenant dentro do genótipo E a
+    suposição de que a casa é o repo, que é falsa no layout documentado de árvores separadas.
+    """
+
+    SCRIPTS = ("rq",)
+    LITERAL = re.compile(r"(?<!\.)~/(edge|edge-home)\b|/home/[a-z][a-z0-9_-]*/")
+
+    def test_shell_wrappers_carry_no_install_path(self):
+        offenders = []
+        root = pathlib.Path(__file__).resolve().parent.parent
+        for name in self.SCRIPTS:
+            path = root / name
+            if not path.exists():
+                continue
+            for n, line in enumerate(path.read_text().splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#") or not stripped:
+                    continue          # comentário pode citar o caminho ao explicar
+                if self.LITERAL.search(line):
+                    offenders.append(f"{name}:{n}: {stripped}")
+        self.assertEqual(
+            offenders, [],
+            "wrapper do genótipo com caminho de install embutido — a casa resolve por "
+            "_identity.state_root(), nunca por literal:\n  " + "\n  ".join(offenders))
+
+
 if __name__ == "__main__":
     unittest.main()
