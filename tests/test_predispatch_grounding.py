@@ -41,9 +41,35 @@ def _seed(log, *rows):
         eventlog.append("grounding.manifest", "grounding", r, log=log)
 
 
-def _run(log, probe_fn, harvest_fn=lambda: 0, **kw):
-    return predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0, briefing_fn=lambda: "B", recall_fn=lambda: "R",
-                           harvest_fn=harvest_fn, probe_fn=probe_fn, log=log, dispatch_id="d1", **kw)
+ROSTER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "roster.agent.yaml"
+
+
+def _declared_roster():
+    """O roster DECLARADO deste módulo — sempre a fixture versionada, nunca o agent.yaml do host.
+
+    A bateria de canários itera `sources.load_sources()`, isto é, o agent.yaml de QUEM RODA a
+    suíte. Num genótipo (que por contrato não tem agent.yaml) o roster nasce vazio: nenhuma
+    interface casa com a dry pendente, nenhum `canary.result` é escrito e a dobra devolve
+    `suspect` — o teste passa a medir a instalação do host em vez do código da perna de
+    grounding. Com a fixture, x/v2-recent e exa/search-deep são declaradas (com canary e
+    dry_semantics) em qualquer host, e o que sobra sob teste é o CÓDIGO.
+
+    Validar o roster REAL de um install é outra coisa, e tem dono: test_sources.RealAgentYaml."""
+    srcs, findings = sources.load_sources(ROSTER_FIXTURE)
+    errors = [f for f in findings if f.get("level") == "error"]
+    assert srcs and not errors, f"fixture de roster inválida: {errors}"
+    return srcs, findings
+
+
+def _run(log, probe_fn, harvest_fn=lambda: 0, roster=None, **kw):
+    """Roda o piso com o roster declarado injetado no seam S3 (E8: a bateria deriva TUDO do
+    yaml — o teste troca o yaml, nunca o código)."""
+    with mock.patch.object(predispatch.sources_mod, "load_sources",
+                           return_value=(roster or _declared_roster())):
+        return predispatch.run(ready_fn=lambda: None, drain_fn=lambda: None, sweep_fn=lambda: 0,
+                               briefing_fn=lambda: "B", recall_fn=lambda: "R",
+                               harvest_fn=harvest_fn, probe_fn=probe_fn, log=log,
+                               dispatch_id="d1", **kw)
 
 
 def _dry(log, cell):
@@ -201,9 +227,7 @@ class E8CanaryIteratesDeclaredInterfacesNeverASourceByName(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             _seed(log, _suspect_row("overleaf", "v2-search", idiom_conforme=True))
-            with mock.patch.object(predispatch.sources_mod, "load_sources",
-                                   return_value=(srcs, findings)):
-                _run(log, probe_fn=probe)
+            _run(log, probe_fn=probe, roster=(srcs, findings))
             self.assertIn(("overleaf", "v2-search"), seen,
                           "the never-seen interface was probed straight from agent.yaml")
             cell = ("overleaf", "v2-search", "mundo", "ambient", None)  # lens from the seeded row
@@ -213,7 +237,9 @@ class E8CanaryIteratesDeclaredInterfacesNeverASourceByName(unittest.TestCase):
         # the canary battery must derive everything from the yaml — assert no declared source
         # name appears as a literal in predispatch.py (E8 no-hardcode guard for S5)
         src = (REPO / "tools" / "predispatch.py").read_text()
-        declared, _ = sources.load_sources()
+        # o roster DECLARADO vem da fixture versionada, não do agent.yaml do host: no genótipo
+        # `load_sources()` devolve [] e o guarda rodava a vazio — verde sem verificar nada.
+        declared, _ = _declared_roster()
         names = [s["name"] for s in declared]
         self.assertTrue(names, "guard must not run vacuous — agent.yaml declares sources")
         for n in names:
