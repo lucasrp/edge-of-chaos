@@ -1088,15 +1088,33 @@ def embed_and_signal(slug, body, cites, embed_fn=None, log=eventlog.LOG):
 def _maybe_consolidate():
     """Communities consolidation behind EDGE_COMMUNITIES=1 (dark by default, padrão EDGE_CONDUCTOR).
     Vazão×confiança: a vazão é automática atrás do knob; a confiança fica no harm-bearing. Best-effort
-    como o graph-ingest — NUNCA derruba um sweep (grafo/LLM fora → skip logado)."""
+    como o graph-ingest — NUNCA derruba um sweep (grafo/LLM fora → skip logado).
+
+    Mas "não derruba" nunca quis dizer "não conta". `len(written or [])` colapsava as duas
+    respostas possíveis num único "0 clusters": o grafo que rodou e não tinha o que agrupar, e o
+    grafo que NÃO CONSEGUIU rodar. A frota inteira imprimia a linha calma da escassez enquanto o
+    órgão estava parado (#635)."""
     if os.environ.get("EDGE_COMMUNITIES") != "1":
         return
     try:
         import communities
-        written = communities.consolidate()
-        print(f"sweep: communities consolidadas — {len(written or [])} clusters")
     except Exception as e:
-        print(f"sweep: communities skipped ({type(e).__name__}: {e}) — graph/LLM leg dark")
+        print(f"sweep: communities skipped ({type(e).__name__}: {e}) — módulo indisponível")
+        return
+    try:
+        written = communities.consolidate()
+    except communities.ConsolidationFailed as e:
+        # severidade na língua de group_health.verdicts (#638): `dark` = não pude rodar,
+        # `fail` = rodei e quebrei. As duas são altas; nenhuma é "0 clusters".
+        print(f"sweep: communities [{e.severity}] FALHARAM ({e.reason}) — a consolidação NÃO "
+              f"rodou; as Community deste grupo estão PARADAS (não vazias) e a navegação por "
+              f"cluster segue no estado da última passagem que funcionou. {e.detail}")
+        return
+    except Exception as e:   # noqa: BLE001 — best-effort leg: loga alto, nunca derruba o sweep
+        print(f"sweep: communities [fail] FALHARAM ({type(e).__name__}: {e}) — a consolidação "
+              f"NÃO rodou; as Community deste grupo estão PARADAS, não vazias")
+        return
+    print(f"sweep: communities consolidadas — {len(written)} clusters")
 
 
 def _topic_direction_window_days():
