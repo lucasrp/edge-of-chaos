@@ -1,3 +1,12 @@
+# NOTA (2026-08-16, issue #612): 2 testes deste arquivo foram removidos por decisão
+# do operador. Eles cobravam as strikes `old-edge-rite:*` do check_genus — API que NUNCA existiu em tools/ em commit
+# algum. Não eram testes envelhecidos: chegaram órfãos em 401feee, vindos de uma
+# árvore que ainda acreditava numa feature que be3aea5 ("Rollback failed genus rite
+# rollout") já havia revertido, levando o código e deixando os testes.
+#
+# A especificação que eles descreviam está preservada na issue #612 — apagá-la daqui
+# não a perde. O que sobrou neste arquivo cobre código que EXISTE e passa.
+
 import sys
 import unittest
 from pathlib import Path
@@ -86,35 +95,7 @@ class OldEdgeRiteGenus(unittest.TestCase):
         violations = [v for v in close.check_genus(_old_edge_art()) if v.startswith("old-edge-rite")]
         self.assertEqual(violations, [])
 
-    def test_process_receipt_and_missing_movements_are_rejected(self):
-        art = _old_edge_art()
-        art["content"]["sections"][0]["blocks"] = [
-            {"type": "paragraph", "text": "Gate atual: stage_trace bound into genus_rite."},
-            {"type": "paragraph", "text": "The system has a model and a schema."},
-            {"type": "paragraph", "text": "It should be used next."},
-        ]
-        violations = [v for v in close.check_genus(art) if v.startswith("old-edge-rite")]
-        self.assertIn("old-edge-rite:process-receipt-leaked", violations)
-        self.assertIn("old-edge-rite:live-question", violations)
-        self.assertIn("old-edge-rite:concrete-mechanism", violations)
-        self.assertIn("old-edge-rite:world-changes-claim", violations)
 
-    def test_hidden_text_does_not_satisfy_the_rite(self):
-        art = _old_edge_art()
-        art["content"]["sections"][0]["blocks"] = [
-            {"type": "paragraph", "style": "display: none", "text": (
-                "Pergunta viva: o que esta em jogo? Contexto experimento corpus config. "
-                "Mecanismo concreto por exemplo caso rodada. Mundo benchmark fit reposiciona. "
-                "Lineage L0 L1 herdo rejeicao limite. O que muda agora produto report "
-                "proxima validacao. O que eu ainda nao sei."
-            )},
-            {"type": "paragraph", "text": "Visible prose without the required moves."},
-            {"type": "paragraph", "text": "More visible prose, still without the required moves."},
-            {"type": "paragraph", "text": "A third visible paragraph keeps the trigger active."},
-        ]
-        violations = [v for v in close.check_genus(art) if v.startswith("old-edge-rite")]
-        self.assertIn("old-edge-rite:context-reconstruction", violations)
-        self.assertIn("old-edge-rite:concrete-mechanism", violations)
 
 
 if __name__ == "__main__":
