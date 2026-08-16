@@ -1051,8 +1051,11 @@ def _project_artefato_asset(s, g, asset):
               "MERGE (p)-[r:HAS_ASSET]->(a) "
               "SET r.provenance_class='asserted', r.role=$role",
               g=g, parent=parent, slug=asset_slug, role=asset.get("role"))
-    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
-          "MERGE (a)-[:SERVES]->(o)", g=g, slug=asset_slug)
+    # #633 — SERVES targets the SPINE Objective, never an `operacao` hub.
+    obj_key = spine_objective_key(g)
+    s.run(f"MATCH (a:Artefato {{group_id:$g, slug:$slug}}) MATCH (o:Objective) "
+          f"WHERE {_spine_where(obj_key)} MERGE (a)-[:SERVES]->(o)",
+          g=g, slug=asset_slug, **obj_key)
 
 
 def project_artefato_asset(asset_slug, *, path, kind, sha256, skill=None, parent_slug=None,
@@ -1466,6 +1469,100 @@ def _project_parceiros(s, g, log):
               g=g, name=p["name"])
 
 
+# --- the spine :Objective is a SINGLETON (#633) ------------------------------------------------
+# The rite promises ONE Objective per group; the fleet's `petertosh` carried SIX, all with the
+# identical body. The append was NOT in the eventlog — `objective.set` is latest-wins and
+# `cortex.objective_at` folds it to one record. It was in the PROJECTION, where two writers shared
+# one label:
+#
+#   * project_lentes minted one `:Objective` per `operacao` (keyed {group_id, ref}) as the MARCO_OF
+#     hub — an operation is NOT the group's north, it only borrowed the label; and
+#   * _project_backbone wrote the spine with a bare `MERGE (o:Objective {group_id:$g})`.
+#
+# A bare MERGE has no discriminating key: it MATCHED those hubs instead of creating the spine node,
+# and `SET o.body=$b` stamped the SAME body on EVERY one of them. The SERVES fan then hung every
+# Artefato off all of them — "aligned with any of the six".
+#
+# The spine is told apart by `spine=true` (what this module writes) OR by `ref IS NULL` (nodes
+# written before the stamp existed — read compat per install, no backfill required); the operation
+# hub always carries a `ref`, because graph_store.merge_node puts it in the MERGE key.
+
+
+OPERACAO_LABEL = "Operacao"
+
+
+def spine_predicate(alias="o"):
+    """The Cypher predicate that tells the spine Objective apart from an operation hub."""
+    return f"({alias}.spine = true OR {alias}.ref IS NULL)"
+
+
+# The identity of the singleton. #578 (corpus N×N, open) pins Genesis/Objective/Direction as
+# {group_id, agent}; when it lands, unicity becomes per-(group_id, agent) — flip THIS TUPLE and the
+# write, the guard and tools/migrate_objective_singleton.py all follow. It is a parameter, not a
+# rewrite: nothing below spells `group_id` on its own.
+OBJECTIVE_SINGLETON_KEY = ("group_id",)
+
+
+def spine_objective_key(group_id, agent=None):
+    """The property map that identifies THE spine Objective, per OBJECTIVE_SINGLETON_KEY."""
+    values = {"group_id": group_id, "agent": agent}
+    return {field: values[field] for field in OBJECTIVE_SINGLETON_KEY}
+
+
+def _spine_where(key, alias="o"):
+    """WHERE fragment pinning `alias` to the singleton key AND to the spine. Field names come from
+    OBJECTIVE_SINGLETON_KEY — a fixed module tuple, never caller input."""
+    pinned = " AND ".join(f"{alias}.{field} = ${field}" for field in key)
+    return f"{pinned} AND {spine_predicate(alias)}"
+
+
+def spine_objectives(s, group_id, agent=None):
+    """Every node that IS (or reads as) the spine Objective for this key, OLDEST FIRST — the view
+    the guard and the migration share. More than one row is the #633 violation."""
+    key = spine_objective_key(group_id, agent)
+    rows = s.run(f"MATCH (o:Objective) WHERE {_spine_where(key)} "
+                 "RETURN elementId(o) AS id, o.body AS body, "
+                 "coalesce(o.created_at, '') AS created_at "
+                 "ORDER BY created_at, id", **key)
+    return [dict(r) for r in rows]
+
+
+def objective_singleton_violation(s, group_id, agent=None):
+    """The guard: at most ONE live spine :Objective per singleton key. Returns the EXTRA nodes
+    (empty == healthy). It REPORTS — it never deletes and never raises into a sweep: an install
+    that already duplicated must keep projecting (CONTRACT C1, fail-dark not fail-stop), and node
+    deletion only ever runs behind the migration's --dry-run/--apply gate."""
+    return spine_objectives(s, group_id, agent)[1:]
+
+
+def merge_spine_objective(s, group_id, body, agent=None):
+    """IDEMPOTENT singleton write of the spine :Objective. Same body → the node is reused as-is.
+    NEW body → superseded IN PLACE (same node, previous text kept in `superseded_body`) — never a
+    CREATE. Returns the elementId of the live spine Objective, or None when there is no body.
+
+    Pre-existing duplicates are NOT collapsed here (that is destructive): the write targets the
+    OLDEST survivor, so it can neither widen the damage nor stamp an operation hub."""
+    if not body:
+        return None
+    key = spine_objective_key(group_id, agent)
+    rows = spine_objectives(s, group_id, agent)
+    if not rows:
+        # MERGE (not CREATE) on the full key + the spine stamp: two sweeps racing converge on one
+        # node instead of each minting its own — the other way a group grows identical copies.
+        props = ", ".join(f"{field}:${field}" for field in key)
+        rec = s.run(f"MERGE (o:Objective {{{props}, spine:true}}) "
+                    "SET o.body = $body RETURN elementId(o) AS id", body=body, **key).single()
+        return rec["id"]
+    live = rows[0]
+    if live["body"] != body:
+        s.run("MATCH (o) WHERE elementId(o) = $id "
+              "SET o.superseded_body = o.body, o.body = $body, o.spine = true",
+              id=live["id"], body=body)
+    else:
+        s.run("MATCH (o) WHERE elementId(o) = $id SET o.spine = true", id=live["id"])
+    return live["id"]
+
+
 def _project_backbone(s, g, log):
     """Project the canonical SPINE BACKBONE on an open session `s`: :Genesis (space-0) -GROUNDS->
     :Objective + the ANCHORS rebuild (the active steers, DESTRUCTIVE DELETE-then-readd from the
@@ -1480,24 +1577,34 @@ def _project_backbone(s, g, log):
           "gen.method='memory/method.md', gen.personality='memory/personality.md'",
           g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
     obj = cortex.objective_at(log=log) or {}
+    key = spine_objective_key(g)
+    spine = _spine_where(key)
     if obj.get("body"):
-        s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
-        s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
-              "MERGE (gen)-[:GROUNDS]->(o)", g=g)
+        merge_spine_objective(s, g, obj["body"])
+        s.run(f"MATCH (gen:Genesis {{group_id:$g}}) MATCH (o:Objective) WHERE {spine} "
+              "MERGE (gen)-[:GROUNDS]->(o)", g=g, **key)
         # ENSURE every Artefato SERVES the objective (Codex P2): an Artefato published BEFORE the
         # Objective existed had its SERVES no-op at projection time; the backbone (run every canonical
         # sweep, once an Objective exists) guarantees the hub link so it is reachable from space-0 —
         # cheap idempotent MERGEs, no embeddings, independent of the per-slug skip-present recovery.
-        s.run("MATCH (a:Artefato {group_id:$g}),(o:Objective {group_id:$g}) "
-              "MERGE (a)-[:SERVES]->(o)", g=g)
+        # #633: pinned to the SPINE — the fan used to hang every Artefato off every operation hub too.
+        s.run(f"MATCH (a:Artefato {{group_id:$g}}) MATCH (o:Objective) WHERE {spine} "
+              "MERGE (a)-[:SERVES]->(o)", g=g, **key)
+        extras = objective_singleton_violation(s, g)
+        if extras:
+            print(f"publisher: {len(extras) + 1} live :Objective in group {g} — the spine must be a "
+                  "singleton (#633). Wrote the oldest only; collapse the rest with "
+                  f"`tools/edge-python tools/migrate_objective_singleton.py --group {g}` "
+                  "(dry-run first).")
     # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE) so a dropped/superseded
     # Direction stops being anchored (recall from space-0 must match the log).
     dirs = cortex.direction_at(log=log) or {}
-    s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
+    s.run(f"MATCH (o:Objective)-[r:ANCHORS]->(:Direction) WHERE {spine} DELETE r", **key)
     for it in dirs.get("set", []) + dirs.get("proposed", []):
         s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
-        s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
-              "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+        s.run(f"MATCH (o:Objective) WHERE {spine} "
+              "MATCH (d:Direction {group_id:$g, body:$b}) "
+              "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"], **key)
     # Ticket A — the episteme spine rides the same canonical sync: :Hypothesis nodes fold from
     # hypothesis.declared/superseded; the §6 parceiro mark folds from parceiro.promoted.
     _project_hypotheses(s, g, log)
@@ -1685,8 +1792,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a += $props",
                       g=g, slug=slug, props=gate_props)
             # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
-            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
-                  "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
+            # #633 — the SPINE objective only, never an `operacao` hub.
+            obj_key = spine_objective_key(g)
+            s.run(f"MATCH (a:Artefato {{group_id:$g, slug:$slug}}) MATCH (o:Objective) "
+                  f"WHERE {_spine_where(obj_key)} MERGE (a)-[:SERVES]->(o)",
+                  g=g, slug=slug, **obj_key)
             # embed the CONTENT (Codex P2): a concept in the body but not the kernel must still be
             # semantically recallable over a.embedding. Re-embed only when the EMBED INPUT CHANGED
             # (Codex P2): store a hash of (slug+intent+spec_text); a republish with changed
@@ -2322,8 +2432,13 @@ def project_lentes(log, store):
     })
     for operation_name in operation_names:
         ref = f"operacao:{operation_name}"
+        # #633 — an `operacao` is the MARCO_OF hub, NOT the group's north. It used to borrow the
+        # :Objective label, which is why `MATCH (o:Objective {group_id:$g})` counted six of them on
+        # petertosh, why the bare spine MERGE stamped its body onto every one, and why #638's
+        # group_health (which counts the label) reports the group as duplicated. Existing graphs are
+        # relabelled by tools/migrate_objective_singleton.py.
         operations.append((ref, lambda ref=ref, operation_name=operation_name:
-                           store.merge_node(ref, "Objective", {"operacao": operation_name})))
+                           store.merge_node(ref, OPERACAO_LABEL, {"operacao": operation_name})))
 
     edge_sets = {}
 
