@@ -40,6 +40,22 @@ APPROVED_GENERATOR = Path(
     "/home/vboxuser/edge/drafts/exp072-report-quality/post-gate-grounding-arm/"
     "generate_post_gate_grounding_arm.py")
 
+
+def _approved_generator_present():
+    """Is the exp072 arm's generator readable HERE? — the byte-identity check below is a
+    HOST-SPECIFIC luxury (the draft tree lives in the author's install, never in the genotype).
+
+    `Path.is_file()` is not a safe probe for an absolute path outside our own home: on a host
+    where `/home/<other>` exists but is not traversable, `os.stat` raises PermissionError
+    instead of returning False. That escaped the `skipUnless` argument at CLASS-BODY time, so
+    the whole MODULE failed to import (`unittest.loader._FailedTest`) and every test in this
+    file — the rite's stage table, the detector, the publisher seam — silently vanished from
+    the suite. Any OSError means 'not available on this host', which is exactly a skip."""
+    try:
+        return APPROVED_GENERATOR.is_file()
+    except OSError:
+        return False
+
 # Canned cognitive outputs — scan-clean (no draft/grounding/prompt/harness vocabulary), so the
 # deterministic treatment gates pass and treatment_cleanup takes the deterministic-copy branch.
 CANNED = {
@@ -167,7 +183,7 @@ class RendererPromotionTest(unittest.TestCase):
     def test_renderer_id_is_pinned(self):
         self.assertEqual(render.RENDERER_ID, "exp072-neutral-markdown/v1")
 
-    @unittest.skipUnless(APPROVED_GENERATOR.is_file(), "approved generator not on this host")
+    @unittest.skipUnless(_approved_generator_present(), "approved generator not on this host")
     def test_promoted_renderer_is_byte_identical_to_the_approved_one(self):
         spec = importlib.util.spec_from_file_location("approved_gen", APPROVED_GENERATOR)
         approved = importlib.util.module_from_spec(spec)

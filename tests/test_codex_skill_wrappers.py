@@ -4,28 +4,30 @@ The Edge skill contract stays canonical under skills/<slug>/SKILL.md. Codex disc
 repo-local skills from .agents/skills, so every user-facing Edge skill gets small prefixed
 wrappers that point back to the canonical file instead of duplicating it. These are Codex
 skills selected with @ / /skills, not slash commands.
+
+Prefix: `.agents/skills/` is REPO-LOCAL, versioned genotype content — it ships with the
+checkout, unlike CODEX_HOME/skills which `_codex_provision` renders per install from the
+phenotype's tool_prefix/skill_prefix. So the prefix this file checks is the **stable family
+alias** `edge-*` (`_grok_provision.grok_prefixes`: "tool_prefix keeps the stable family alias
+(edge-*)"), not whatever the person running the suite happens to have in their agent.yaml.
+Before, both prefixes were read from `REPO/agent.yaml` with an `or "edge"` genotype fallback —
+but the read was `.read_text()`, which RAISES on the genotype (no agent.yaml by contract)
+instead of falling back, so both tests here errored at that line and the coverage check they
+exist for never ran on any clean checkout.
 """
 from pathlib import Path
-import re
 import unittest
 
 REPO = Path(__file__).resolve().parent.parent
 
-
-def _agent_yaml_value(key: str) -> str:
-    text = (REPO / "agent.yaml").read_text()
-    match = re.search(rf"(?m)^\s*{re.escape(key)}:\s*[\"']?([^\"'\n#]+)", text)
-    if not match:
-        return ""
-    return match.group(1).strip()
+# The stable family alias every versioned repo-local wrapper carries (install-specific aliases
+# like ed-*/roberto-* are rendered per host by _codex_provision, not required of the checkout).
+PREFIXES = ("edge",)
 
 
 class CodexSkillWrappers(unittest.TestCase):
     def test_every_edge_skill_has_prefixed_codex_wrappers(self):
-        prefixes = {
-            _agent_yaml_value("tool_prefix") or "edge",
-            _agent_yaml_value("skill_prefix") or _agent_yaml_value("codename") or "edge",
-        }
+        prefixes = PREFIXES
 
         missing = []
         for skill_file in sorted((REPO / "skills").glob("*/SKILL.md")):
@@ -46,11 +48,7 @@ class CodexSkillWrappers(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_shared_skill_is_not_invocable_in_codex(self):
-        prefixes = {
-            _agent_yaml_value("tool_prefix") or "edge",
-            _agent_yaml_value("skill_prefix") or _agent_yaml_value("codename") or "edge",
-        }
-        for prefix in prefixes:
+        for prefix in PREFIXES:
             self.assertFalse((REPO / ".agents" / "skills" / f"{prefix}-_shared").exists())
 
 

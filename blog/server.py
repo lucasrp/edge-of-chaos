@@ -1512,13 +1512,47 @@ def _cortex_live(group):
             pass
 
 
+def _bootstrap_install_env():
+    """Load install secrets/*.env into os.environ once per process.
+
+    The cortex fold needs EDGE_NEO4J_PASSWORD; when the process is started without a unit that
+    exports secrets (bare `python blog/server.py`), the password sits in secrets/neo4j.env and
+    never reaches os.environ → cortex_fold goes dark even though neo4j is up. This loads the
+    install's secrets dir (agent.yaml edge_home/secrets, else <repo>/secrets) without hardcoding
+    host paths. Env already set wins (same contract as tools/_secrets.load_env).
+    """
+    tools = str(BASE.parent / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    try:
+        import _secrets
+        import _identity
+        env_dir = _identity._env_dir()
+        _secrets.load_env(env_dir)
+        # Also source the repo-adjacent secrets/ when edge_home ≠ checkout (common on fleet
+        # members whose agent.yaml points at ~/edge while the process cwd is the same tree).
+        repo_secrets = BASE.parent / "secrets"
+        if repo_secrets.resolve() != Path(env_dir).resolve():
+            _secrets.load_env(repo_secrets)
+    except Exception:
+        try:
+            import _secrets
+            _secrets.load_env(BASE.parent / "secrets")
+        except Exception:
+            pass
+
+
 def _neo4j_password():
     """The install's neo4j password via _identity (genotype tool), or the env fallback. Imported
-    lazily so the blog runs even where tools/ is absent."""
+    lazily so the blog runs even where tools/ is absent. Always re-attempts the secrets load so a
+    process that started before secrets were present can recover without a hard-coded password."""
+    _bootstrap_install_env()
     try:
-        sys.path.insert(0, str(BASE.parent / "tools"))
+        tools = str(BASE.parent / "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
         import _identity
-        return _identity.neo4j_password()
+        return _identity.neo4j_password() or os.environ.get("EDGE_NEO4J_PASSWORD")
     except Exception:
         return os.environ.get("EDGE_NEO4J_PASSWORD")
 
@@ -1526,8 +1560,11 @@ def _neo4j_password():
 def _group():
     """The install's graph group_id via _identity (EDGE_GROUP → agent.yaml). None if unresolved →
     the fold goes dark rather than running an unscoped, cross-install query."""
+    _bootstrap_install_env()
     try:
-        sys.path.insert(0, str(BASE.parent / "tools"))
+        tools = str(BASE.parent / "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
         import _identity
         return _identity.group()
     except Exception:
@@ -2719,6 +2756,8 @@ def sources_panel():
 
 # Migrate on import so the very first read surface (index / chat) already reflects the switch.
 _migrate_voz_lifecycle()
+# Load install secrets at import (systemd/WSGI/bare python) so cortex is not dark for lack of env.
+_bootstrap_install_env()
 
 
 if __name__ == "__main__":
