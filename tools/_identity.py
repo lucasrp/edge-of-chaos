@@ -34,16 +34,40 @@ def identity_path(name):
 AGENT_YAML = identity_path("agent.yaml")
 
 
+def _ovo(p):
+    """The OVO (state/bootstrap.json) backing a resolved identity path.
+
+    Looks NEXT TO the identity file first (an explicit path always wins — tests and callers that
+    pass agent_yaml= mean that tree), then the declared install HOME.
+
+    The HOME leg is what makes pre-phenotype life actually work: identity_path() only resolves
+    EDGE_HOME when the file is ALREADY there, so before the mentor's finish emits agent.yaml it
+    falls back to REPO — and in the documented geno/home-separated layout the ovo lives in the
+    home, never in the genotype. Without this the ovo fallback is unreachable exactly when it is
+    the only identity there is, and the install rite can never reach the mentor that would emit
+    the phenotype (the chicken-and-egg that killed every separated-home onboarding)."""
+    roots = [Path(p).parent]
+    env = os.environ.get("EDGE_HOME")
+    if env:
+        roots.append(Path(os.path.expanduser(env)))
+    for root in roots:
+        ovo = root / "state" / "bootstrap.json"
+        if ovo.is_file():
+            return ovo
+    return None
+
+
 def _cfg(agent_yaml=AGENT_YAML):
     """agent.yaml when it exists; before the mentor's finish emits it, the OVO
-    (state/bootstrap.json next to it) supplies the mechanical identity facts — so pre-phenotype
-    life runs whole and nobody is pressured into creating agent.yaml before the mentor."""
+    (state/bootstrap.json — next to it, or in the declared EDGE_HOME) supplies the mechanical
+    identity facts, so pre-phenotype life runs whole and nobody is pressured into creating
+    agent.yaml before the mentor."""
     import yaml
     p = Path(agent_yaml)
     if p.exists():
         return yaml.safe_load(p.read_text()) or {}
-    ovo = p.parent / "state" / "bootstrap.json"
-    if ovo.is_file():
+    ovo = _ovo(p)
+    if ovo is not None:
         import json
         try:
             boot = json.loads(ovo.read_text()) or {}
