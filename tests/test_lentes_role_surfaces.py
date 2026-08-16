@@ -18,6 +18,17 @@ import quente  # noqa: E402
 import recall  # noqa: E402
 
 
+ROSTER_FIXTURE = REPO / "tests" / "fixtures" / "roster.agent.yaml"
+MEMORY_FIXTURE = REPO / "seeds" / "memory"
+"""A identidade DECLARADA para compor o briefing — fixture de roster + doutrina canônica de seeds/.
+
+`compose_briefing` é fail-closed (ADR-0009) e por default lê o `memory/` e o `agent.yaml` DA CASA
+de quem roda a suíte; o genótipo, por contrato, não tem nenhum dos dois, e a composição morria em
+`BriefingIdentityError` antes de o teste poder olhar a superfície. As fixtures dão SÓ identidade
+(tatuagens, idioma, roster) — as seções que poderiam vazar um mapa são dobras do LOG, e o log
+continua sendo o temporário deste teste. A cegueira segue sendo medida no mesmo lugar."""
+
+
 SUBGRAPH = {
     "codename": "ed",
     "objective": "orientar sem cabresto",
@@ -376,11 +387,20 @@ class SharedWakeSurfacesStayMapBlind(unittest.TestCase):
 
             briefing_text = briefing.compose_briefing(
                 log=log, clusters=[], roster=[],
+                agent_yaml=ROSTER_FIXTURE, memory=MEMORY_FIXTURE,
             )
             quente_text, _window = quente.build_bundle(
                 store_dir=store, repos=(), eventlog_path=log, codex_dir=False,
             )
             recall_text = recall.compose_recall_brief(subgraph=SUBGRAPH)
+
+            # controle POSITIVO: a ref é de fato vazável a partir DESTE log — a superfície opt-in
+            # a exibe. Sem isto, um assertNotIn sobre um texto que degradou (ou sobre um mapa que
+            # nunca entrou no log) passaria sem verificar cegueira nenhuma.
+            self.assertIn(map_ref, recall.compose_portfolio_recall_brief(
+                subgraph=SUBGRAPH, portfolio_fn=portfolio.portfolio_at, log=log))
+            self.assertTrue(briefing_text.strip() and quente_text.strip() and recall_text.strip(),
+                            "uma superfície vazia não prova cegueira — ela não foi renderizada")
 
             self.assertNotIn(map_ref, briefing_text)
             self.assertNotIn(map_ref, quente_text)

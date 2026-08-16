@@ -155,7 +155,31 @@ class TestBriefingMakesNoApiCall(_BriefingBase):
             self.assertNotIn(forbidden, src)
 
 
-class TestHealthStrip(_BriefingBase):
+class _PinnedGraphLeg(_BriefingBase):
+    """Base para as baterias do strip que afirmam o ESTADO da banda: a perna do grafo é PINADA.
+
+    `_graph_reachable()` sonda o neo4j de quem roda a suíte, e `degraded` é `swept_degraded or
+    (not graph_reachable) or consistency or log_corrupt`. Sem pinar, o mesmo log fixo dá bandas
+    diferentes por host: num genótipo/CI (sem neo4j, sem EDGE_GROUP) a banda sai sempre
+    `degraded`, então a bateria saudável falha e a bateria degradada fica verde pela razão
+    ERRADA — o grafo escuro, não a causa que ela declara. Pinando a sonda no seam GRAPH_PROBE
+    (o mesmo que TestGraphProbeIsHardBounded usa) sobra sob teste exatamente o que o log diz."""
+
+    GRAPH_OK = True
+
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("EDGE_CORTEX_FIXTURE", None)   # não curto-circuitar a sonda
+        os.environ["EDGE_GROUP"] = "test-group"       # _group() truthy → a sonda roda
+        self.server.GRAPH_PROBE = lambda: self.GRAPH_OK
+
+    def tearDown(self):
+        os.environ.pop("EDGE_GROUP", None)
+        self.server.GRAPH_PROBE = None
+        super().tearDown()
+
+
+class TestHealthStrip(_PinnedGraphLeg):
     """The read-model health strip — a compact band folded from the log, above the briefing."""
 
     LOG_LINES = [
@@ -189,7 +213,7 @@ class TestHealthStrip(_BriefingBase):
         self.assertIn('data-metric="swept-sessions">3', body)
 
 
-class TestHealthStripFailsDark(_BriefingBase):
+class TestHealthStripFailsDark(_PinnedGraphLeg):
     """The strip is the degraded-mode signal — a composed briefing can read plausible while the folds
     beneath it are stale (SURFACE.md: swept_sessions:0 yet the briefing composes clean). So a degraded
     fold renders a VISIBLE degraded band, never a blank."""
