@@ -6,6 +6,7 @@ Secrets are read from <home>/secrets/ (or EDGE_SECRETS_DIR); values never logged
 from __future__ import annotations
 
 import json
+import _identity
 import os
 import re
 from pathlib import Path
@@ -351,7 +352,7 @@ def _adversarials_for_cfg(cast: dict, primary: str) -> dict:
             out["codex"] = {
                 "route": "review",
                 "auth": "subscription",
-                "model": "gpt-5.5",
+                "model": "gpt-5.6-luna",
                 "directive": (
                     "Refute-first. Strike what does not survive; the 0-5 score is advisory."
                 ),
@@ -408,7 +409,7 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
     else:
         for m in cast.get("members") or []:
             if m == "codex":
-                routers["review"] = {"provider": "codex", "model": "gpt-5.5"}
+                routers["review"] = {"provider": "codex", "model": "gpt-5.6-luna"}
             elif m == "grok":
                 routers["review_grok"] = {"provider": "grok", "model": "grok-4.5"}
             elif m == "hermes":
@@ -547,7 +548,7 @@ def bootstrap_cfg(
     cfg: dict[str, Any] = {
         "name": name,
         "codename": name,
-        "graph_group": os.environ.get("EDGE_GROUP") or name,
+        "graph_group": _identity.group_env_override() or name,
         "edge_home": home_s,
         # CONTRACT C4 — secrets live here; installer verifies, never invents keys
         "env_dir": env_dir_s,

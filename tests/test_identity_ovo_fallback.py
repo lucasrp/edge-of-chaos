@@ -93,6 +93,36 @@ class IdentityFromOvo(unittest.TestCase):
                 if old_group is not None:
                     os.environ["EDGE_GROUP"] = old_group
 
+    def test_named_tree_never_borrows_the_launchers_home(self):
+        """Regressão do próprio ovo-fallback: perguntar pela identidade de OUTRA árvore.
+
+        Quando o chamador passa um agent.yaml explícito (cortex_config perguntando pelo home
+        ALVO), a perna do EDGE_HOME não pode valer — senão a árvore sem identidade recebe o grupo
+        do LANÇADOR, que é exatamente o vazamento cross-tenant da ADR-0015 (#154). A perna do HOME
+        só existe para o caso em que ninguém nomeou árvore nenhuma e identity_path caiu no
+        genótipo."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as casa:
+            alheia = Path(tmp)                    # árvore nomeada: sem agent.yaml e sem ovo
+            lancador = Path(casa)                 # a casa de QUEM chama, com identidade própria
+            (lancador / "state").mkdir()
+            (lancador / "state" / "bootstrap.json").write_text(
+                json.dumps({"name": "do-lancador", "edge_home": str(lancador)}))
+            old_home = os.environ.get("EDGE_HOME")
+            old_group = os.environ.pop("EDGE_GROUP", None)
+            os.environ["EDGE_HOME"] = str(lancador)
+            try:
+                self.assertIsNone(
+                    _identity.group(agent_yaml=alheia / "agent.yaml"),
+                    "uma árvore nomeada sem identidade resolve para NADA — nunca para o grupo "
+                    "do lançador")
+            finally:
+                if old_home is None:
+                    os.environ.pop("EDGE_HOME", None)
+                else:
+                    os.environ["EDGE_HOME"] = old_home
+                if old_group is not None:
+                    os.environ["EDGE_GROUP"] = old_group
+
 
 if __name__ == "__main__":
     unittest.main()

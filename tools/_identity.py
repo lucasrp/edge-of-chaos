@@ -47,7 +47,13 @@ def _ovo(p):
     the only identity there is, and the install rite can never reach the mentor that would emit
     the phenotype (the chicken-and-egg that killed every separated-home onboarding)."""
     roots = [Path(p).parent]
-    env = os.environ.get("EDGE_HOME")
+    # A perna do HOME vale SÓ quando ninguém nomeou a árvore — isto é, quando identity_path()
+    # caiu no genótipo por falta de fenótipo. Se o chamador passou um agent.yaml explícito, ele
+    # está perguntando pela identidade DAQUELA árvore (cortex_config perguntando pelo home alvo);
+    # consultar o EDGE_HOME do lançador ali devolveria o grupo de OUTRO tenant — o vazamento que
+    # a ADR-0015 existe para impedir. Regressão introduzida por mim no #586 e pega por
+    # test_unresolved_target_identity_scrubs_inherited_edge_group.
+    env = os.environ.get("EDGE_HOME") if Path(p).parent == REPO else None
     if env:
         roots.append(Path(os.path.expanduser(env)))
     for root in roots:
@@ -77,12 +83,24 @@ def _cfg(agent_yaml=AGENT_YAML):
     return {}
 
 
+def group_env_override():
+    """The EDGE_GROUP host override, or None — the ONLY read of that variable in the tree.
+
+    ADR-0015 puts identity resolution at one seam. A caller that legitimately needs just the
+    override, without the agent.yaml/ovo precedence — the bootstrap cfg builder, choosing a group
+    for an install that does not exist yet — asks HERE instead of re-implementing the seam inline.
+    An inline os.environ.get("EDGE_GROUP") elsewhere is a second seam, and a second seam is how a
+    tenant writes into another tenant's group (#154)."""
+    g = os.environ.get("EDGE_GROUP")
+    return g.strip() if isinstance(g, str) and g.strip() else None
+
+
 def group(agent_yaml=AGENT_YAML):
     """The graph group for THIS install. EDGE_GROUP (host override) → agent.yaml `graph_group` →
     name/codename. `graph_group` lets an install own a corpus in a group distinct from its mentor
     name without orphaning it — explicit per-install config, never a baked-in default (#21). Returns
     None when nothing resolves — the runtime degrade posture (no cross-tenant default)."""
-    g = os.environ.get("EDGE_GROUP")
+    g = group_env_override()
     if g:
         return g
     cfg = _cfg(agent_yaml)
