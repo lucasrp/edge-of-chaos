@@ -73,12 +73,19 @@ class RationalizationPlanning(unittest.TestCase):
                 rows = [{"type": "session_meta", "payload": {
                     "id": session_id, "thread_source": "user",
                     "source": source, "originator": originator,
-                }}, {
-                    "type": "response_item", "payload": {
-                        "type": "message", "role": "user",
-                        "content": [{"type": "input_text", "text": "conteúdo arbitrário"}],
-                    },
-                }]
+                }}]
+                # DOIS turnos humanos: o piso de diálogo (#153) exige ≥2 para uma sessão contar
+                # como voz, e a fixture de um turno só fazia a sessão do OPERADOR sair excluída
+                # por `codex-sem-dialogo` — ruído que não é o que este teste mede (ele mede a
+                # exclusão por PROVENIÊNCIA, `codex-source:exec`, e sua idempotência).
+                for index in range(2):
+                    rows.append({
+                        "type": "response_item", "payload": {
+                            "type": "message", "role": "user",
+                            "content": [{"type": "input_text",
+                                         "text": f"conteúdo arbitrário ({index})"}],
+                        },
+                    })
                 (codex_dir / filename).write_text(
                     "\n".join(json.dumps(row) for row in rows) + "\n")
 
