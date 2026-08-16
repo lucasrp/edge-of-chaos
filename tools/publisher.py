@@ -1093,28 +1093,88 @@ def project_artefato_asset(asset_slug, *, path, kind, sha256, skill=None, parent
             pass
 
 
+SESSION_TOPIC_CAP_DEFAULT = 3
+
+
+def _session_topic_cap():
+    """Quantos Topics uma sessão pode ancorar no grafo. `EDGE_TOPIC_MAX_PER_SESSION`; <=0 desliga.
+
+    O vocabulário de Topic é GLOBAL e pequeno (topic_threads.TOPIC_SPECS + o genérico
+    `session-voice`), e `infer_session_topics` indexa com `min_score=1`: UM fragmento que cita um
+    termo já abre um Topic para a sessão inteira. Sem teto, cada sessão acaba ancorando na maioria
+    do vocabulário — a frota mediu 21357 arestas HAS_TOPIC contra ~15400 nós — e um grafo em que
+    toda sessão é sobre quase todo tópico não aponta para lugar nenhum: "tudo é sobre tudo" (#635).
+    O teto é do lado da ESCRITA e a projeção é wipe-rebuild por sessão, então a próxima projeção
+    conserta um grafo já inchado sem migração destrutiva.
+
+    O 3 sai do critério de frota, não do gosto: `group_health.HAS_TOPIC_DEGREE_CEILING` (#638)
+    reprova acima de 1.2 arestas HAS_TOPIC por NÓ do group, e a frota está em 21357/15400 = 1.39.
+    Medido sobre o fold real, o grau por sessão cai de 5.72 para 3.00 — as arestas caem para ~52%
+    e, sobre a MESMA contagem de nós da frota (o teto corta aresta, não nó), 1.39 vira ~0.73. Um
+    teto de 4 daria ~0.97: passa, mas sem margem para o vocabulário crescer. O denominador do
+    critério é o grafo inteiro e esta projeção não o controla — o que o teto garante é o
+    numerador."""
+    raw = os.environ.get("EDGE_TOPIC_MAX_PER_SESSION")
+    if raw is None:
+        return SESSION_TOPIC_CAP_DEFAULT
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        print(f"publisher: EDGE_TOPIC_MAX_PER_SESSION={raw!r} não é inteiro — usando "
+              f"{SESSION_TOPIC_CAP_DEFAULT}")
+        return SESSION_TOPIC_CAP_DEFAULT
+
+
+def _ranked_session_topics(session, topics, cap):
+    """Os Topics que ESTA sessão ancora, os mais fortes primeiro, cortados no teto.
+
+    A força é por sessão, nunca global: quantos fragmentos DESTA sessão o fold listou sob o tópico
+    (a interseção entre `session["fragments"]` e `topic["fragments"]`). Ordenar pelo `score` global
+    daria a MESMA cabeça de lista para toda sessão do install — trocaria "tudo é sobre tudo" por
+    "tudo é sobre os mesmos três". O score global e o topic_id só desempatam, para a projeção ser
+    determinística. Devolve na ordem ordenada do fold (estabilidade do wipe-rebuild)."""
+    ids = [t for t in (session.get("topics") or []) if isinstance(t, str)]
+    if cap <= 0 or len(ids) <= cap:
+        return ids
+    own = set(session.get("fragments") or [])
+
+    def rank(tid):
+        topic = topics.get(tid) or {}
+        mine = len(own.intersection(topic.get("fragments") or ()))
+        score = topic.get("score") if isinstance(topic.get("score"), (int, float)) else 0
+        return (-mine, -score, tid)
+
+    return sorted(sorted(ids, key=rank)[:cap])
+
+
 def _project_session_topic_index(s, g, index, log=eventlog.LOG):
     """Project the automatic Voz/session topic index.
 
     The log is the source of truth; these nodes are navigational hypotheses. Rebuild the owned
     Session->Topic/Fragment edges for sessions present in the fold so a changed topic extraction does
     not strand stale fragments.
+
+    Only the session's strongest `_session_topic_cap()` topics reach the graph — the fold keeps
+    every one of them, and the log is still the truth; the graph is the NAVIGATION, and navigation
+    dies of too many edges before it dies of too few.
     """
     if not isinstance(index, dict):
         return
     topics = index.get("topics") or {}
     fragments = index.get("fragments") or {}
+    cap = _session_topic_cap()
     for session in (index.get("sessions") or {}).values():
         sid = session.get("session_id")
         if not sid:
             continue
+        kept = _ranked_session_topics(session, topics, cap)
         s.run(
             "MERGE (se:Episodic {group_id:$g, session_id:$sid}) "
             "SET se.name=$sid, se.key=$sid, se.uuid=$uuid, se.surface=$surface, se.path=$path, "
             "se.summary=$summary, se.medium_tier='low', se.projected_at=$pat",
             g=g, sid=sid, uuid=f"session:{sid}", surface=session.get("surface"),
             path=session.get("path"),
-            summary=f"session topic index: {len(session.get('topics') or [])} topic(s)",
+            summary=f"session topic index: {len(kept)} topic(s)",
             pat=session.get("latest_ts") or _dt.now(_tz.utc).isoformat())
         s.run(
             "MATCH (se:Episodic {group_id:$g, session_id:$sid})-[r:HAS_TOPIC]->(:Topic) DELETE r",
@@ -1123,7 +1183,7 @@ def _project_session_topic_index(s, g, index, log=eventlog.LOG):
             "MATCH (se:Episodic {group_id:$g, session_id:$sid})-[:HAS_FRAGMENT]->"
             "(vf:VozFragment {group_id:$g}) DETACH DELETE vf",
             g=g, sid=sid)
-        for topic_id in session.get("topics") or []:
+        for topic_id in kept:
             topic = topics.get(topic_id) or {}
             s.run(
                 "MERGE (t:Topic {group_id:$g, topic_id:$tid}) "
@@ -1155,7 +1215,10 @@ def _project_session_topic_index(s, g, index, log=eventlog.LOG):
                 "(vf:VozFragment {group_id:$g, fragment_id:$fid}) "
                 "MERGE (se)-[r:HAS_FRAGMENT]->(vf) SET r.provenance_class='extracted'",
                 g=g, sid=sid, fid=fid)
-            if topic_id:
+            # o fragmento só aponta para um Topic que a sessão ancorou: um ABOUT sobrevivente de
+            # um tópico cortado reabriria pela porta de trás exatamente o grau que o teto fecha,
+            # e ainda seguraria vivo um Topic que a limpeza de órfãos deveria apagar.
+            if topic_id and topic_id in kept:
                 s.run(
                     "MATCH (vf:VozFragment {group_id:$g, fragment_id:$fid}),"
                     "(t:Topic {group_id:$g, topic_id:$tid}) "

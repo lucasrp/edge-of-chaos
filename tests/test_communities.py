@@ -145,5 +145,168 @@ class TestSweepKnob(unittest.TestCase):
             os.environ.pop("EDGE_COMMUNITIES", None)
 
 
+class _FakeResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def data(self):
+        return self._rows
+
+    def single(self):
+        return self._rows[0] if self._rows else None
+
+
+class _FakeSession:
+    """O mínimo do driver neo4j que `consolidate` toca: as duas leituras e a escrita."""
+
+    def __init__(self, ents=(), rels=(), raise_on_read=None):
+        self.ents, self.rels, self.raise_on_read = list(ents), list(rels), raise_on_read
+        self.writes = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def run(self, query, **params):
+        if self.raise_on_read:
+            raise self.raise_on_read
+        if "MATCH (n:Entity" in query:
+            return _FakeResult(self.ents)
+        if "RELATES_TO" in query and "RETURN a.uuid" in query:
+            return _FakeResult(self.rels)
+        self.writes.append(query)
+        return _FakeResult([])
+
+    def execute_write(self, fn):
+        return fn(self)
+
+
+class _FakeDriver:
+    def __init__(self, session):
+        self._session = session
+
+    def session(self):
+        return self._session
+
+
+class TestConsolidateNoneIsAFailure(unittest.TestCase):
+    """O dente da #635.
+
+    `consolidate()` devolvia None em três situações que são coisas DIFERENTES — sem grupo, sem
+    driver, e erro no meio do grafo — e o chamador imprimia "0 clusters" para todas. Um órgão que
+    não rodou lia-se exatamente como um grafo que ainda não tem o que agrupar; foi essa
+    indistinção que fez o apagão de identidade (lida em tempo de import, corrigido no #603)
+    passar por ESCASSEZ por meses. Ausência de resultado só é sucesso quando o órgão rodou."""
+
+    def _patched_driver(self, driver):
+        original = communities._driver
+        communities._driver = lambda **kw: driver
+        self.addCleanup(lambda: setattr(communities, "_driver", original))
+
+    def test_no_group_is_a_failure_not_a_silent_none(self):
+        """A FIXTURE do sintoma relatado: a chamada que devolvia None na hora, antes de tocar o
+        grafo. Vermelha no comportamento antigo — lá isto era `assertIsNone`."""
+        with self.assertRaises(communities.ConsolidationFailed) as caught:
+            communities.consolidate(group=None)
+        self.assertEqual(caught.exception.reason, "no-group")
+        self.assertEqual(caught.exception.severity, "dark")   # não pude rodar
+
+    def test_unreachable_graph_is_a_failure(self):
+        self._patched_driver(None)
+        with self.assertRaises(communities.ConsolidationFailed) as caught:
+            communities.consolidate(group="g")
+        self.assertEqual(caught.exception.reason, "graph-unreachable")
+        self.assertEqual(caught.exception.severity, "dark")
+
+    def test_error_mid_sweep_is_a_failure_and_keeps_the_cause(self):
+        boom = RuntimeError("Neo4jError: transaction terminated")
+        self._patched_driver(_FakeDriver(_FakeSession(raise_on_read=boom)))
+        with self.assertRaises(communities.ConsolidationFailed) as caught:
+            communities.consolidate(group="g")
+        self.assertEqual(caught.exception.reason, "graph-error")
+        self.assertEqual(caught.exception.severity, "fail")   # rodei e quebrei
+        self.assertIs(caught.exception.__cause__, boom)
+
+    def test_the_severities_are_group_healths_words(self):
+        """#638 já separa `dark` (não pude medir) de `fail` (medi e está ruim) e diz, no
+        próprio verdict de Community, que ZERO só é legítimo se o consolidate falhou ALTO.
+        Este módulo fala a MESMA língua — um terceiro vocabulário reabriria a indistinção
+        num outro lugar."""
+        import group_health
+        vocabulary = {sev for sev, _ in group_health.verdicts(
+            {"group": "g", "nodes": 0, "genesis": 0, "objectives": 0, "directions_total": 0,
+             "directions_with_handle": 0, "directions_with_lifecycle": 0, "communities": 0,
+             "has_topic_edges": 0, "has_topic_degree": 0.0})} | {"dark", "warn"}
+        self.assertTrue(set(communities.ConsolidationFailed.SEVERITIES.values()) <= vocabulary)
+
+    def test_nothing_to_group_is_a_legitimate_empty_list(self):
+        """O outro lado do dente: um grafo alcançável e vazio NÃO é falha — devolve []."""
+        self._patched_driver(_FakeDriver(_FakeSession(ents=[], rels=[])))
+        self.assertEqual(communities.consolidate(group="g"), [])
+
+    def test_only_dust_is_also_an_empty_list(self):
+        """Entidades existem mas nenhuma forma cluster >= min_size: rodou, não achou. []"""
+        ents = [{"u": u, "name": u, "summ": ""} for u in ("a", "b")]
+        self._patched_driver(_FakeDriver(_FakeSession(ents=ents, rels=[])))
+        self.assertEqual(communities.consolidate(group="g", summarize_fn=lambda m: "NOME: x"), [])
+
+    def test_a_real_cluster_still_writes_and_returns_it(self):
+        ents = [{"u": u, "name": u, "summ": ""} for u in ("a", "b", "c")]
+        rels = [{"a": x, "b": y} for x, y in TRI_A]
+        session = _FakeSession(ents=ents, rels=rels)
+        self._patched_driver(_FakeDriver(session))
+        out = communities.consolidate(
+            group="g", summarize_fn=lambda m: "NOME: Tema | SUMÁRIO: resumo")
+        self.assertEqual(out, [{"name": "Tema", "size": 3}])
+        self.assertTrue(any("CREATE (c:Community" in q for q in session.writes))
+
+
+class TestSweepReportsConsolidationFailureLoud(unittest.TestCase):
+    """"0 clusters" tem que significar UMA coisa só. O chamador é onde a indistinção era visível
+    para o operador, então é onde o teste morde."""
+
+    def _run_maybe_consolidate(self, fake):
+        import contextlib
+        import io
+        import os
+        import sweep
+        original = communities.consolidate
+        os.environ["EDGE_COMMUNITIES"] = "1"
+        buf = io.StringIO()
+        try:
+            communities.consolidate = fake
+            with contextlib.redirect_stdout(buf):
+                sweep._maybe_consolidate()
+        finally:
+            communities.consolidate = original
+            os.environ.pop("EDGE_COMMUNITIES", None)
+        return buf.getvalue()
+
+    def test_nothing_to_group_reads_as_zero_clusters(self):
+        out = self._run_maybe_consolidate(lambda **kw: [])
+        self.assertIn("0 clusters", out)
+
+    def test_failure_does_not_read_as_zero_clusters(self):
+        def fail(**kw):
+            raise communities.ConsolidationFailed("no-group", "sem identidade de grupo")
+
+        out = self._run_maybe_consolidate(fail)
+        self.assertNotIn("0 clusters", out)      # a linha calma da escassez NÃO pode aparecer
+        self.assertIn("FALHARAM", out)
+        self.assertIn("no-group", out)
+        self.assertIn("[dark]", out)             # a severidade de group_health, no terminal
+        self.assertIn("PARADAS", out)            # paradas, não vazias
+
+    def test_an_unexpected_error_is_also_loud_and_never_raises(self):
+        def boom(**kw):
+            raise RuntimeError("boom")
+
+        out = self._run_maybe_consolidate(boom)   # não derruba o sweep
+        self.assertNotIn("0 clusters", out)
+        self.assertIn("FALHARAM", out)
+
+
 if __name__ == "__main__":
     unittest.main()
