@@ -573,7 +573,9 @@ def compose_mentee_persona_brief(root=None, *, max_perfil_chars=3500):
 
     Safe for wake/mentor recall: missing/blank perfil is declared empty, never silent.
     """
-    root = Path(root) if root is not None else Path(__file__).resolve().parent.parent / "memory" / "leveling"
+    # Mesma raiz que o ESCRITOR (grill_writeback.leveling): o leveling-store é identidade do
+    # mentorado e mora na casa do install. Leitor e escritor têm que resolver pelo mesmo seam.
+    root = Path(root) if root is not None else _identity.identity_path("memory") / "leveling"
     parts = [
         "## Persona do mentee",
         "",
