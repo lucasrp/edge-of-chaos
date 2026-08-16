@@ -950,6 +950,24 @@ def chunk_episode_body(body, max_chars=MAX_EPISODE_CHARS):
     return chunks
 
 
+def _ingest_summary(ingested, failures):
+    """A linha ALTA do ingest, ou None quando tudo entrou.
+
+    As falhas por episódio já são impressas uma a uma — e é exatamente por isso que elas somem:
+    ficam soterradas num traço longo, e TODAS as linhas de resumo seguintes ('communities
+    consolidadas — 0 clusters', etc.) continuam parecendo normais. Um wake que não filmou NADA
+    reportava sucesso em todas as outras pernas. O operador não via uma falha; via calmaria.
+
+    Ingest que falha é a memória parando de avançar — o órgão do qual todo o resto depende — e
+    isso não pode custar um grep para ser notado."""
+    if not failures:
+        return None
+    first = failures[0]
+    total = ingested + len(failures)
+    return (f"sweep: graph ingest — {len(failures)} de {total} episódio(s) FALHARAM; "
+            f"a memória NÃO avançou neles. Primeiro: {first}")
+
+
 def graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
@@ -984,6 +1002,8 @@ def graphiti_ingest(items):
             total += size
         return chosen
 
+    _ingested, _failures = [], []
+
     async def go():
         # gpt-5.6-luna NÃO serve aqui: graphiti_core fixa reasoning.effort="minimal"
         # (openai_base_client.py:36) e o luna recusa esse valor — o extractor morre com 400 e
@@ -1008,12 +1028,18 @@ def graphiti_ingest(items):
                     print(f"  + ingested {name} ({len(chunk)} chars)")
                 except Exception as e:
                     failed = True
+                    _failures.append(f"{name}: {type(e).__name__}: {e}")
                     print(f"  ! FAILED {name}: {type(e).__name__}: {e}")
+                else:
+                    _ingested.append(name)
             if not failed:           # a session counts as ingested only if every sub-episode landed
                 ok.add(it["id"])
         await g.close()
 
     asyncio.run(go())
+    summary = _ingest_summary(len(_ingested), _failures)
+    if summary:
+        print(summary)
     return ok
 
 
