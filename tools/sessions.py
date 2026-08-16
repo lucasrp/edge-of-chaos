@@ -427,8 +427,14 @@ def _user_session_exclusion_reason(session: Session) -> str | None:
         # de agente-a-agente; a suavização pré-nascimento NUNCA se aplica aqui
         # (caso edgesandbox 2026-07-25: os turnos "user" eram o claude falando).
         originator = str(meta.get("originator") or "").strip()
-        if originator and originator.lower().replace(" ", "_") not in (
-                "codex", "codex_cli", "codex_exec"):
+        # O marcador é OUTRO harness dirigindo o codex. ca9965e mirou esse caso (originator=
+        # "Claude Code" via plugin) mas fixou uma allowlist LITERAL — ("codex", "codex_cli",
+        # "codex_exec") — que deixou de fora os próprios front-ends do codex: `codex-tui` (o
+        # operador no terminal), `codex_cli_rs`, `codex_vscode`. Com isso a sessão INTERATIVA do
+        # operador passou a ser lida como prova de delegação e sumiu do corpus de voz. Qualquer
+        # originator do PRÓPRIO codex é o codex, não outro agente — daí o prefixo, não a lista.
+        native = originator.lower().replace(" ", "_").replace("-", "_").startswith("codex")
+        if originator and not native:
             return f"codex-originator:{originator.lower().replace(' ', '-')}"
         thread_source = meta.get("thread_source")
         if thread_source != "user":

@@ -445,6 +445,7 @@ class MenteeDialogueForRationalize(unittest.TestCase):
                 {"type": "assistant", "message": {"role": "assistant",
                     "content": [{"type": "tool_use", "name": "Bash", "input": {}}]}},
                 _msg("assistant", "ok, testes no seam"),
+                _msg("user", "e o watermark, fecha junto?"),
             ])
             session = sessions.Session(id="op", path=p, surface="claude")
             packed = sessions.mentee_dialogue_for_rationalize(session)
@@ -452,8 +453,9 @@ class MenteeDialogueForRationalize(unittest.TestCase):
             turns, watermark = packed
             self.assertEqual([(t.role, t.text) for t in turns],
                              [("human", "vamos fechar o MIN.1"),
-                              ("edge", "ok, testes no seam")])
-            self.assertEqual(watermark, 3)  # raw lines, including tool line
+                              ("edge", "ok, testes no seam"),
+                              ("human", "e o watermark, fecha junto?")])
+            self.assertEqual(watermark, 4)  # raw lines, including tool line
 
     def test_claude_sidechain_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -473,13 +475,14 @@ class MenteeDialogueForRationalize(unittest.TestCase):
                  "payload": {"id": "c1", "thread_source": "user"}},
                 _codex_msg("user", "emprego do mentee"),
                 _codex_msg("assistant", "portfolio_at only"),
+                _codex_msg("user", "e o resto do emprego?"),
             ])
             session = sessions.Session(id="c1", path=p, surface="codex")
             packed = sessions.mentee_dialogue_for_rationalize(session)
             self.assertIsNotNone(packed)
             turns, watermark = packed
-            self.assertEqual([t.role for t in turns], ["human", "edge"])
-            self.assertEqual(watermark, 3)
+            self.assertEqual([t.role for t in turns], ["human", "edge", "human"])
+            self.assertEqual(watermark, 4)
 
     def test_codex_subagent_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -501,6 +504,7 @@ class MenteeDialogueForRationalize(unittest.TestCase):
             p.write_text("".join(json.dumps(o) + "\n" for o in [
                 _grok_user("que dia o virtualbox foi criado?"),
                 _grok_assistant("vou checar"),
+                _grok_user("e o snapshot, de quando é?"),
             ]))
             (root / "summary.json").write_text(json.dumps({
                 "info": {"id": "g1", "cwd": "/tmp"},
@@ -512,8 +516,9 @@ class MenteeDialogueForRationalize(unittest.TestCase):
             turns, watermark = packed
             self.assertEqual([(t.role, t.text) for t in turns],
                              [("human", "que dia o virtualbox foi criado?"),
-                              ("edge", "vou checar")])
-            self.assertEqual(watermark, 2)
+                              ("edge", "vou checar"),
+                              ("human", "e o snapshot, de quando é?")])
+            self.assertEqual(watermark, 3)
 
     def test_grok_worker_session_kind_returns_none(self):
         with tempfile.TemporaryDirectory() as tmp:

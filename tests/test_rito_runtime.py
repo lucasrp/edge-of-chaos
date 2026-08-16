@@ -42,15 +42,11 @@ APPROVED_GENERATOR = Path(
 
 
 def _approved_generator_present():
-    """Is the exp072 arm's generator readable HERE? — the byte-identity check below is a
-    HOST-SPECIFIC luxury (the draft tree lives in the author's install, never in the genotype).
-
-    `Path.is_file()` is not a safe probe for an absolute path outside our own home: on a host
-    where `/home/<other>` exists but is not traversable, `os.stat` raises PermissionError
-    instead of returning False. That escaped the `skipUnless` argument at CLASS-BODY time, so
-    the whole MODULE failed to import (`unittest.loader._FailedTest`) and every test in this
-    file — the rite's stage table, the detector, the publisher seam — silently vanished from
-    the suite. Any OSError means 'not available on this host', which is exactly a skip."""
+    """The pinned generator lives in ONE operator's draft folder — it is not part of the genotype.
+    Probing it must never decide the fate of this module: on a host where the path's parent is
+    another user's home, `Path.is_file()` RAISES PermissionError (py<3.13) at import time and the
+    WHOLE module fails to load, taking every other rito test — and tests.test_publisher, which
+    drives `_green_run` from here — down with it. Any OSError means "not on this host" → skip."""
     try:
         return APPROVED_GENERATOR.is_file()
     except OSError:

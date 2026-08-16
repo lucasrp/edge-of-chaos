@@ -362,6 +362,18 @@ class TestWikiReachableFromBriefingAndDistills(unittest.TestCase):
     def test_artefato_distills_a_cluster_link_into_the_wiki(self):
         # an Artefato's distilled cluster (`distills: ["cluster:foo"]`) is a live drill-down into the
         # cluster thread — the graph→knowledge bridge from the work feed.
+        #
+        # KNOWN RED — an unresolved conflict between two LIVE documents, deliberately left failing
+        # rather than relaxed (a green bought by dropping this assertion would hide the conflict):
+        #   * PLAN.md §"Slice 5b … Accept" still reads "clusters are reachable from /briefing AND
+        #     from an Artefato's `distills` (not just a standalone route)";
+        #   * commit b4f917a (ADR-0018, "blog home: layout A … artifact chips removed") deleted
+        #     `_artifact_items` from blog/server.py, so `_render_post` no longer emits the
+        #     cites/distills/proposes chips and /wiki/<id> is now linked ONLY from /wiki itself.
+        # The layout decision was intentional; the Slice 5b criterion was never amended to match.
+        # Resolving it is an operator call — either restore a distills→/wiki/<id> affordance in the
+        # feed, or amend PLAN.md Slice 5b to drop the `distills` half of the reachability criterion.
+        # The two sibling tests below still guard the half that survives (the wiki is not orphaned).
         html = self.client.get("/").get_data(as_text=True)
         self.assertIn("/wiki/foo", html)
 

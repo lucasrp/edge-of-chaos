@@ -16,18 +16,24 @@ def _write(path, rows):
     return path
 
 
-def _claude(path, prompt, *, sidechain=False):
+def _claude(path, prompt, *, sidechain=False, follow_up=None):
+    """Claude transcript. ``follow_up`` = segunda fala humana (piso de diálogo #153)."""
     rows = []
     if sidechain:
         rows.append({"type": "user", "isSidechain": True, "message": {
             "role": "user", "content": prompt}})
     else:
         rows.append({"type": "user", "message": {"role": "user", "content": prompt}})
+    if follow_up is not None:
+        rows.append({"type": "assistant", "message": {
+            "role": "assistant", "content": [{"type": "text", "text": "ja vejo"}]}})
+        rows.append({"type": "user", "message": {"role": "user", "content": follow_up}})
     return _write(path, rows)
 
 
 def _codex(path, *, thread_source="user", parent=None, prompt="vamos trabalhar",
-           source="cli", originator="codex-tui"):
+           source="cli", originator="codex-tui", follow_up=None):
+    """Codex rollout. ``follow_up`` = segunda fala humana (piso de diálogo #153)."""
     payload = {"id": "codex-1", "thread_source": thread_source,
                "source": source, "originator": originator}
     if parent:
@@ -37,21 +43,32 @@ def _codex(path, *, thread_source="user", parent=None, prompt="vamos trabalhar",
         {"type": "response_item", "payload": {"type": "message", "role": "user",
          "content": [{"type": "input_text", "text": prompt}]}},
     ]
+    if follow_up is not None:
+        rows.append({"type": "response_item", "payload": {
+            "type": "message", "role": "assistant",
+            "content": [{"type": "output_text", "text": "ja vejo"}]}})
+        rows.append({"type": "response_item", "payload": {
+            "type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": follow_up}]}})
     return _write(path, rows)
 
 
 
 
-def _grok(path, prompt, *, session_kind=None, session_id="g1"):
-    """Real-shaped Grok store: chat_history.jsonl + sibling summary.json."""
+def _grok(path, prompt, *, session_kind=None, session_id="g1", follow_up=None):
+    """Real-shaped Grok store: chat_history.jsonl + sibling summary.json.
+
+    ``follow_up`` = segunda fala humana (piso de diálogo #153)."""
     root = Path(path)
     root.mkdir(parents=True, exist_ok=True)
     chat = root / "chat_history.jsonl"
-    body = f"<user_query>\n{prompt}\n</user_query>"
-    chat.write_text(json.dumps({
-        "type": "user",
-        "content": [{"type": "text", "text": body}],
-    }) + "\n")
+    rows = [{"type": "user",
+             "content": [{"type": "text", "text": f"<user_query>\n{prompt}\n</user_query>"}]}]
+    if follow_up is not None:
+        rows.append({"type": "assistant", "content": [{"type": "text", "text": "ja vejo"}]})
+        rows.append({"type": "user", "content": [
+            {"type": "text", "text": f"<user_query>\n{follow_up}\n</user_query>"}]})
+    chat.write_text("".join(json.dumps(r) + "\n" for r in rows))
     summary = {
         "info": {"id": session_id, "cwd": "/tmp"},
         "session_summary": prompt[:80],
@@ -64,7 +81,8 @@ def _grok(path, prompt, *, session_kind=None, session_id="g1"):
 class UserSessionFilter(unittest.TestCase):
     def test_claude_direct_operator_session_is_kept(self):
         with tempfile.TemporaryDirectory() as td:
-            p = _claude(Path(td) / "s.jsonl", "que dia esse virtualbox foi criado?")
+            p = _claude(Path(td) / "s.jsonl", "que dia esse virtualbox foi criado?",
+                        follow_up="e o disco, cresceu quando?")
             s = sessions.Session(id="s", path=p, surface="claude")
             self.assertIsNone(sessions.user_session_exclusion_reason(s))
 
@@ -79,6 +97,7 @@ class UserSessionFilter(unittest.TestCase):
             p = _claude(
                 Path(td) / "s.jsonl",
                 "Implement ticket 42 e faça um adversarial review da solução.",
+                follow_up="agora implement ticket 43 e reporte de volta.",
             )
             s = sessions.Session(id="s", path=p, surface="claude")
             self.assertIsNone(sessions.user_session_exclusion_reason(s))
@@ -108,7 +127,7 @@ class UserSessionFilter(unittest.TestCase):
 
     def test_codex_user_thread_is_kept(self):
         with tempfile.TemporaryDirectory() as td:
-            p = _codex(Path(td) / "s.jsonl")
+            p = _codex(Path(td) / "s.jsonl", follow_up="e agora o segundo passo")
             s = sessions.Session(id="codex-1", path=p, surface="codex")
             self.assertIsNone(sessions.user_session_exclusion_reason(s))
 
@@ -188,22 +207,33 @@ class UserSessionFilter(unittest.TestCase):
             )
 
     def test_grok_operator_session_is_kept(self):
-        """An authoritative operator marker keeps even a one-turn Grok conversation."""
+        """An authoritative operator marker keeps the conversation.
+
+        O marcador `session_kind=operator` não é exclusão; o que ainda tem de haver é
+        DIÁLOGO — o piso de #153 é a última porta de toda inclusão, nenhum marcador o
+        atravessa (era one-turn aqui até 5270e9f)."""
         with tempfile.TemporaryDirectory() as td:
             p = _grok(Path(td) / "019f-op", "que dia esse virtualbox foi criado?",
-                      session_kind="operator", session_id="019f-op")
+                      session_kind="operator", session_id="019f-op",
+                      follow_up="e o disco, cresceu quando?")
             s = sessions.Session(id="019f-op", path=p, surface="grok")
             self.assertIsNone(sessions.user_session_exclusion_reason(s))
 
     def test_grok_unmarked_one_shot_fails_closed_without_reading_its_vocabulary(self):
+        """One-shot sem marcador continua fora — por topologia, nunca por vocabulário.
+
+        O veredito mudou de nome em 5270e9f: o `grok-unknown-provenance` específico do
+        grok virou o piso de diálogo universal (`<surface>-sem-dialogo`); a exclusão é
+        a mesma e continua sem olhar o texto."""
         with tempfile.TemporaryDirectory() as td:
             p = _grok(Path(td) / "019f-one", "uma mensagem de conteúdo arbitrário",
                       session_id="019f-one")
             s = sessions.Session(id="019f-one", path=p, surface="grok")
             self.assertEqual(
                 sessions.user_session_exclusion_reason(s),
-                "grok-unknown-provenance",
+                "grok-sem-dialogo",
             )
+            self.assertFalse(sessions.is_user_session(s))
 
     def test_grok_unmarked_multi_turn_dialogue_is_kept(self):
         with tempfile.TemporaryDirectory() as td:

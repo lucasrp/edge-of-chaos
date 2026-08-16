@@ -134,8 +134,10 @@ def _signed_bar_chart(title, rows):
 
 def _floored_spec():
     # Valid for EVERY roster skill's presentation floor at once. Map owes two renderable visuals;
-    # plan owes one renderable visual plus framed steps; discovery owes contextual framing.
-    # report/research owe no extra floor. No executive_summary: prose-synthesis moves aren't owed.
+    # plan owes one renderable visual plus framed steps; discovery owes contextual framing;
+    # critique (added by declaration in producer_descriptor, Phase 4) owes a side-by-side
+    # COMPARISON plus a marked UNCERTAINTY. report/research owe no extra floor. No
+    # executive_summary: prose-synthesis moves aren't owed.
     return {"sections": [{"title": "Body", "blocks": [
         {"type": "paragraph", "text": "atomic publish plus kernel in one act."},
         _signed_bar_chart(
@@ -148,7 +150,163 @@ def _floored_spec():
         ),
         {"type": "next-steps-grid", "items": ["step one", "step two"]},
         {"type": "callout", "text": "framing context"},
+        {"type": "comparison-table",
+         "headers": ["axis", "before", "after"],
+         "rows": [{"cells": ["publish", "two acts", "one atomic act"]},
+                  {"cells": ["kernel", "optional", "required"]}]},
+        {"type": "gap-table",
+         "gaps": [{"description": "the projection retry was not measured under a live outage",
+                   "need": "one reproject sweep against a real graph",
+                   "status": "open"}]},
     ]}]}
+
+
+# ── the offline graph double ────────────────────────────────────────────────────────────────────
+#
+# project_artefato has no driver seam (it does `from neo4j import GraphDatabase` inside the body),
+# so the projection used to be pinned by reading its SOURCE TEXT — assertions that broke the moment
+# the distill resolution moved into `_distill_catalog`/`_link_distill` even though nothing about the
+# behaviour changed. These fakes run the REAL projection against a recording stand-in driver (the
+# same double tests/test_project_doc.py already uses for project_doc), so the tests below exercise
+# behaviour: what the projection WRITES, and the Cypher it actually PUTS ON THE WIRE.
+class _FakeResult:
+    def __init__(self, rows=()):
+        self._rows = [dict(r) for r in rows]
+
+    def single(self):
+        return self._rows[0] if self._rows else None
+
+    def data(self):
+        return list(self._rows)
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class _FakeGraph:
+    """The projected state a session's writes produce, plus every query that reached the driver."""
+
+    def __init__(self, entity_clusters=(), communities=(), entity_names=()):
+        self.entity_clusters = list(entity_clusters)   # Entity.curated_cluster labels (ACTIVE ones)
+        self.communities = list(communities)           # Community.name labels
+        self.entity_names = list(entity_names)         # Entity.name (the MENTIONS catalog)
+        self.queries = []                              # [(cypher, params)] actually executed
+        self.props = {}                                # the :Artefato node's projected props
+        self.distills = []                             # labels linked via DISTILLS
+        self.closed = False
+
+    def entity_link_queries(self):
+        return [q for q, _ in self.queries if "[:DISTILLS]->(e)" in q]
+
+    def catalog_queries(self):
+        return [q for q, _ in self.queries if "e.curated_cluster AS l" in q]
+
+
+class _FakeSession:
+    def __init__(self, graph):
+        self.graph = graph
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+    def run(self, query, **params):
+        g = self.graph
+        g.queries.append((query, dict(params)))
+        if "a.projection_complete=false" in query:      # the MERGE that opens the projection
+            g.props["projection_complete"] = False
+            return _FakeResult()
+        if "RETURN a.embedding IS NOT NULL AS e" in query:
+            return _FakeResult([{"e": "embedding" in g.props,
+                                 "h": g.props.get("embedding_input_hash")}])
+        if "SET a.embedding=$e" in query:
+            g.props.update(embedding=list(params["e"]), embedding_input_hash=params["h"])
+            return _FakeResult()
+        if "e.curated_cluster AS l" in query:
+            return _FakeResult([{"l": label} for label in g.entity_clusters])
+        if "RETURN c.name AS n" in query:
+            return _FakeResult([{"n": name} for name in g.communities])
+        if "RETURN DISTINCT e.name AS name" in query:
+            return _FakeResult([{"name": n} for n in g.entity_names])
+        if "MERGE (a)-[:DISTILLS]->" in query:
+            g.distills.append(params["label"])
+            return _FakeResult()
+        if "SET a.pending_distills=$pending" in query:
+            g.props["pending_distills"] = list(params["pending"])
+            return _FakeResult()
+        if "REMOVE a.pending_distills" in query:
+            g.props.pop("pending_distills", None)
+            return _FakeResult()
+        if "SET a.projection_complete=$done" in query:
+            g.props["projection_complete"] = params["done"]
+            return _FakeResult()
+        if "RETURN count(" in query:                    # lineage/bears/para resolution probes
+            return _FakeResult([{"n": 0}])
+        return _FakeResult()
+
+
+class _FakeDriver:
+    def __init__(self, graph):
+        self.graph = graph
+
+    def session(self):
+        return _FakeSession(self.graph)
+
+    def close(self):
+        self.graph.closed = True
+
+
+class _FakeIdentity:
+    GROUP = "edge-test"
+
+    @staticmethod
+    def require_group():
+        return _FakeIdentity.GROUP
+
+    @staticmethod
+    def neo4j_conn():
+        return "bolt://unused", "neo4j", "secret"
+
+
+def _project_offline(graph, slug="projected", *, embed=(0.1, 0.2), **kwargs):
+    """Run the REAL project_artefato against `graph`. `embed=None` makes the embed FAIL (the
+    key/service-down path). Never reads the host: the identity, the driver and the OpenAI client
+    are all injected, and the install/dev key loader is stubbed out."""
+    import types
+    from unittest import mock
+
+    class _Embeddings:
+        @staticmethod
+        def create(*_a, **_k):
+            if embed is None:
+                raise RuntimeError("embedding service down")
+            return types.SimpleNamespace(
+                data=[types.SimpleNamespace(embedding=list(embed))])
+
+    class _OpenAI:
+        def __init__(self, *_a, **_k):
+            self.embeddings = _Embeddings()
+
+    fake_modules = {
+        "_identity": types.SimpleNamespace(
+            require_group=_FakeIdentity.require_group,
+            neo4j_conn=_FakeIdentity.neo4j_conn),
+        "neo4j": types.SimpleNamespace(
+            GraphDatabase=types.SimpleNamespace(
+                driver=lambda _uri, auth=None: _FakeDriver(graph))),
+        "openai": types.SimpleNamespace(OpenAI=_OpenAI),
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        # a NON-canonical log: the destructive backbone rebuild is canonical-log only, so the
+        # projection under test is exactly the Artefato + its edges.
+        kwargs.setdefault("log", Path(tmp) / "log.jsonl")
+        kwargs.setdefault("skill", _LEGACY_SKILL)
+        with mock.patch.dict(sys.modules, fake_modules), \
+                mock.patch.object(publisher, "_load_openai_key", lambda: None):
+            _REAL_PROJECT(slug, "open: x; bet: y", **kwargs)
+    return graph
 
 
 class PublishIsAtomicAndKerneled(unittest.TestCase):
@@ -933,34 +1091,101 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         self.assertIn("edge-sandbox-kit", loader)
 
     def test_failed_embed_leaves_projection_incomplete(self):
-        # Codex P2: a FAILED embed (key/service down) must NOT mark the projection complete — the
-        # completion marker is gated on `embed_current`, so recovery retries the embed once creds
-        # recover instead of skipping the slug forever.
-        import inspect
-        src = inspect.getsource(_REAL_PROJECT)
-        self.assertIn("embed_current", src, "project_artefato must track embed success")
-        # the completion marker is gated on embed_current AND no unresolved distills
-        self.assertIn("embed_current and not unresolved_distills", src,
-                      "the completion marker must require a current embedding")
+        # Codex P2: a FAILED embed (key/service down) must NOT mark the projection complete — so
+        # recovery retries the embed once creds recover instead of skipping the slug forever.
+        # BEHAVIOUR, not source text: the same projection runs twice against the same offline
+        # graph, and only the embed differs.
+        down = _project_offline(_FakeGraph(), distills=[], embed=None)
+        self.assertFalse(down.props["projection_complete"],
+                         "a failed embed must leave the projection incomplete")
+        self.assertNotIn("embedding", down.props)   # nothing stale was written either
 
-    def test_unresolved_distill_leaves_projection_incomplete(self):
-        # Codex P2: a distill ref whose cluster is not in the graph yet must leave the projection
-        # INCOMPLETE (so recovery revisits once the grill attaches the cluster), not mark it done.
-        import inspect
-        src = inspect.getsource(_REAL_PROJECT)
-        self.assertIn("unresolved_distills", src,
-                      "project_artefato must track unresolved distills")
-        # the completion marker is conditional on no unresolved distills
-        self.assertIn("not unresolved_distills", src,
-                      "the completion marker must be gated on resolved distills")
+        up = _project_offline(_FakeGraph(), distills=[], embed=(0.1, 0.2))
+        self.assertTrue(up.props["projection_complete"])
+        self.assertEqual(up.props["embedding"], [0.1, 0.2])
+
+    def test_unresolved_distill_is_recorded_pending_and_replayed(self):
+        # SUPERSEDED CONTRACT, kept honest. This test used to demand that an unresolved distill
+        # leave `projection_complete=false`. That gate was deliberately dropped (project_artefato:
+        # "Soft-pending: ... does NOT strand projection_complete=false forever (that hid Artefatos
+        # from recall)") — recall filters on projection_complete=true, so a missing cluster used to
+        # hide the whole Artefato. The INTENT the test guarded survives and is what is asserted
+        # here: the ref is never silently dropped, and recovery revisits the slug once the grill
+        # attaches the cluster.
+        ghost = _project_offline(_FakeGraph(), distills=["cluster:ghost"])
+        self.assertEqual(ghost.props["pending_distills"], ["cluster:ghost"])
+        self.assertEqual(ghost.distills, [])                     # nothing fabricated
+        self.assertTrue(ghost.props["projection_complete"],      # and NOT hidden from recall
+                        "a pending distill must not hide the Artefato from recall")
+
+        # once the cluster exists, the ref links and the pending mark is CLEARED.
+        attached = _project_offline(_FakeGraph(entity_clusters=["Ghost"]),
+                                    distills=["cluster:ghost"])
+        self.assertEqual(attached.distills, ["Ghost"])
+        self.assertNotIn("pending_distills", attached.props)
+
+    def test_pending_distills_keep_the_slug_in_the_recovery_sweep(self):
+        # The other half of the soft-pending contract: "retried on reproject" is only true if the
+        # recovery sweep still VISITS the slug. reproject_graph skips whatever present_slugs()
+        # reports, so a complete-but-pending node must NOT be reported present — otherwise the
+        # pending ref is never retried and the distill is lost for good.
+        import types
+        from unittest import mock
+
+        rows = [{"slug": "settled", "pat": "2026-06-08T00:00:00+00:00", "pending": None},
+                {"slug": "waiting", "pat": "2026-06-08T00:00:00+00:00",
+                 "pending": ["cluster:ghost"]}]
+
+        class _Result(list):
+            pass
+
+        class _Session:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_a):
+                return False
+
+            def run(self, query, **_params):
+                self.query = query
+                return _Result(rows)
+
+        session = _Session()
+
+        class _Driver:
+            def session(self):
+                return session
+
+            def close(self):
+                pass
+
+        fake_modules = {
+            "_identity": types.SimpleNamespace(
+                require_group=_FakeIdentity.require_group,
+                neo4j_conn=_FakeIdentity.neo4j_conn),
+            "neo4j": types.SimpleNamespace(
+                GraphDatabase=types.SimpleNamespace(driver=lambda _uri, auth=None: _Driver())),
+        }
+        with mock.patch.dict(sys.modules, fake_modules):
+            present = publisher._graph_present_slugs()
+        self.assertEqual(present, {"settled": "2026-06-08T00:00:00+00:00"},
+                         "a node with pending distills must stay in the recovery sweep")
 
     def test_distill_resolution_uses_active_clusters_only(self):
         # Codex P2: archived/merged entities are hidden by graph_clusters, so the projection must
         # resolve distills against ACTIVE clusters only (never link/push a retired cluster).
-        import inspect
-        src = inspect.getsource(_REAL_PROJECT)
-        self.assertIn("coalesce(e.archived,false)=false", src)
-        self.assertIn("e.merged_into IS NULL", src)
+        #
+        # This clause IS the contract, and it lives inside Cypher no offline double can evaluate —
+        # so it is asserted, deliberately, as a literal. But against the query the projection
+        # ACTUALLY PUT ON THE WIRE, not against the text of a function: the filter must reach the
+        # database on the live code path, wherever the helper that carries it happens to live.
+        graph = _project_offline(_FakeGraph(entity_clusters=["Alpha"]), distills=["cluster:alpha"])
+        self.assertEqual(graph.distills, ["Alpha"])       # the entity path really ran
+        for query in graph.catalog_queries() + graph.entity_link_queries():
+            self.assertIn("coalesce(e.archived,false)=false", query)
+            self.assertIn("e.merged_into IS NULL", query)
+        self.assertTrue(graph.catalog_queries(), "the cluster catalog query must reach the graph")
+        self.assertTrue(graph.entity_link_queries(), "the DISTILLS link query must reach the graph")
 
     def test_lineage_edges_are_a_fixed_allowlist_directed_this_to_prior(self):
         # Cortex-v1 (brick-1, L4): project_artefato materializes the AUTHORED typed lineage as
