@@ -63,12 +63,27 @@ class FlaskUsesJinja(unittest.TestCase):
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
         os.environ["EDGE_BLOG_LOG"] = str(log)
+        # /ux-catalog parseia os tokens AO VIVO de <static>/style.css, e `_static()` resolve
+        # por EDGE_BLOG_STATIC. Dez módulos de teste setam essa variável e NENHUM a limpa
+        # (`grep -rn 'pop("EDGE_BLOG_STATIC"' tests/` não retorna nada), então rodando a suíte
+        # inteira este teste herdava o tmpdir JÁ APAGADO do último módulo a rodar: sem
+        # style.css, zero tokens, `--accent` ausente. Isolado passava; no discover, falhava.
+        #
+        # Resultado que depende da ORDEM dos módulos é a mesma doença de resultado que depende
+        # do host: o teste não controla a própria entrada. Aqui ele passa a declarar qual
+        # static quer — o do genótipo, que é justamente o que ele afirma documentar.
+        self._static_before = os.environ.get("EDGE_BLOG_STATIC")
+        os.environ["EDGE_BLOG_STATIC"] = str(BLOG / "static")
         self.server = _client()
         self.client = self.server.app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.pop("EDGE_BLOG_LOG", None)
+        if self._static_before is None:
+            os.environ.pop("EDGE_BLOG_STATIC", None)
+        else:
+            os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_app_has_jinja_template_folder(self):
         # the app resolves templates/ (the scaffold), not just inline strings.
@@ -176,12 +191,21 @@ class UxCatalog(unittest.TestCase):
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
         os.environ["EDGE_BLOG_LOG"] = str(log)
+        # mesma razão da classe acima: `_static()` resolve por EDGE_BLOG_STATIC, dez módulos a
+        # setam e nenhum a limpa — sem declarar o próprio static, este teste herda o tmpdir já
+        # apagado do último módulo a rodar e o /ux-catalog sai sem tokens.
+        self._static_before = os.environ.get("EDGE_BLOG_STATIC")
+        os.environ["EDGE_BLOG_STATIC"] = str(BLOG / "static")
         self.server = _client()
         self.client = self.server.app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.pop("EDGE_BLOG_LOG", None)
+        if self._static_before is None:
+            os.environ.pop("EDGE_BLOG_STATIC", None)
+        else:
+            os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_ux_catalog_route_lists_tokens_and_macros(self):
         r = self.client.get("/ux-catalog")
@@ -211,12 +235,21 @@ class TablerOverDarkIdentity(unittest.TestCase):
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
         os.environ["EDGE_BLOG_LOG"] = str(log)
+        # mesma razão da classe acima: `_static()` resolve por EDGE_BLOG_STATIC, dez módulos a
+        # setam e nenhum a limpa — sem declarar o próprio static, este teste herda o tmpdir já
+        # apagado do último módulo a rodar e o /ux-catalog sai sem tokens.
+        self._static_before = os.environ.get("EDGE_BLOG_STATIC")
+        os.environ["EDGE_BLOG_STATIC"] = str(BLOG / "static")
         self.server = _client()
         self.client = self.server.app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.pop("EDGE_BLOG_LOG", None)
+        if self._static_before is None:
+            os.environ.pop("EDGE_BLOG_STATIC", None)
+        else:
+            os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_tabler_vendored_and_loaded(self):
         vendor = BLOG / "static" / "vendor"
