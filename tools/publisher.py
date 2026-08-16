@@ -1239,9 +1239,11 @@ def _project_session_topic_index(s, g, index, log=eventlog.LOG):
         s.run(
             "MATCH (t:Topic {group_id:$g, topic_id:$tid}) "
             "MERGE (d:Direction {group_id:$g, body:$body}) "
-            "SET d.id=$id, d.kind=$kind "
+            "SET d.id=$id, d.kind=$kind, d.title=coalesce($title,d.title), "
+            "d.expires_at=coalesce($expires,d.expires_at) "
             "MERGE (t)-[r:PROPOSES]->(d) SET r.provenance_class='extracted'",
-            g=g, tid=topic_id, body=body, id=iid, kind=item.get("kind") or "thread")
+            g=g, tid=topic_id, body=body, id=iid, kind=item.get("kind") or "thread",
+            title=item.get("title"), expires=item.get("expires_at"))
     s.run(
         "MATCH (t:Topic {group_id:$g}) "
         "WHERE NOT (()-[:HAS_TOPIC]->(t)) AND NOT (()-[:ABOUT]->(t)) "
@@ -1601,7 +1603,29 @@ def _project_backbone(s, g, log):
     dirs = cortex.direction_at(log=log) or {}
     s.run(f"MATCH (o:Objective)-[r:ANCHORS]->(:Direction) WHERE {spine} DELETE r", **key)
     for it in dirs.get("set", []) + dirs.get("proposed", []):
-        s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
+        # The node used to be keyed by body ALONE and carried nothing else — so the fold's `id`,
+        # the only stable name a Direction has, never reached the graph (this host's single
+        # Direction had keys ['body','group_id'] and no id at all). That is how a group ends up
+        # with 788 of them: reword the body, get a new node, forever, with nothing to reconcile
+        # against. MERGE stays on body for compatibility with the nodes already out there — the
+        # dedupe by id belongs to the migration (tools/direction_backfill.py), not to a silent
+        # rewrite here — but the handle, the id and the declared end now ride along. `coalesce`
+        # so a re-projection never WIPES a backfilled title with a null (#632).
+        # `title`/`expires_at`/`supersedes` are the three fields tools/group_health.py reads to
+        # answer "is this group navigable?" — it counts a Direction as handled only when
+        # coalesce(title,name) is set, and as having lifecycle only when expires_at or supersedes
+        # is. Projecting them here is what turns the fix into a measurable one (#632/#636).
+        s.run("MERGE (d:Direction {group_id:$g, body:$b}) "
+              "SET d.id=coalesce($id,d.id), d.kind=coalesce($k,d.kind), "
+              "d.title=coalesce($t,d.title), d.expires_at=coalesce($x,d.expires_at), "
+              "d.supersedes=coalesce($sup,d.supersedes), "
+              "d.title_generated=coalesce($tg,d.title_generated)",
+              g=g, b=it["body"], id=it.get("id"), k=it.get("kind"),
+              t=it.get("title"), x=it.get("expires_at"), sup=it.get("supersedes"),
+              tg=True if it.get("title_generated") else None)
+        # ANCHORS casa com a ESPINHA, não com qualquer :Objective do group (#633): os hubs
+        # de `operacao` usam o mesmo rótulo, e um MATCH sem a chave da espinha pendurava
+        # a Direction em todos eles. A chave vem de OBJECTIVE_SINGLETON_KEY.
         s.run(f"MATCH (o:Objective) WHERE {spine} "
               "MATCH (d:Direction {group_id:$g, body:$b}) "
               "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"], **key)

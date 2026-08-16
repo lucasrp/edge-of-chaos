@@ -337,7 +337,7 @@ class OnboardingCompletePath(unittest.TestCase):
         onboarding.run_bootstrap(home=home, name="ed", backfill_days=14, provision_skills=False)
         onboarding.emit_phenotype(home, mission="learn", voice="direct")
         eventlog.set_objective("learn well", log=log)
-        eventlog.propose("d1", "first direction", log=log)
+        eventlog.propose("d1", "first direction", log=log, title="first direction")
         eventlog.report_direction("steer body", log=log)
         grill_writeback.leveling(
             "diario",
@@ -515,7 +515,7 @@ class FinishOnboarding(unittest.TestCase):
                 home=home, name="ed", backfill_days=14, provision_skills=False
             )
             eventlog.set_objective("learn", log=log)
-            eventlog.propose("d1", "direction body", log=log)
+            eventlog.propose("d1", "direction body", log=log, title="direction body")
             eventlog.report_direction("steer", log=log)
             grill_writeback.leveling(
                 "diario", "sem update de persona; residual = x",
@@ -552,7 +552,7 @@ class FinishOnboarding(unittest.TestCase):
                 home=home, name="ed", backfill_days=14, provision_skills=False
             )
             eventlog.set_objective("learn", log=log)
-            eventlog.propose("d1", "direction body", log=log)
+            eventlog.propose("d1", "direction body", log=log, title="direction body")
             eventlog.report_direction("steer", log=log)
             grill_writeback.leveling(
                 "diario", "sem update de persona", root=home / "lv", log=log

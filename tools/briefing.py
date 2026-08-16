@@ -152,7 +152,11 @@ def _render_direction_items(items):
     lines = []
     for kind in KIND_ORDER + [k for k in by_kind if k not in KIND_ORDER]:
         for it in by_kind.get(kind, []):
-            lines.append(f"- **[{kind}]** {it.get('body', '')}")
+            # The handle leads, the body follows (#632). No title (a legacy steer) → body only,
+            # exactly as before.
+            gen = " _(derived)_" if it.get("title_generated") else ""
+            handle = f"**{it['title']}**{gen} — " if it.get("title") else ""
+            lines.append(f"- **[{kind}]** {handle}{it.get('body', '')}")
     return "\n".join(lines) if lines else "_none_"
 
 

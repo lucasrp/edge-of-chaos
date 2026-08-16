@@ -132,10 +132,16 @@ a fold, no parallel store, `group_id`-scoped per install.
   (`retired-direction`); absent for `replied` / `acknowledged`.
 
 **Direction events** (tier-disjoint provenance)
-- `direction.set {id, body, origin_comment_id?, ts}` — curated tier (Voz-only). A `folded-to-direction`
-  Directive emits **this**, carrying `origin_comment_id`.
-- `direction.proposed {id, body, from_artefato?, relates_to?, ts}` — candidate tier (artefato / grill
-  achados). **Never** carries `origin_comment_id`.
+- `direction.set {id, title, body, expires_at?, supersedes?, origin_comment_id?, ts}` — curated tier
+  (Voz-only). A `folded-to-direction` Directive emits **this**, carrying `origin_comment_id`.
+- `direction.proposed {id, title, body, expires_at?, title_generated?, from_artefato?, relates_to?, ts}`
+  — candidate tier (artefato / grill achados). **Never** carries `origin_comment_id`.
+- `title` is **required** on a new write (≤ 80 chars, one line) — the handle a reader lists by
+  (#632). A Directive whose plan carries no usable title **parks** the chat asking for one; it never
+  raises inside the atomic append and never lands body-only. `title_generated: true` marks a handle
+  derived from the body by `tools/direction_backfill.py`, never one somebody authored.
+- `expires_at` (ISO date/datetime; date-only is inclusive of that day) is the steer's declared end.
+  Past it, the item leaves both tiers of the fold and `eventlog.expired_directions` lists it.
 - `direction.dropped {id, origin_comment_id?, ts}` — retire a steer. Dropping a **`set`** is
   **Voz-only** and carries `origin_comment_id` (appended atomically with its `voz.resolved` when
   Directive-driven); a **non-Voz** actor (grill / artefato) may only **propose** a retirement via

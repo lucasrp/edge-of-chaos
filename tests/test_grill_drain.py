@@ -898,7 +898,8 @@ class TestFoldToDirection(_Base):
     def _directive_stub():
         def gen(comment):
             return {"reply": "folding this into a steer",
-                    "directive": True, "direction_body": "standing: " + comment["body"]}
+                    "directive": True, "direction_title": "standing steer",
+                    "direction_body": "standing: " + comment["body"]}
         return gen
 
     def test_standing_directive_folds_to_direction_atomically(self):
@@ -978,7 +979,9 @@ class TestLiveGeneratorStructuredPlan(_Base):
     with the model call stubbed — NO real LLM (a live call would spend the edge OpenAI API)."""
 
     def test_parse_plan_classifies_a_standing_directive_as_folded(self):
-        raw = '{"outcome": "directive", "reply": "folding this", "direction_body": "always cite a benchmark"}'
+        raw = ('{"outcome": "directive", "reply": "folding this", '
+               '"direction_title": "cite a benchmark", '
+               '"direction_body": "always cite a benchmark"}')
         plan = self.drain.parse_live_plan(raw)
         self.assertTrue(plan.get("directive"))
         self.assertEqual(plan["reply"], "folding this")
@@ -1017,6 +1020,7 @@ class TestLiveGeneratorStructuredPlan(_Base):
         # standing-directive classification folds to direction.set through the real drain.
         cid = self._comment("always cite an outside benchmark", "alpha-post")
         fake_model = lambda prompt: ('{"outcome": "directive", "reply": "folding", '
+                                     '"direction_title": "cite an outside benchmark", '
                                      '"direction_body": "always cite an outside benchmark"}')
         gen = self.drain.structured_reply_generator(fake_model)
         self.drain.drain(self.log, gen, grill_run_id="g1")
@@ -1176,7 +1180,8 @@ class TestConsistencyErrors(_Base):
         # the real drain fold carries matching origin_comment_id on both events → clean.
         cid = self._comment("a standing steer", "alpha-post")
         self.drain.drain(self.log,
-                         lambda c: {"reply": "r", "directive": True, "direction_body": "x"},
+                         lambda c: {"reply": "r", "directive": True,
+                                    "direction_title": "a steer", "direction_body": "x"},
                          grill_run_id="g1")
         errs = self.drain.consistency_errors(self.log)
         self.assertEqual([e for e in errs if "provenance" in e["kind"]], [])

@@ -145,8 +145,8 @@ class StageIIAfterGrill(unittest.TestCase):
             # simulate the grill — steers + leveling-state floor land on the temp log
             eventlog.set_objective("ship the durable steer before tuning the grill",
                                    rationale="says mission A, behavior shows B", log=log)
-            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log)
-            eventlog.propose("d2", "explore the source-feedback loop", log=log)
+            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log, title="tighten the close path")
+            eventlog.propose("d2", "explore the source-feedback loop", log=log, title="explore the source-feedback loop")
             eventlog.report_direction("the live steer: anchor on the close, defer the loop", log=log)
             import grill_writeback
             grill_writeback.leveling(
@@ -189,7 +189,7 @@ class StageIIIAfterTwoBeats(unittest.TestCase):
             agent_yaml, memory, log = _genotype(tmp)
             # a grill first (the realistic order), so the steer is present going into the beats
             eventlog.set_objective("ship the durable steer", log=log)
-            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log)
+            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log, title="tighten the close path")
             eventlog.report_direction("the live steer", log=log)
 
             # two beats — each an Artefato + its kernel (atomic, zero C3 debt)

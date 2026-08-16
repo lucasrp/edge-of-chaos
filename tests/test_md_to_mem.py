@@ -159,7 +159,7 @@ class InjectThreadRefs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             # a thread EXISTE = há uma direction.set kind=thread com esse id (log-nativo)
-            eventlog.set_direction("cluster:v10", "thread viva", kind="thread", log=log)
+            eventlog.set_direction("cluster:v10", "thread viva", kind="thread", log=log, title="thread viva")
             md_to_mem.inject("idx", slug="v10doc", threads=["cluster:v10"], log=log,
                              docs_dir=Path(tmp) / "docs")
             self.assertIn("v10doc", md_to_mem.docs_for_thread("cluster:v10", log=log))
@@ -226,7 +226,7 @@ class BriefingCanonSection(unittest.TestCase):
     def test_live_thread_index_always_shows(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.set_direction("cluster:v10", "thread viva", kind="thread", log=log)
+            eventlog.set_direction("cluster:v10", "thread viva", kind="thread", log=log, title="thread viva")
             md_to_mem.inject("índice v10", slug="v10doc", threads=["cluster:v10"], log=log,
                              docs_dir=Path(tmp) / "docs")
             grill_writeback.elect_canon("md", "v10doc", thread="cluster:v10", log=log)
@@ -236,7 +236,7 @@ class BriefingCanonSection(unittest.TestCase):
     def test_thread_out_of_direction_drops_from_top(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.set_direction("cluster:v10", "thread viva", kind="thread", log=log)
+            eventlog.set_direction("cluster:v10", "thread viva", kind="thread", log=log, title="thread viva")
             md_to_mem.inject("índice v10", slug="v10doc", threads=["cluster:v10"], log=log,
                              docs_dir=Path(tmp) / "docs")
             grill_writeback.elect_canon("md", "v10doc", thread="cluster:v10", log=log)
@@ -266,8 +266,8 @@ class RelevanceTopK(unittest.TestCase):
     def test_thread_A_doc_absent_in_thread_B_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.set_direction("cluster:A", "thread A", kind="thread", log=log)
-            eventlog.set_direction("cluster:B", "thread B", kind="thread", log=log)
+            eventlog.set_direction("cluster:A", "thread A", kind="thread", log=log, title="thread A")
+            eventlog.set_direction("cluster:B", "thread B", kind="thread", log=log, title="thread B")
             md_to_mem.inject("doc de A", slug="da", threads=["cluster:A"], log=log,
                              docs_dir=Path(tmp) / "docs")
             grill_writeback.elect_canon("md", "da", thread="cluster:A", log=log)

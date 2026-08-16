@@ -135,7 +135,7 @@ _OPTIONAL_STRING_FIELDS = {
     # direction.set.id is the fold's dict KEY (`items[iid]` in fold_direction) — a non-string is
     # unhashable and TypeErrors the fold / consistency check / direction_at. PRESENT-only: a legacy
     # {plan} blob with no id folds to a single "_plan" item, so absence is valid, a non-string is not.
-    "direction.set": ("body", "id"),
+    "direction.set": ("body", "id", "title"),
 }
 
 
@@ -374,6 +374,16 @@ def _is_standing_directive(plan):
     return bool(plan.get("directive") or plan.get("direction_body"))
 
 
+def _usable_title(title):
+    """True iff `title` would survive the #632 write contract — asked BEFORE building the batch, so
+    an unusable one parks the chat instead of raising inside the atomic append."""
+    try:
+        eventlog.require_direction_title(title, "direction.set")
+    except ValueError:
+        return False
+    return True
+
+
 def _unchanged_since(log, comment_id, start_cursor):
     """The version guard predicate: True iff NO voz.resolved or voz.clarify for `comment_id` has
     appeared since `start_cursor` (SURFACE.md "Atomic close"). `still_open` alone is insufficient —
@@ -417,6 +427,15 @@ def _close_one(log, comment, plan, grill_run_id, start_cursor):
         if not _unchanged_since(log, cid, start_cursor):
             raise StaleDrain(cid)
 
+    # #632: a standing steer needs a HANDLE. A plan that would fold WITHOUT one is not closable —
+    # but it must not crash the rail and must not silently degrade to a plain reply (that would
+    # lose the steer, ADR-0017). It PARKS, which is this module's existing fail-safe: the chat
+    # stays open and the mentee is asked to name the steer. `parse_live_plan` already guarantees a
+    # title for live plans; this covers any other reply-generator.
+    if _is_standing_directive(plan) and not _usable_title(plan.get("direction_title")):
+        plan = {"park": True,
+                "question": "This reads as a standing steer. What should it be CALLED "
+                            f"(<= {eventlog.DIRECTION_TITLE_MAX} chars)?"}
     if plan.get("park"):
         # Parked: a non-terminal voz.clarify keeps the chat open (autonomous grill may only park).
         events = [("voz.clarify", subject,
@@ -432,6 +451,12 @@ def _close_one(log, comment, plan, grill_run_id, start_cursor):
             ("direction.set", "direction",
              {"id": direction_id, "body": plan.get("direction_body", comment["body"]),
               "kind": plan.get("kind", "thread"), "supersedes": None,
+              # This batch bypasses eventlog.set_direction (it must land ATOMICALLY with the reply
+              # and the resolution), so the #632 title contract is enforced HERE with the same
+              # validator — the write path has one rule, not two.
+              "title": eventlog.require_direction_title(plan.get("direction_title"),
+                                                        "direction.set"),
+              "expires_at": None,
               "origin_comment_id": cid}),
             ("voz.resolved", subject,
              {"comment_id": cid, "outcome": "folded-to-direction",
@@ -545,7 +570,8 @@ _LIVE_PROMPT = (
     "skeptically — name the tradeoff. Decide the OUTCOME and return ONLY JSON:\n"
     '  - a plain answer:      {"outcome":"reply","reply":"<your reply>"}\n'
     '  - a STANDING steer     {"outcome":"directive","reply":"<your reply>",'
-    '"direction_body":"<the steer, imperative>"}  (use this only when the Directive moves strategy)\n'
+    '"direction_title":"<<=80 chars naming the steer>","direction_body":"<the steer, imperative>"}'
+    "  (use this only when the Directive moves strategy)\n"
     '  - you must ASK first:  {"outcome":"park","question":"<your clarifying question>"}\n'
     "Directive:\n\n")
 
@@ -602,9 +628,16 @@ def parse_live_plan(raw):
         return {"park": True, "question": q} if q else park
     if outcome == "directive":
         reply, body = _str(d.get("reply")), _str(d.get("direction_body"))
-        if reply and body:
-            return {"reply": reply, "directive": True, "direction_body": body}
-        return park  # a directive with no valid reply+steer body is not a fold → park, don't fake
+        title = _str(d.get("direction_title"))
+        # #632: a standing steer needs a HANDLE, and the drain's fail-safe is already the right one
+        # — an unusable directive PARKS (asks the mentee) rather than landing a body-only Direction
+        # or blocking the rail. A title too long / multi-line is unusable in exactly that sense.
+        if title and (len(title) > eventlog.DIRECTION_TITLE_MAX or "\n" in title or "\r" in title):
+            title = None
+        if reply and body and title:
+            return {"reply": reply, "directive": True,
+                    "direction_title": title, "direction_body": body}
+        return park  # a directive with no valid reply+title+steer body is not a fold → park
     if outcome == "reply":
         reply = _str(d.get("reply"))
         return {"reply": reply} if reply else park
