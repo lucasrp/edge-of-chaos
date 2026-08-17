@@ -97,13 +97,7 @@ The prose phases above bottom out in two testable modules in `tools/`:
   diagnosis that names nothing in the field and brings no outside benchmark/best-practice to
   enrich the mentee's frame; both see content + cites only). Each verdict carries per-dimension
   `rationales` (the FEEDBACK) + `strikes`; the weighted `overall` is advisory and never gates (an
-  LLM 0-5 score is too noisy to threshold). **Clarity strikes are strikes** (field lesson,
-  2026-08-16): a reviewer that names a concrete crypticism defect — a symbol used before it is
-  introduced, a referent with no address, a load-bearing gloss missing — has struck, and the
-  acceptance verdict covers ALL strikes, factual and clarity alike. A verdict format that only
-  asks "unsupported claims? treatment leak?" lets the reviewer document four crypticism defects
-  and still stamp PASS around them — that is how the 2026-08-16 Vaswani artefato shipped
-  unreadable while its review named every defect. `run_close` adds the optional **improve stage**
+  LLM 0-5 score is too noisy to threshold). `run_close` adds the optional **improve stage**
   (`improve_fn`, `IMPROVE_ROUNDS`) before the bounded bounce (both reviewers must pass; a strike
   bounces to re-produce, capped at `BOUNCE_MAX`, then hard-fails — never unbounded). The
   producer-loop's brake (`run_loop2`, `LOOP2_MAX_REOPENS`) lives here too.
@@ -140,29 +134,12 @@ is always of exactly what publishes.
 producer-skill MUST wire `improve_fn` (see each SKILL.md's close snippet): the genus contract now
 carries the **rich-rite floor** (`check_genus` returns `rich-rite:<move>` strikes when a *developed
 prose synthesis* lacks a cognitive move — derivation, the "what I don't know" boundary, an external
-frame, lineage, and **problem-placement**: the opening tells the reader where the problem came from
-in the mentee's own timeline (the originating event, the verbatim, the dates), what is at stake, and
-until when — a reader who finishes the opening without knowing why this text exists now is a floor
-violation (field lesson, 2026-08-16: the v2→v3 probe flipped MOTIVAÇÃO from PARCIAL to SIM on this
-move alone, with zero loss of technical transmission); content-relative, never a named section,
-never a word floor). Without an `improve_fn`,
+frame, lineage; content-relative, never a named section, never a word floor). Without an `improve_fn`,
 a `produce_fn=lambda: artefato` is static, so any strike — a rich-rite floor violation included —
 just bounces to the same draft and **hard-fails** after `BOUNCE_MAX`. With `improve_fn(art, feedback)`
 wired, the `IMPROVE_ROUNDS` passes REVISE the draft from the named gaps BEFORE the gating close — so a
 shallow report is **re-produced richer** (the missing move added) rather than dead-ending. The floor
 is a depth-forcer because the re-production is wired; the gate alone would only reject.
-
-**A clarity strike is answered by re-grounding, never from memory.** The improve pass that
-answers a clarity strike re-opens the source (a dig move) and writes the missing explanation
-from what it finds there. The two failure modes this kills are symmetric, and both are field
-lessons from 2026-08-16: *refusing to explain* ships crypticism (the published v1 — every
-referent hedged, none introduced); *explaining from memory* smuggles unaudited claims (the v2
-rewrite asserted true-but-untraced facts about Vaswani §3.2 the dossier never held — the
-re-ground against the source is what converted them from flags into lastro). Corollary for the
-fact audit: **an ignorance claim is a claim.** Before publishing "the material does not define
-X", verify against the source that it does not — the v1 artefato asserted "no documentary
-definition" for B_i while the source defined it in the very sentence the dossier quoted, and
-that false claim survived audit and blind review because nobody re-opened the line.
 
 The review and improve subagents — the **adversarial** blind pass, the **feynman** rigor
 reviewer, the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — MAY
