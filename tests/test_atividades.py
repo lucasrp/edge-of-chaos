@@ -1804,7 +1804,8 @@ class TestRecall(Base):
         d1 = recall["por_forma"]["resposta-curta-seguida-de-acao"]
         self.assertEqual(d1["tp_detectados"], 1)
         self.assertEqual(d1["p_fn_amostrado"], 0.0)
-        self.assertEqual(d1["recall_estimado"], 1.0)
+        self.assertEqual(d1["recall_unidade_mista"], 1.0)
+        self.assertEqual(d1["recall_espaco_relaxado"], 1.0)
         self.assertEqual(recall["fundo"]["nenhuma_unanime"],
                          recall["fundo"]["n"])
 
@@ -1828,7 +1829,7 @@ class TestRecall(Base):
         recall, _cr = eval_recall_ingerir(amostra, la, lb, pre)
         d1 = recall["por_forma"]["resposta-curta-seguida-de-acao"]
         self.assertEqual(d1["p_fn_amostrado"], 1.0)
-        self.assertLess(d1["recall_estimado"], 0.6)  # honesto: recall cai
+        self.assertLess(d1["recall_espaco_relaxado"], 0.6)  # honesto: cai
 
     def test_semeadura_bem_formada_e_seeded_recall(self):
         from tools.atividades import _linhas_semente, recall_seeded
@@ -1861,6 +1862,101 @@ class TestRecall(Base):
         d3 = tabela["leituras-repetidas-de-estado-externo"]
         self.assertEqual(d3["in-spec"]["detectadas"], 3)
         self.assertEqual(d3["duas-repeticoes"]["detectadas"], 0)
+
+
+class TestRecallCirurgico(Base):
+    """Correções da verificação do recall: janelas de fundo íntegras,
+    unidades consistentes, regra de parada, seeded fora-de-escopo."""
+
+    def test_janela_seleciona_por_eventos_e_pacote_estrito(self):
+        """A seleção conta EVENTOS (não linhas-com-ts) e toda evidência do
+        pacote cai estritamente dentro da janela declarada."""
+        from tools.atividades import (_scan_corpus, eval_recall_preparar,
+                                      _parse_ts)
+        work = self.tmp / "w1"
+        # sessão com muitas linhas assistant (ts sem evento) num vale sem
+        # eventos — a janela NÃO pode ser escolhida ali
+        entradas = [e_user(0, "trabalho normal de abertura aqui", "u1")]
+        for i in range(30):  # vale: só assistant text (linha com ts,
+            entradas.append(e_assistant_text(2000 + i * 30,  # sem evento)
+                                             "pensando...", f"a{i}"))
+        entradas += [e_user(4000, "voltei ao trabalho agora sim", "u2"),
+                     e_tool(4010, "Bash", {"command": "pgrep -f x"},
+                            "t1", "ax1"),
+                     e_tool(4100, "Bash", {"command": "df -h"},
+                            "t2", "ax2")]
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        reg, _ = pipeline(work, "hostX")
+        sessoes, _p = _scan_corpus(work, "hostX")
+        pre, amostra = eval_recall_preparar(
+            sessoes, reg, work, {}, max_por_forma=3, k_fundo=3, seed=2)
+        for i in amostra["itens"]:
+            if i.get("tipo") != "janela-de-fundo":
+                continue
+            ini = _parse_ts(i["janela"]["de"])
+            fim = _parse_ts(i["janela"]["ate"])
+            self.assertTrue(i["evidencia"] or i.get("nota"))  # vazia declara
+            for e in i["evidencia"]:
+                t = _parse_ts(e["carga"]["ts"])
+                self.assertTrue(ini <= t < fim,
+                                (i["item"], e["carga"]["ts"]))
+        # recibo: n_eventos == o que o pacote efetivamente carrega
+        fundo_itens = {i["item"]: i for i in amostra["itens"]
+                       if i.get("tipo") == "janela-de-fundo"}
+        for j, i in zip(pre["janelas_de_fundo"],
+                        sorted(fundo_itens.values(),
+                               key=lambda x: x["item"])):
+            self.assertEqual(j["n_eventos"],
+                             len(i["evidencia"]) if len(i["evidencia"]) < 30
+                             else j["n_eventos"])
+
+    def test_regra_de_parada_da_reapresentacao(self):
+        from tools.atividades import pode_reapresentar, REAPRESENTACAO_MAX
+        self.assertEqual(REAPRESENTACAO_MAX, 1)
+        self.assertTrue(pode_reapresentar(7, {}))
+        self.assertFalse(pode_reapresentar(7, {7: 1}))  # nunca 2ª vez
+
+    def test_unidades_consistentes_no_ingest(self):
+        from tools.atividades import eval_recall_ingerir
+        amostra = {"itens": [
+            {"item": 1, "forma": "resposta-curta-seguida-de-acao",
+             "n2_id": "x"},
+            {"item": 2, "forma": "resposta-curta-seguida-de-acao",
+             "n2_id": "y"}]}
+        pre = {"sha256_bloco_congelado": "s", "catch_gold_por_item": {},
+               "pool_por_forma": {"resposta-curta-seguida-de-acao": 23},
+               "relaxados_por_forma": {"resposta-curta-seguida-de-acao": 25},
+               "tp_por_forma": {"resposta-curta-seguida-de-acao": 2}}
+        la = {"rotulador": "a", "labels": [
+            {"item": 1, "resposta": "sim"}, {"item": 2, "resposta": "sim"}]}
+        recall, _ = eval_recall_ingerir(amostra, la, la, pre)
+        d1 = recall["por_forma"]["resposta-curta-seguida-de-acao"]
+        # espaço consistente: (25-23)/(2 + 1.0*23) = 2/25 = 0.08
+        self.assertEqual(d1["detectados_relaxados"], 2)
+        self.assertEqual(d1["recall_espaco_relaxado"], 0.08)
+        self.assertEqual(d1["recall_unidade_mista"], 0.08)
+        self.assertIn("consistente", d1["nota_unidades"].lower())
+        self.assertIn("relaxamento_deltas", recall)
+        self.assertIn("caveat_central", recall["leitura"])
+
+    def test_seeded_marca_fora_de_escopo(self):
+        from tools.atividades import _linhas_semente, recall_seeded
+        linhas, manifesto = _linhas_semente(9, 2000000000.0)
+        work = self.tmp / "seeded" / "proj"
+        work.mkdir(parents=True)
+        with open(work / f"{SID}.jsonl", "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(e_user(
+                0, "sessão base p/ semeadura fora-de-escopo", "u1"),
+                ensure_ascii=False) + "\n")
+            for linha in linhas:
+                fh.write(linha + "\n")
+        tabela = recall_seeded(work.parent, manifesto, host="seed")
+        fl = tabela["resposta-curta-seguida-de-acao"][
+            "frase-longa-de-aceite"]
+        self.assertIn("fora_do_escopo_por_construcao", fl)
+        self.assertNotIn(
+            "fora_do_escopo_por_construcao",
+            tabela["resposta-curta-seguida-de-acao"]["aceite-7-15-chars"])
 
 
 class TestCwdModal(Base):

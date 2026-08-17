@@ -2310,6 +2310,37 @@ RELAXAMENTO = {
         "min_turnos": 2, "max_chars": 30, "janela_s": 1200},
 }
 RECALL_FUNDO_JANELA_S = 900.0
+# REGRA DE PARADA do loop de re-rotulagem (correção da rodada de recall):
+# no máximo UMA reapresentação por item, e só por defeito de PACOTE
+# documentado ANTES de ver a direção dos rótulos; itens reapresentados
+# reportam AS DUAS gerações de rótulo.
+REAPRESENTACAO_MAX = 1
+# classes semeadas fora do escopo POR CONSTRUÇÃO (o 0/3 delas é trivial)
+SEEDED_FORA_DE_ESCOPO = {
+    "resposta-curta-seguida-de-acao": {
+        "frase-longa-de-aceite":
+            "31-37 chars > teto RELAXADO de 20 — fora do escopo por "
+            "construção; o 0/3 é trivialmente verdadeiro e não conta como "
+            "medida de forma"}}
+
+
+def pode_reapresentar(item_n, historico):
+    """Guarda da regra de parada: True só se o item ainda não foi
+    reapresentado (REAPRESENTACAO_MAX=1). O merge de rótulos DEVE consultar
+    esta guarda antes de aceitar uma nova geração."""
+    return historico.get(item_n, 0) < REAPRESENTACAO_MAX
+
+
+def relaxamento_deltas():
+    """Deltas por forma entre o congelado e o relaxado — visíveis ao lado
+    de qualquer tabela de recall (o recall é relativo à definição
+    AFROUXADA, não ao conceito nomeado)."""
+    out = {}
+    for forma, rel in RELAXAMENTO.items():
+        base = THRESHOLDS[forma]
+        out[forma] = {k: {"congelado": base.get(k), "relaxado": v}
+                      for k, v in rel.items() if base.get(k) != v}
+    return out
 RECALL_FORMAS_FORA = {
     "sessoes-com-abertura-semelhante": "cross-sessão; o corpus da janela tem "
                                        "1 sessão de voz — pool vazio por "
@@ -2428,12 +2459,32 @@ def recall_pool_fn(sessoes, reg):
     return pool, relaxados
 
 
+def _eventos_da_janela(sessao, ini, fim):
+    """EVENTOS main-chain estritamente dentro de [ini, fim) — o mesmo
+    universo que os detectores veem (sidechain fora, declarado)."""
+    out = []
+    for e in sessao["eventos"]:
+        if e["kind"] != "voz-turno" \
+                and e["conteudo_redigido"].get("sidechain"):
+            continue
+        t = _parse_ts(e["ts"])
+        if t is not None and ini <= t < fim:
+            out.append(e)
+    return sorted(out, key=lambda e: e["ts"])
+
+
 def recall_janelas_de_fundo(sessoes, relaxados, k=10, seed=7):
     """K janelas aleatórias SEM candidato relaxado (esperado: 0 verdadeiros;
-    um 'verdadeiro' aqui = o próprio pool é cego em algum lugar)."""
+    um 'verdadeiro' aqui = o próprio pool é cego em algum lugar).
+
+    Correção da rodada de recall: a seleção conta EVENTOS main-chain (o que
+    o pacote carrega e os detectores veem), nunca linhas-com-ts do
+    transcript — o descompasso gerou janelas 'com 51 eventos' e pacote
+    vazio."""
     import random
     rnd = random.Random(f"fundo-{seed}")
-    intervalos = [( _parse_ts(rc["janela"]["de"]), _parse_ts(rc["janela"]["ate"]))
+    intervalos = [(_parse_ts(rc["janela"]["de"]),
+                   _parse_ts(rc["janela"]["ate"]))
                   for lst in relaxados.values() for rc in lst]
     janelas = []
     for s in sessoes:
@@ -2441,12 +2492,12 @@ def recall_janelas_de_fundo(sessoes, relaxados, k=10, seed=7):
         if not ts or ts[-1] - ts[0] < RECALL_FUNDO_JANELA_S:
             continue
         tentativas = 0
-        while len(janelas) < k and tentativas < 400:
+        while len(janelas) < k and tentativas < 600:
             tentativas += 1
             ini = rnd.uniform(ts[0], ts[-1] - RECALL_FUNDO_JANELA_S)
             fim = ini + RECALL_FUNDO_JANELA_S
-            dentro = [t for t in ts if ini <= t < fim]
-            if len(dentro) < 3:
+            evs = _eventos_da_janela(s, ini, fim)
+            if len(evs) < 3:
                 continue
             if any(a is not None and b is not None
                    and a < fim and b > ini for a, b in intervalos):
@@ -2454,7 +2505,7 @@ def recall_janelas_de_fundo(sessoes, relaxados, k=10, seed=7):
             janelas.append({"session_id": s["session_id"],
                             "arquivo": s["arquivo"],
                             "ts_ini": _iso(ini), "ts_fim": _iso(fim),
-                            "n_eventos": len(dentro)})
+                            "n_eventos": len(evs)})
     return janelas[:k]
 
 
@@ -2625,11 +2676,13 @@ def recall_seeded(workdir_semeado, manifesto, host="seed"):
         for classe, instancias in classes.items():
             det = sum(1 for inst in instancias
                       if set(inst) & uuids_detectados[forma])
-            tabela[forma][classe] = {"m": len(instancias),
-                                     "detectadas": det,
-                                     "seeded_recall": round(
-                                         det / len(instancias), 3)
-                                     if instancias else None}
+            cel = {"m": len(instancias), "detectadas": det,
+                   "seeded_recall": round(det / len(instancias), 3)
+                   if instancias else None}
+            fora = SEEDED_FORA_DE_ESCOPO.get(forma, {}).get(classe)
+            if fora:
+                cel["fora_do_escopo_por_construcao"] = fora
+            tabela[forma][classe] = cel
     return tabela
 
 
@@ -2714,14 +2767,24 @@ def eval_recall_preparar(sessoes, reg_estado, workdir, tp_por_forma,
     for k, j in enumerate(fundo, 1):
         s = next(x for x in sessoes if x["session_id"] == j["session_id"])
         ini, fim = _parse_ts(j["ts_ini"]), _parse_ts(j["ts_fim"])
-        evs = [e for e in s["eventos"]
-               if e["ts"] and ini <= _parse_ts(e["ts"]) < fim][:30]
+        evs = _eventos_da_janela(s, ini, fim)[:30]
+        evid = []
+        for e in evs:
+            # GARANTIA dura: evidência estritamente dentro da janela
+            # declarada (o defeito da 1ª rodada anulou o controle)
+            t = _parse_ts(e["ts"])
+            if not (ini <= t < fim):
+                raise CitacaoInvalida(
+                    f"evidência fora da janela de fundo: {e['id']}")
+            evid.append(_carga_de_instancia(e["id"]))
         itens_fundo.append({
             "item": base_n + k, "tipo": "janela-de-fundo",
             "pergunta": PERGUNTA_FUNDO,
             "formas_possiveis": formas_possiveis,
             "janela": {"de": j["ts_ini"], "ate": j["ts_fim"]},
-            "evidencia": [_carga_de_instancia(e["id"]) for e in evs]})
+            "nota": ("janela vazia (0 eventos main-chain)" if not evid
+                     else None),
+            "evidencia": evid})
     bloco = {"thresholds_congelados": THRESHOLDS,
              "relaxamento": RELAXAMENTO,
              "detector_version": DETECTOR_VERSION,
@@ -2763,7 +2826,8 @@ def _descricao_relaxada(c):
                 f"{json.dumps(c['params'], ensure_ascii=False)})")
 
 
-def eval_recall_ingerir(amostra, labels_a, labels_b, pre, seeded=None):
+def eval_recall_ingerir(amostra, labels_a, labels_b, pre, seeded=None,
+                        reapresentados=None):
     """Números por forma — NUNCA agregados num escalar único.
 
     recall_est = TP / (TP + p̂·pool); IC por Wilson em p̂ propagado
@@ -2809,13 +2873,38 @@ def eval_recall_ingerir(amostra, labels_a, labels_b, pre, seeded=None):
                   if p_hi is not None and (tp + p_hi * pool) > 0 else None)
         rec_hi = (round(tp / (tp + p_lo * pool), 3)
                   if p_lo is not None and (tp + p_lo * pool) > 0 else None)
+        # UNIDADE CONSISTENTE (correção): tudo no espaço de candidatos
+        # relaxados — detectados-relaxados / (detectados-relaxados + p̂·pool)
+        relax_total = pre.get("relaxados_por_forma", {}).get(forma, pool)
+        det_rel = relax_total - pool
+        rec_c = (round(det_rel / (det_rel + p_hat * pool), 3)
+                 if p_hat is not None and (det_rel + p_hat * pool) > 0
+                 else (None if p_hat is not None else None))
+        rec_c_lo = (round(det_rel / (det_rel + p_hi * pool), 3)
+                    if p_hi is not None and (det_rel + p_hi * pool) > 0
+                    else None)
+        rec_c_hi = (round(det_rel / (det_rel + p_lo * pool), 3)
+                    if p_lo is not None and (det_rel + p_lo * pool) > 0
+                    else None)
         resultado[forma] = dict(
             f, pool_fn=pool, tp_detectados=tp,
+            candidatos_relaxados=relax_total,
+            detectados_relaxados=det_rel,
             p_fn_amostrado=round(p_hat, 3) if p_hat is not None else None,
             p_wilson=[round(p_lo, 3), round(p_hi, 3)]
             if p_lo is not None else None,
-            fn_estimados=est_fn, recall_estimado=rec,
-            recall_intervalo=[rec_lo, rec_hi] if rec_lo is not None else None)
+            fn_estimados=est_fn,
+            recall_espaco_relaxado=rec_c,
+            recall_espaco_relaxado_intervalo=(
+                [rec_c_lo, rec_c_hi] if rec_c_lo is not None else None),
+            recall_unidade_mista=rec,
+            recall_unidade_mista_intervalo=(
+                [rec_lo, rec_hi] if rec_lo is not None else None),
+            nota_unidades="recall_espaco_relaxado é o número CONSISTENTE "
+                          "(numerador e denominador no espaço de candidatos "
+                          "relaxados); recall_unidade_mista foi o publicado "
+                          "na 1ª versão (TP em N2 congelados ÷ espaço "
+                          "relaxado) e fica só para rastreabilidade")
     # fundo: esperado 'nenhuma' unânime
     fundo_res = {"n": len(fundo_itens), "nenhuma_unanime": 0,
                  "achados": [], "sem_consenso": 0}
@@ -2842,6 +2931,31 @@ def eval_recall_ingerir(amostra, labels_a, labels_b, pre, seeded=None):
             catch_res["b"] += 1
     recall = {
         "pre_registro_sha256": pre["sha256_bloco_congelado"],
+        "relaxamento_deltas": relaxamento_deltas(),
+        "leitura": {
+            "caveat_central": "o recall é relativo à definição "
+                              "DELIBERADAMENTE afrouxada (deltas acima), "
+                              "não ao conceito nomeado do detector",
+            "resposta-curta-seguida-de-acao":
+                "SINAL MAIS FORTE: os FN são perdas genuínas do teto de 6 "
+                "chars e da exclusão de execução (ex.: 'dispare o 1'→24s→"
+                "python3)",
+            "pergunta-explicacao-resposta-curta":
+                "mede o CONCEITO RELAXADO: min_chars_explicacao 800→1 "
+                "apaga a 'explicação longa' — não leia como recall da forma "
+                "nomeada",
+            "rajada-de-turnos-curtos":
+                "mede o CONCEITO RELAXADO: readmite turnos interrogativos "
+                "que o finding R1#16 removeu DE PROPÓSITO",
+            "leituras-repetidas-de-estado-externo":
+                "boa parte do pool relaxado é 'mesma cabeça 2× em 2h' — "
+                "conceito bem mais fraco que o congelado"},
+        "regra_de_parada": {
+            "reapresentacao_max": REAPRESENTACAO_MAX,
+            "regra": "no máximo UMA reapresentação por item, só por defeito "
+                     "de PACOTE documentado antes de ver a direção dos "
+                     "rótulos; itens reapresentados reportam as duas "
+                     "gerações"},
         "premissas": [
             "TP por forma = N2 congelados da forma (precisão 1.0 no "
             "estágio 0 desta janela; TP efetivo = n2 × precisão)",
@@ -2853,6 +2967,7 @@ def eval_recall_ingerir(amostra, labels_a, labels_b, pre, seeded=None):
             "população finita (conservador)"],
         "por_forma": resultado,
         "fundo": fundo_res,
+        "reapresentados": reapresentados,
         "seeded": seeded,
         "formas_fora": RECALL_FORMAS_FORA,
         "rotuladores": [labels_a.get("rotulador", "a"),
@@ -3465,26 +3580,55 @@ def render_report(reg, projecao, eval_estagio0=None, recall=None):
                  f"{_esc(recall['pre_registro_sha256'][:16])}…</code>); "
                  f"rotulagem cega dupla; números POR FORMA — sem agregação "
                  f"lisonjeira.</p>")
-        H.append("<table><tr><th>forma</th><th>TP detectados</th>"
+        H.append("<p class='aviso'>CAVEAT CENTRAL: o recall abaixo é "
+                 "relativo à definição DELIBERADAMENTE afrouxada — os "
+                 "deltas por forma estão na tabela; não leia como recall do "
+                 "conceito nomeado.</p>")
+        H.append("<table><tr><th>forma</th><th>detect. relax.</th>"
                  "<th>pool FN</th><th>amostrados</th><th>p̂ FN</th>"
-                 "<th>FN estimados</th><th>recall est.</th>"
-                 "<th>IC (Wilson prop.)</th></tr>")
+                 "<th><b>recall (espaço relaxado)</b></th><th>IC</th>"
+                 "<th>1ª versão (unidade mista)</th>"
+                 "<th>deltas do relaxamento</th><th>leitura</th></tr>")
+        deltas = recall.get("relaxamento_deltas") or {}
+        leitura = recall.get("leitura") or {}
         for forma, v in sorted(recall["por_forma"].items()):
-            ic = (f"{v['recall_intervalo'][0]}–{v['recall_intervalo'][1]}"
-                  if v.get("recall_intervalo") else "—")
-            H.append(f"<tr><td>{_esc(forma)}</td><td>{v['tp_detectados']}"
-                     f"</td><td>{v['pool_fn']}</td><td>{v['amostrados']}"
-                     f"</td><td>{v['p_fn_amostrado'] if v['p_fn_amostrado'] is not None else '—'}"
-                     f"</td><td>{v['fn_estimados'] if v['fn_estimados'] is not None else '—'}"
-                     f"</td><td>{v['recall_estimado'] if v['recall_estimado'] is not None else '—'}"
-                     f"</td><td>{_esc(ic)}</td></tr>")
+            ic = v.get("recall_espaco_relaxado_intervalo")
+            ictxt = f"{ic[0]}–{ic[1]}" if ic else "—"
+            dl = "; ".join(
+                f"{k} {d['congelado']}→{d['relaxado']}"
+                for k, d in (deltas.get(forma) or {}).items())
+            H.append(
+                f"<tr><td>{_esc(forma)}</td>"
+                f"<td>{v.get('detectados_relaxados', '—')}/"
+                f"{v.get('candidatos_relaxados', '—')}</td>"
+                f"<td>{v['pool_fn']}</td><td>{v['amostrados']}</td>"
+                f"<td>{v['p_fn_amostrado'] if v['p_fn_amostrado'] is not None else '—'}</td>"
+                f"<td><b>{v.get('recall_espaco_relaxado') if v.get('recall_espaco_relaxado') is not None else '—'}</b></td>"
+                f"<td>{_esc(ictxt)}</td>"
+                f"<td class='exp'>{v.get('recall_unidade_mista') if v.get('recall_unidade_mista') is not None else '—'}</td>"
+                f"<td>{_esc(dl)}</td>"
+                f"<td class='exp'>{_esc(leitura.get(forma, ''))[:180]}</td>"
+                f"</tr>")
         H.append("</table>")
+        rp = recall.get("regra_de_parada")
+        if rp:
+            H.append(f"<p class='exp'>Regra de parada da re-rotulagem: "
+                     f"{_esc(rp['regra'])}.</p>")
+        if recall.get("reapresentados"):
+            H.append(f"<p class='exp'>Itens reapresentados (defeito de "
+                     f"pacote documentado): "
+                     f"{len(recall['reapresentados'].get('itens', []))} — "
+                     f"as duas gerações de rótulo estão em recall.json.</p>")
         fu = recall.get("fundo") or {}
         H.append(f"<p>Controle de fundo: {fu.get('nenhuma_unanime', 0)}/"
                  f"{fu.get('n', 0)} janelas 'nenhuma' unânime; achados: "
                  f"{len(fu.get('achados', []))} (achado aqui = o próprio "
                  f"pool é cego); sem consenso: {fu.get('sem_consenso', 0)}."
-                 f"</p>")
+                 + (f" {_esc(fu['nota'])}" if fu.get("nota") else "")
+                 + "</p>")
+        if recall.get("fundo_v1_anulado"):
+            H.append(f"<p class='aviso'>Controle de fundo v1 ANULADO: "
+                     f"{_esc(recall['fundo_v1_anulado']['razao'])}</p>")
         if recall.get("seeded"):
             H.append("<p>Recall semeado (formas-FN do Codex; detectores "
                      "CONGELADOS sobre cópia semeada, apagada ao fim):</p>")
@@ -3493,9 +3637,14 @@ def render_report(reg, projecao, eval_estagio0=None, recall=None):
             for forma, classes in sorted(
                     recall["seeded"]["tabela"].items()):
                 for classe, r in classes.items():
+                    fora = r.get("fora_do_escopo_por_construcao")
                     H.append(f"<tr><td>{_esc(forma)}</td>"
-                             f"<td>{_esc(classe)}</td>"
-                             f"<td>{r['detectadas']}/{r['m']}</td></tr>")
+                             f"<td>{_esc(classe)}"
+                             + (" <span class='exp'>[fora do escopo por "
+                                "construção]</span>" if fora else "")
+                             + f"</td><td>{r['detectadas']}/{r['m']}"
+                             + ("" if not fora else " (trivial)")
+                             + "</td></tr>")
             H.append("</table>")
         for fx, razao in (recall.get("formas_fora") or {}).items():
             H.append(f"<p class='exp'>{_esc(fx)}: fora da medição — "
@@ -3817,10 +3966,12 @@ def _cmd_eval_recall(args):
         (state / "report.html").write_text(
             render_report(reg, projecao, ev, recall=recall),
             encoding="utf-8")
-        print(json.dumps({f: {k: v[k] for k in
-                              ("tp_detectados", "pool_fn", "amostrados",
-                               "p_fn_amostrado", "recall_estimado",
-                               "recall_intervalo")}
+        print(json.dumps({f: {k: v.get(k) for k in
+                              ("tp_detectados", "detectados_relaxados",
+                               "pool_fn", "amostrados", "p_fn_amostrado",
+                               "recall_espaco_relaxado",
+                               "recall_espaco_relaxado_intervalo",
+                               "recall_unidade_mista")}
                           for f, v in recall["por_forma"].items()},
                          ensure_ascii=False, indent=1))
         print("fundo:", json.dumps(recall["fundo"], ensure_ascii=False))
