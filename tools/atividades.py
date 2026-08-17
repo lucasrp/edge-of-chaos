@@ -59,7 +59,21 @@ from pathlib import Path
 # mudar qualquer um exige nova rodada de avaliação cega — §3 do brief v2)
 # ---------------------------------------------------------------------------
 
-DETECTOR_VERSION = "n2-v2.0"
+# R6.1 Front A: tuning GUIADO pela medição de recall (966d854) — toda
+# mudança abaixo cita o dado; thresholds novos são PROPOSTA aguardando
+# ratificação do operador (marcado no relatório).
+DETECTOR_VERSION = "n2-v2.1-proposta"
+DETECTOR_VERSION_ANTERIOR = "n2-v2.0"
+
+# Lexicon FECHADO de aceites do operador, construído da voz REAL dos
+# corpora (recall D1: p̂=1.0 no pool ≤20 chars — "blz manda", "pode mandar",
+# "perfeito" eram perdas do teto de 6 chars). Versionado com o detector.
+D1_ACEITE_LEX = frozenset((
+    "ok", "sim", "vai", "blz", "bora", "dale", "isso", "show", "fechou",
+    "perfeito", "pode", "manda", "faz", "roda", "dispara", "ok pode",
+    "pode mandar", "blz manda", "manda ver", "manda bala", "pode ir",
+    "vai la", "vai lá", "isso mesmo", "faz isso", "roda ai", "roda aí",
+    "dispara o 1", "pode rodar", "pode fazer", "segue", "toca"))
 CLUSTER_VERSION = "cluster-v2.0"
 MIN_ATIVOS_CAP_S = 300.0
 MIN_ATIVOS_SENSIBILIDADE_S = (120.0, 600.0)
@@ -119,13 +133,48 @@ _RX_MARCADOR_FRONTEIRA = re.compile(
     r"conclu[ií]da)\b)")
 
 THRESHOLDS = {
-    "resposta-curta-seguida-de-acao": {"max_chars_voz": 6, "janela_s": 120},
+    # D1 v2.1 (recall: 0.080 no espaço relaxado; seeded aceite-7-15 0/3 e
+    # execução excluída = perdas reais tipo "dispare o 1"→24s→python3):
+    # gatilho = curto ≤6 OU lexicon fechado OU imperativo-verbo-inicial
+    # ≤30; classes de ação + execução. Janela MANTIDA em 120s (PROPOSTA):
+    # o conceito é imediatismo — a classe 121-600s (seeded 0/3) é um
+    # comportamento mais lento que dobrá-la aqui inflaria FP; fica
+    # documentada como buraco conhecido para decisão do operador.
+    "resposta-curta-seguida-de-acao": {
+        "max_chars_voz": 6, "janela_s": 120, "aceite_lexicon": True,
+        "imperativo_max_chars": 30,
+        "classes_acao": ("escrita", "commit", "execucao")},
+    # D2 v2.1: min_chars_explicacao=800 RE-DECLARADO como conceito (≈150+
+    # palavras — uma explicação substantiva, não um ack; o recall relaxado
+    # 800→1 media outro conceito); resposta aceita o lexicon (recall D2
+    # 0.129: respostas 7-20 chars reais tipo "blz perfeito")
     "pergunta-explicacao-resposta-curta": {
-        "min_chars_explicacao": 800, "max_chars_resposta": 6, "janela_s": 1800},
-    "leituras-repetidas-de-estado-externo": {"min_repeticoes": 3, "janela_s": 3600},
+        "min_chars_explicacao": 800, "max_chars_resposta": 6,
+        "aceite_lexicon": True, "janela_s": 1800},
+    # D3 v2.1: MESMO ALVO (verbo + recurso extraído dos args), não mesma
+    # cabeça de 2 tokens ("tail -c"≠"tail -n" do mesmo arquivo eram grupos
+    # distintos; cabeça "cd" escondia leituras — controle de fundo);
+    # min_repeticoes=3 e janela 3600 re-justificados: 3 leituras na mesma
+    # hora é a cadência de polling confirmada no estágio-0 (n=9..17, p=1.0)
+    "leituras-repetidas-de-estado-externo": {
+        "min_repeticoes": 3, "janela_s": 3600, "mesmo_alvo": True},
     "sessoes-com-abertura-semelhante": {"jaccard_min": 0.6},
     "entrega-com-perguntas-sem-turno-de-resposta-observado": {"min_perguntas": 2},
-    "rajada-de-turnos-curtos": {"min_turnos": 3, "max_chars": 15, "janela_s": 600},
+    # D6 v2.1: interrogativas SEGUEM excluídas (R1#16 estava certo);
+    # max_chars 15→20 cobre os aceites reais do lexicon ("blz manda"=9,
+    # "pode mandar"=11, rajadas de 16-20 no pool relaxado); janela mantida
+    "rajada-de-turnos-curtos": {"min_turnos": 3, "max_chars": 20, "janela_s": 600},
+    # ----- Front B: catálogo POSITIVO (nomes descritivos; a re-elaboração
+    # e o engajamento que o mentor QUER ver) -----
+    "resposta-longa-em-voz-propria-apos-explicacao": {
+        "min_chars_explicacao": 800, "min_chars_resposta": 300,
+        "janela_s": 1800},
+    "pergunta-de-aprofundamento-apos-explicacao": {
+        "min_chars_explicacao": 800, "min_chars_pergunta": 40,
+        "janela_s": 1800},
+    "retomada-de-entrega-com-vocabulario-da-entrega": {
+        "min_perguntas_entrega": 2, "min_tokens_compartilhados": 3,
+        "min_len_token": 4, "janela_s": 3600},
 }
 
 EVAL_PRECISAO_MIN = 0.8
@@ -478,6 +527,36 @@ def _classificar_segmento(seg, payloads, prof):
         return None
     head = toks[0].rsplit("/", 1)[-1]
 
+    # R6.1 A2: `cd <path>` é wrapper NEUTRO — não classifica o comando
+    # composto (a cegueira "cd X && leitura → execucao" escondia leituras
+    # do pool do D3; achada pelo controle de fundo)
+    if head == "cd" and len(toks) <= 2:
+        return None
+
+    # R6.1 A2: heredoc `python3 - <<X` decide por PAYLOAD quando viável
+    # (heurística mecânica declarada); sem decisão → execucao-com-nota
+    if head in ("python3", "python") and len(toks) > 1 \
+            and toks[1] in ("-", "-c"):
+        # restaurar payloads (aspas do heredoc/-c viraram placeholders)
+        restaurado = _RX_PLACEHOLDER.sub(
+            lambda m: payloads[int(m.group(1))], seg)
+        if toks[1] == "-c":
+            m_c = re.search(r"-c\s+(.*)", restaurado, re.S)
+            corpo = m_c.group(1) if m_c else ""
+        else:
+            m_h = re.search(r"<<-?\s*'?(\w+)'?\s*\n(.*)", restaurado, re.S)
+            corpo = m_h.group(2) if m_h else ""
+        if corpo:
+            if re.search(r"open\([^)]*['\"](w|a|wb|ab)['\"]"
+                         r"|\.write\(|\bos\.(remove|rename|makedirs)\b"
+                         r"|\bshutil\.|\bsubprocess\b|json\.dump\(",
+                         corpo):
+                return "escrita"
+            if re.search(r"\bjson\.load\b|\bopen\([^)]*\)|\bprint\(",
+                         corpo) :
+                return "leitura"
+        return "execucao"
+
     if head == "git":
         sub = toks[1] if len(toks) > 1 else ""
         resto = toks[2:]
@@ -577,7 +656,12 @@ def _texto_de(content):
 # do operador; marcadores MECÂNICOS de forma, nunca leitura de conteúdo.
 _RX_PROTOCOLO = re.compile(
     r"^(AUTHORITATIVE DISPATCH PLAN|Base directory for this skill"
-    r"|<command-name>|<system-reminder>)"
+    r"|<command-name>|<system-reminder>"
+    # R6.1 Front C: formas de protocolo do host turing — despachos de loop
+    # ("You are the R1 IMPLEMENTER…"), invocações de rito/skill
+    r"|You are the (?:R\d|\*\*|[A-Z0-9.]+ (?:IMPLEMENTER|VERIFIER|LABELER))"
+    r"|Você é (?:o|um) (?:anotador|rotulador|verificador)\b"
+    r"|The coordinator sent a message)"
     r"|^.{0,200}?AUTHORITATIVE DISPATCH PLAN", re.S)
 
 
@@ -703,6 +787,8 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
     #                           nunca persistido
     ts_linhas = []            # R5: (ts, linha) de TODA linha main com ts —
     #                           detecção de gap ancorável em linha
+    chaves_leitura = {}       # v2.1 D3: (verbo, alvo) bruto por evento —
+    #                           transiente, nunca persistido
     cabecas_brutas = {}       # R4 item 2: chave de agrupamento D3 vem do
     #                           comando NÃO-redigido; só a cabeça redigida
     #                           persiste (este dict é transiente, nunca sai
@@ -818,7 +904,10 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                 if texto.strip() and ts is not None and not eh_side:
                     assistant_turnos.append({
                         "ts": ts, "linha": linha_n, "chars": len(texto),
-                        "n_perguntas": texto.count("?")})
+                        "n_perguntas": texto.count("?"),
+                        # tokens transientes p/ retomada-de-entrega (nunca
+                        # persistidos)
+                        "tokens": _tokens(texto)})
                     assistant_texto_pendente = ts
                 for b in content:
                     if not (isinstance(b, dict) and b.get("type") == "tool_use"):
@@ -863,6 +952,7 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                         assistant_texto_pendente = None
                     if cabeca_bruta is not None:
                         cabecas_brutas[ev["id"]] = cabeca_bruta
+                        chaves_leitura[ev["id"]] = _chave_leitura(cmd)
                     if b.get("id"):
                         pendentes[b["id"]] = (ev, classe)
 
@@ -883,7 +973,7 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
             "abertura": abertura, "linhas_puladas": linhas_puladas,
             "turnos_protocolo": turnos_protocolo,
             "cabecas_brutas": cabecas_brutas, "fluxo": fluxo,
-            "ts_linhas": ts_linhas}
+            "ts_linhas": ts_linhas, "chaves_leitura": chaves_leitura}
 
 
 def tempo_ativo_s(ts_list, cap):
@@ -1136,6 +1226,74 @@ def _eh_acao_escrita(ev):
     return c.get("classe") in ("escrita", "commit")
 
 
+def _acao_em_classes(ev, classes):
+    """v2.1: a ação do D1 qualifica pelas classes DECLARADAS nos thresholds
+    (inclui execução — a perda 'dispare o 1'→python3 medida no recall)."""
+    if ev["kind"] == "commit":
+        return "commit" in classes
+    if ev["kind"] not in ("tool-call", "spawn"):
+        return False
+    return ev["conteudo_redigido"].get("classe") in classes
+
+
+def _gatilho_aceite(texto, p):
+    """v2.1: gatilho do D1 — curto ≤6 (regra v2.0) OU lexicon fechado OU
+    imperativo-verbo-inicial ≤30 chars. Retorna o nome do gatilho ou None."""
+    t = _normalizar_voz(texto)
+    if not t:
+        return None
+    if t in _GREETING_LEX:
+        # correção pós-rotulagem v2.1: "iae" disparava D1 via gatilho curto
+        # — saudação nunca é aceite (a mesma lição da agência, R2 finding 6)
+        return None
+    if len(t) <= p["max_chars_voz"]:
+        return "curto"
+    if p.get("aceite_lexicon") and t in D1_ACEITE_LEX:
+        return "lexicon"
+    prim = t.split(" ", 1)[0]
+    if len(t) <= p.get("imperativo_max_chars", 0) \
+            and prim in _IMPERATIVO_V1 and not t.endswith("?"):
+        return "imperativo"
+    return None
+
+
+def _chave_leitura(cmd):
+    """v2.1 D3: (verbo, alvo) do comando de leitura — MESMO RECURSO, não
+    mesma cabeça de 2 tokens ('tail -c f' e 'tail -n f' são o mesmo
+    polling de f; 'cd X && tail f' idem).
+
+    Correção pós-rotulagem v2.1 (bug de EXTRAÇÃO achado pelos rotuladores:
+    5/7 nao por alvo='head'/'EOF'): o alvo vem do PRIMEIRO segmento com
+    verbo real, cortado ANTES do pipe e do heredoc — nunca um estágio de
+    pipe. Heredoc → alvo opaco ''."""
+    texto, _p = _com_placeholders(cmd or "")
+    texto = texto.split("<<")[0]  # heredoc fora do alvo
+    sem = _RX_STDERR_REDIR.sub(" ", texto)
+    for seg in re.split(r"&&|\|\||;", sem):
+        seg = seg.split("|")[0]  # alvo = 1º estágio do pipe
+        toks = seg.split()
+        while toks:
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]) \
+                    or toks[0] in _WRAPPERS_1 or toks[0] == "env":
+                toks = toks[1:]
+            elif toks[0] == "cd":
+                toks = toks[2:] if len(toks) > 1 else []
+            elif toks[0] == "timeout":
+                toks = toks[1:]
+                if toks and re.match(r"^\d+[smhd]?$", toks[0]):
+                    toks = toks[1:]
+            else:
+                break
+        if not toks:
+            continue
+        verbo = toks[0].rsplit("/", 1)[-1]
+        alvo = next((t for t in reversed(toks[1:])
+                     if not t.startswith("-") and not t.startswith(">")
+                     and not t.startswith("<")), "")
+        return (verbo, alvo)
+    return ("?", "?")
+
+
 def _aplicar_piso(atividades, trechos, log):
     """R5.2 finding 5: cluster abaixo do piso (duração ativa <
     PISO_ATIVIDADE_SEGUNDOS OU eventos < PISO_ATIVIDADE_EVENTOS) não vira
@@ -1228,17 +1386,24 @@ def detectar_sessao(sessao, reg):
              and e["ts"] is not None]
     acoes.sort(key=lambda e: e["ts"])
 
-    # D1 resposta-curta-seguida-de-acao
+    # D1 resposta-curta-seguida-de-acao (v2.1: lexicon + imperativo +
+    # classe execução — mudanças citam o recall 0.080/seeded 0-de-3)
     p = th["resposta-curta-seguida-de-acao"]
     for ts, texto, vid, linha, _a in vozes:
-        if 0 < len(texto) <= p["max_chars_voz"]:
+        gat = _gatilho_aceite(texto, p)
+        if gat:
             for ac in acoes:
                 d = _parse_ts(ac["ts"]) - ts
-                if 0 < d <= p["janela_s"] and _eh_acao_escrita(ac) \
+                if 0 < d <= p["janela_s"] \
+                        and _acao_em_classes(ac, p["classes_acao"]) \
                         and not ac["conteudo_redigido"].get("sidechain"):
                     out.append(_mk_n2(
                         reg, "resposta-curta-seguida-de-acao", [vid, ac["id"]],
-                        {"delta_s": round(d, 1), "chars_voz": len(texto)},
+                        {"delta_s": round(d, 1), "chars_voz": len(texto),
+                         "gatilho": gat,
+                         "classe_acao": ("commit" if ac["kind"] == "commit"
+                                         else ac["conteudo_redigido"]
+                                         .get("classe"))},
                         {"de": _iso(ts), "ate": ac["ts"]}))
                     break
 
@@ -1251,8 +1416,10 @@ def detectar_sessao(sessao, reg):
         if not texto.rstrip().endswith("?") or i + 1 >= len(vozes):
             continue
         ts2, t2, vid2, _, _ = vozes[i + 1]
-        if not (0 < len(t2) <= p["max_chars_resposta"]
-                and 0 < ts2 - ts <= p["janela_s"]):
+        t2n = _normalizar_voz(t2)
+        resposta_ok = (0 < len(t2) <= p["max_chars_resposta"]
+                       or (p.get("aceite_lexicon") and t2n in D1_ACEITE_LEX))
+        if not (resposta_ok and 0 < ts2 - ts <= p["janela_s"]):
             continue
         expl = next((a for a in ats if ts < a["ts"] < ts2
                      and a["chars"] >= p["min_chars_explicacao"]), None)
@@ -1267,16 +1434,19 @@ def detectar_sessao(sessao, reg):
     p = th["leituras-repetidas-de-estado-externo"]
     por_cabeca = defaultdict(list)
     brutas = sessao.get("cabecas_brutas") or {}
+    chaves_l = sessao.get("chaves_leitura") or {}
     for ac in acoes:
         c = ac["conteudo_redigido"]
         if c.get("tool") == "Bash" and c.get("classe") == "leitura" \
                 and c.get("comando_cabeca") and not c.get("sidechain"):
-            # R4 item 2: agrupar pela cabeça BRUTA (transiente) — a redação
-            # (***) fundia cabeças distintas num grupo fabricado.
-            # R5.2 finding 4: a chave é o SPAN DE COMPORTAMENTO (trechos
-            # adjacentes da MESMA Atividade) — corte dentro da mesma
-            # Atividade não parte o grupo; fronteira de Atividade sim
-            por_cabeca[(brutas.get(ac["id"], c["comando_cabeca"]),
+            # R4 item 2: chave BRUTA transiente (redação fundia cabeças).
+            # R5.2 finding 4: chave inclui o SPAN de comportamento.
+            # v2.1 (Front A3): MESMO ALVO — (verbo, recurso), não cabeça
+            # de 2 tokens ('tail -c f'≡'tail -n f'; 'cd X && tail f' idem)
+            chave = (chaves_l.get(ac["id"])
+                     or _chave_leitura(brutas.get(
+                         ac["id"], c["comando_cabeca"])))
+            por_cabeca[(chave,
                         _span_de(sessao, _parse_ts(ac["ts"])))].append(ac)
     for (cabeca, _trecho), lst in por_cabeca.items():
         i = 0
@@ -1287,11 +1457,16 @@ def detectar_sessao(sessao, reg):
                 j += 1
             if j - i + 1 >= p["min_repeticoes"]:
                 grupo = lst[i:j + 1]
+                verbo, alvo = (cabeca if isinstance(cabeca, tuple)
+                               else (cabeca, ""))
                 out.append(_mk_n2(
                     reg, "leituras-repetidas-de-estado-externo",
                     [g["id"] for g in grupo],
-                    # persistir SÓ a cabeça redigida (a bruta é transiente)
-                    {"comando_cabeca": redigir(cabeca, entropia=True)[:80],
+                    # persistir SÓ o par redigido (o bruto é transiente)
+                    {"comando_cabeca": redigir(
+                        f"{verbo} {alvo}".strip(), entropia=True)[:80],
+                     "verbo": redigir(verbo, entropia=True)[:40],
+                     "alvo": redigir(alvo, entropia=True)[:80],
                      "n_repeticoes": len(grupo)},
                     {"de": grupo[0]["ts"], "ate": grupo[-1]["ts"]}))
             i = j + 1
@@ -1330,11 +1505,85 @@ def detectar_sessao(sessao, reg):
                 {"n_turnos": j - i + 1},
                 {"de": _iso(curtos[i][0]), "ate": _iso(curtos[j][0])}))
         i = j + 1
+
+    # ----- Front B (v2.1): formas POSITIVAS -----
+    # P1/P2: explicação substantiva (≥800) → PRÓXIMO turno humano é
+    # re-elaboração longa em voz própria (≥300, não-interrogativo) ou
+    # pergunta de aprofundamento (≥40, interrogativa)
+    p1 = th["resposta-longa-em-voz-propria-apos-explicacao"]
+    p2 = th["pergunta-de-aprofundamento-apos-explicacao"]
+    for i, (ts, texto, vid, _l, _a) in enumerate(vozes):
+        ts_ant = vozes[i - 1][0] if i > 0 else None
+        expl = next((a for a in reversed(ats)
+                     if a["ts"] < ts
+                     and a["chars"] >= p1["min_chars_explicacao"]
+                     and (ts_ant is None or a["ts"] > ts_ant)), None)
+        if not expl:
+            continue
+        interrog = texto.rstrip().endswith("?")
+        if not interrog and len(texto) >= p1["min_chars_resposta"] \
+                and ts - expl["ts"] <= p1["janela_s"]:
+            out.append(_mk_n2(
+                reg, "resposta-longa-em-voz-propria-apos-explicacao", [vid],
+                {"chars_resposta": len(texto),
+                 "assistant_linha": expl["linha"],
+                 "assistant_chars": expl["chars"]},
+                {"de": _iso(expl["ts"]), "ate": _iso(ts)}))
+        elif interrog and len(texto) >= p2["min_chars_pergunta"] \
+                and ts - expl["ts"] <= p2["janela_s"]:
+            out.append(_mk_n2(
+                reg, "pergunta-de-aprofundamento-apos-explicacao", [vid],
+                {"chars_pergunta": len(texto),
+                 "assistant_linha": expl["linha"],
+                 "assistant_chars": expl["chars"]},
+                {"de": _iso(expl["ts"]), "ate": _iso(ts)}))
+
+    # P3: entrega com ≥2 perguntas → turno humano posterior que RETOMA o
+    # vocabulário da entrega (sobreposição lexical mecânica)
+    p3 = th["retomada-de-entrega-com-vocabulario-da-entrega"]
+    vistos_p3 = set()  # um n2 por turno de retomada (id = hash de [vid])
+    for a in ats:
+        if a["n_perguntas"] < p3["min_perguntas_entrega"]:
+            continue
+        toks_a = {t for t in (a.get("tokens") or set())
+                  if len(t) >= p3["min_len_token"]
+                  and t not in _STOPWORDS_OVERLAP}
+        if not toks_a:
+            continue
+        for ts, texto, vid, _l, _ant in vozes:
+            if not (0 < ts - a["ts"] <= p3["janela_s"]):
+                continue
+            comuns = {t for t in _tokens(texto)
+                      if len(t) >= p3["min_len_token"]
+                      and t not in _STOPWORDS_OVERLAP} & toks_a
+            if len(comuns) >= p3["min_tokens_compartilhados"] \
+                    and vid not in vistos_p3:
+                vistos_p3.add(vid)
+                out.append(_mk_n2(
+                    reg, "retomada-de-entrega-com-vocabulario-da-entrega",
+                    [vid],
+                    {"tokens_compartilhados": len(comuns),
+                     "entrega_linha": a["linha"],
+                     "amostra_tokens": sorted(
+                         redigir(t, entropia=True) for t in comuns)[:5]},
+                    {"de": _iso(a["ts"]), "ate": _iso(ts)}))
+                break
     return out
 
 
 def _tokens(texto):
     return set(re.findall(r"[a-zà-ú0-9\-]{3,}", (texto or "").lower()))
+
+
+# correção pós-rotulagem v2.1: sobreposição lexical do P3 sem stopwords
+# ("como/isso/sobre" passavam o filtro de ≥4 chars — apontado pelo
+# rotulador B no item 19)
+_STOPWORDS_OVERLAP = frozenset((
+    "como isso sobre para pela pelo pelos pelas essa esse essas esses "
+    "aqui depois antes ainda entre cada qual quando quanto seria estava "
+    "tinha tambem também porque então entao mesmo mesma muito mais menos "
+    "onde tudo nada alguma algum fazer feito being have that this with "
+    "from what your").split())
 
 
 def _jaccard(a, b):
@@ -1881,15 +2130,21 @@ PERGUNTA_MECANICA = ("A sequência descrita ocorre de fato nesta evidência? "
 _DESCRICOES_MECANICAS = {
     # lambdas: só a forma do n2 tem seus params acessados (avaliação preguiçosa)
     "resposta-curta-seguida-de-acao": lambda p:
-        f"turno humano com <= {p['max_chars_voz']} chars seguido, em ate "
-        f"{p['janela_s']}s, de tool call de escrita/commit",
+        f"turno humano de aceite (<= {p['max_chars_voz']} chars"
+        + (", OU do lexicon fechado de aceites, OU imperativo verbo-inicial"
+           f" <= {p['imperativo_max_chars']} chars"
+           if p.get("aceite_lexicon") else "")
+        + f") seguido, em ate {p['janela_s']}s, de tool call de classe "
+        + "/".join(p.get("classes_acao", ("escrita", "commit"))),
     "pergunta-explicacao-resposta-curta": lambda p:
         f"turno humano interrogativo, depois entrada assistant com >= "
         f"{p['min_chars_explicacao']} chars, depois turno humano com <= "
         f"{p['max_chars_resposta']} chars",
     "leituras-repetidas-de-estado-externo": lambda p:
-        f">= {p['min_repeticoes']} execucoes Bash de leitura com a mesma "
-        f"cabeca de comando em <= {p['janela_s']}s",
+        f">= {p['min_repeticoes']} execucoes Bash de leitura com "
+        + ("o MESMO verbo e o MESMO alvo (recurso)"
+           if p.get("mesmo_alvo") else "a mesma cabeca de comando")
+        + f" em <= {p['janela_s']}s",
     "sessoes-com-abertura-semelhante": lambda p:
         f"aberturas de duas sessoes em dias distintos com jaccard >= "
         f"{p['jaccard_min']}",
@@ -1899,6 +2154,19 @@ _DESCRICOES_MECANICAS = {
     "rajada-de-turnos-curtos": lambda p:
         f">= {p['min_turnos']} turnos humanos com <= {p['max_chars']} chars "
         f"em <= {p['janela_s']}s",
+    "resposta-longa-em-voz-propria-apos-explicacao": lambda p:
+        f"entrada assistant com >= {p['min_chars_explicacao']} chars "
+        f"seguida (proximo turno humano, <= {p['janela_s']}s) de turno "
+        f"humano NAO-interrogativo com >= {p['min_chars_resposta']} chars",
+    "pergunta-de-aprofundamento-apos-explicacao": lambda p:
+        f"entrada assistant com >= {p['min_chars_explicacao']} chars "
+        f"seguida (proximo turno humano, <= {p['janela_s']}s) de turno "
+        f"humano INTERROGATIVO com >= {p['min_chars_pergunta']} chars",
+    "retomada-de-entrega-com-vocabulario-da-entrega": lambda p:
+        f"entrada assistant com >= {p['min_perguntas_entrega']} '?' seguida "
+        f"(<= {p['janela_s']}s) de turno humano compartilhando >= "
+        f"{p['min_tokens_compartilhados']} tokens (>= {p['min_len_token']} "
+        f"chars) com ela",
 }
 
 
@@ -2060,18 +2328,19 @@ def eval_preparar(reg, workdir, max_amostra=30, seed=17, com_catch=True):
                                    "uuid": ev.get("uuid")},
                         "carga": _carga_util(workdir, ev["arquivo_jsonl"],
                                              ev["linha"])})
-                # D2: a explicação do assistant é perna julgada — entra no
-                # pacote (finding R1 #3), via assistant_linha dos params
-                if n2["forma"] == "pergunta-explicacao-resposta-curta" \
-                        and n2["params"].get("assistant_linha"):
+                # perna do assistant JULGADA entra no pacote para QUALQUER
+                # forma que a ancore nos params (finding R1 #3; o defeito
+                # reapareceu nas formas novas do v2.1 — 16×EI)
+                linha_assist = (n2["params"].get("assistant_linha")
+                                or n2["params"].get("entrega_linha"))
+                if linha_assist:
                     arq = reg.by_id[n2["instancias"][0]]["evidencia"][
                         "arquivo_jsonl"]
                     evid.append({
                         "ancora": {"arquivo": arq,
-                                   "linha": n2["params"]["assistant_linha"],
-                                   "kind": "assistant-explicacao"},
-                        "carga": _carga_util(
-                            workdir, arq, n2["params"]["assistant_linha"])})
+                                   "linha": linha_assist,
+                                   "kind": "assistant-perna"},
+                        "carga": _carga_util(workdir, arq, linha_assist)})
                 itens.append({
                     "n2_id": n2["id"], "forma": n2["forma"],
                     "descricao_mecanica": _descricao_mecanica(n2),
@@ -2298,8 +2567,10 @@ def eval_ingerir(amostra, labels_a, labels_b, pre_registro=None):
 # Fatores de relaxamento CONGELADOS (declarados no pré-registro; mudá-los
 # invalida a medição)
 RELAXAMENTO = {
+    # v2.1: 20→40 mantém relaxado ⊇ congelado (o gatilho imperativo do
+    # frozen aceita até 30 chars)
     "resposta-curta-seguida-de-acao": {
-        "max_chars_voz": 20, "janela_s": 600,
+        "max_chars_voz": 40, "janela_s": 600,
         "classes": ("escrita", "commit", "execucao")},
     "pergunta-explicacao-resposta-curta": {
         "min_chars_explicacao": 1, "max_chars_resposta": 20,
@@ -2347,7 +2618,14 @@ RECALL_FORMAS_FORA = {
                                        "construção",
     "entrega-com-perguntas-sem-turno-de-resposta-observado":
         "1 candidato possível por sessão (o fim dela) — censo trivial, sem "
-        "pool relaxável"}
+        "pool relaxável",
+    "resposta-longa-em-voz-propria-apos-explicacao":
+        "forma nova (v2.1): estágio-0 nesta rodada; entra no harness de "
+        "recall numa rodada futura",
+    "pergunta-de-aprofundamento-apos-explicacao":
+        "forma nova (v2.1): estágio-0 nesta rodada; recall em rodada futura",
+    "retomada-de-entrega-com-vocabulario-da-entrega":
+        "forma nova (v2.1): estágio-0 nesta rodada; recall em rodada futura"}
 
 
 def _relaxados_da_sessao(sessao):
@@ -2722,24 +3000,28 @@ def eval_recall_preparar(sessoes, reg_estado, workdir, tp_por_forma,
         sess_por_id = {s["session_id"]: s for s in sessoes}
         for c in escolhidos:
             evid = [_carga_de_instancia(i) for i in c["instancias"][:6]]
-            # a perna do MEIO do D2 (texto do assistant) é julgada — entra
-            # no pacote (defeito da 1ª rodada de recall: sem ela, EI em
-            # massa; consertado com recibo)
-            if c["forma"] == "pergunta-explicacao-resposta-curta":
-                s = sess_por_id.get(c["session_id"])
+            # perna do assistant JULGADA entra no pacote — para QUALQUER
+            # forma cujos params ancoram uma linha de assistant (defeito
+    # de pacote das rodadas de recall/v2.1: sem ela, EI em massa)
+            linha_assist = (c.get("params", {}).get("assistant_linha")
+                            or c.get("params", {}).get("entrega_linha"))
+            s = sess_por_id.get(c["session_id"])
+            if s and not linha_assist \
+                    and c["forma"] == "pergunta-explicacao-resposta-curta":
                 de = _parse_ts(c["janela"]["de"])
                 ate = _parse_ts(c["janela"]["ate"])
-                if s:
-                    entre = [a for a in s["assistant_turnos"]
-                             if de < a["ts"] < ate]
-                    if entre:
-                        a_max = max(entre, key=lambda a: a["chars"])
-                        evid.append({
-                            "ancora": {"arquivo": s["arquivo"],
-                                       "linha": a_max["linha"],
-                                       "kind": "assistant-explicacao"},
-                            "carga": _carga_util(workdir, s["arquivo"],
-                                                 a_max["linha"])})
+                entre = [a for a in s["assistant_turnos"]
+                         if de < a["ts"] < ate]
+                if entre:
+                    linha_assist = max(entre,
+                                       key=lambda a: a["chars"])["linha"]
+            if s and linha_assist:
+                evid.append({
+                    "ancora": {"arquivo": s["arquivo"],
+                               "linha": linha_assist,
+                               "kind": "assistant-perna"},
+                    "carga": _carga_util(workdir, s["arquivo"],
+                                         linha_assist)})
             itens.append({
                 "n2_id": c["id"], "forma": c["forma"],
                 "descricao_mecanica": _descricao_relaxada(c),
@@ -3035,6 +3317,18 @@ def _scan_corpus(workdir, host):
     sessoes, puladas = [], []
     for a in principais:
         rel = os.path.relpath(a, workdir)
+        # R6.1 Front C: agent-*.jsonl no topo do projeto é transcript de
+        # SUBAGENTE DELEGADO — os turnos "user" são prompts do agente-mãe,
+        # não voz do operador; sem vínculo mecânico com a sessão-mãe, fica
+        # fora da admissão (razão logada; ações não são contáveis sem o
+        # trilho sidechain do pai)
+        if os.path.basename(a).startswith("agent-"):
+            puladas.append({"arquivo": rel,
+                            "razao": "transcript de subagente delegado "
+                                     "(agent-*.jsonl fora de subagents/): "
+                                     "turnos 'user' são prompts do "
+                                     "agente-mãe, não voz do operador"})
+            continue
         try:
             s = scan_arquivo(a, host, arquivo_rel=rel)
         except Exception as ex:
@@ -3345,8 +3639,14 @@ def render_report(reg, projecao, eval_estagio0=None, recall=None):
              ".exp{color:#777}</style>")
     H.append("<h1>Registro de Atividades — análise profunda</h1>")
     H.append(f"<p>Gerado em {_esc(projecao['gerado_em'])} · detectores "
-             f"<code>{_esc(DETECTOR_VERSION)}</code> · clustering "
+             f"<code>{_esc(projecao.get('detector_version', DETECTOR_VERSION))}"
+             f"</code> · clustering "
              f"<code>{_esc(CLUSTER_VERSION)}</code></p>")
+    if str(projecao.get("detector_version",
+                        DETECTOR_VERSION)).endswith("-proposta"):
+        H.append("<p class='aviso'>Thresholds v2.1 são PROPOSTA guiada pela "
+                 "medição de recall — aguardam ratificação do operador; a "
+                 "racional de cada mudança está no código e no PR.</p>")
 
     # Cobertura (seção fixa)
     H.append("<h2>Cobertura</h2>")

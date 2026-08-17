@@ -592,7 +592,9 @@ class TestClassificarComando(unittest.TestCase):
     def test_maior_que_dentro_de_aspas_nao_e_redirect(self):
         from tools.atividades import classificar_comando as cc
         self.assertEqual(cc("jq '.a > .b' f.json"), "leitura")
-        self.assertEqual(cc("python3 -c 'print(1>2)'"), "execucao")
+        # v2.1: python -c que SÓ imprime é inspeção (leitura) — payload
+        # decide; o `>` segue não sendo redirect
+        self.assertEqual(cc("python3 -c 'print(1>2)'"), "leitura")
         self.assertEqual(cc("grep -E 'a>b' arquivo"), "leitura")
 
     def test_redirect_para_arquivo_real_e_escrita(self):
@@ -960,7 +962,8 @@ class TestNew3Atribuicao(Base):
 
         reg, proj = pipeline(work, "hostX", complete_fn=correto,
                              eval_estagio0=self._EVAL_OK)
-        self.assertEqual(len(reg.nivel(3)), 1)
+        # v2.1: "fecha o texto…" (imperativo ≤30) também vira D1 → 2 N3
+        self.assertEqual(len(reg.nivel(3)), 2)
         self.assertEqual(reg.nivel(3)[0]["executores_da_base"],
                          {"acoes": 1, "executadas_por_agente": 1})
         self.assertEqual(len(reg.nivel(4)), 1)
@@ -1212,7 +1215,9 @@ class TestR4EntropiaPaths(Base):
         d3 = [r for r in reg.nivel(2)
               if r["forma"] == "leituras-repetidas-de-estado-externo"]
         self.assertEqual(len(d3), 1)
-        self.assertEqual(d3[0]["params"]["comando_cabeca"], "pgrep -f")
+        # v2.1: chave = (verbo, alvo)
+        self.assertEqual(d3[0]["params"]["verbo"], "pgrep")
+        self.assertEqual(d3[0]["params"]["alvo"], "beat")
 
 
 class TestR4Adjacencia(Base):
@@ -1713,7 +1718,8 @@ class TestRecall(Base):
             e_user(100, "ok", "u2"),                       # D1 congelado
             e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
                    "t1", "a1"),
-            e_user(300, "blz manda", "u3"),                # D1 SÓ relaxado
+            e_user(300, "acho que pode ser", "u3"),        # D1 SÓ relaxado
+            #        (17 chars, fora do lexicon, não-imperativo)
             e_tool(540, "Write", {"file_path": "/y.md", "content": "y"},
                    "t2", "a2"),                            # Δ240s > 120
             e_user(4000, "janela morta sem candidato nenhum aqui", "u4"),
@@ -1829,7 +1835,7 @@ class TestRecall(Base):
         recall, _cr = eval_recall_ingerir(amostra, la, lb, pre)
         d1 = recall["por_forma"]["resposta-curta-seguida-de-acao"]
         self.assertEqual(d1["p_fn_amostrado"], 1.0)
-        self.assertLess(d1["recall_espaco_relaxado"], 0.6)  # honesto: cai
+        self.assertLess(d1["recall_espaco_relaxado"], 0.7)  # honesto: cai
 
     def test_semeadura_bem_formada_e_seeded_recall(self):
         from tools.atividades import _linhas_semente, recall_seeded
@@ -1857,7 +1863,8 @@ class TestRecall(Base):
         tabela = recall_seeded(work.parent, manifesto, host="seed")
         d1 = tabela["resposta-curta-seguida-de-acao"]
         self.assertEqual(d1["in-spec"]["detectadas"], 3)       # harness ok
-        self.assertEqual(d1["aceite-7-15-chars"]["detectadas"], 0)
+        # v2.1: o lexicon FECHA o buraco aceite-7-15 (era 0/3 no v2.0)
+        self.assertEqual(d1["aceite-7-15-chars"]["detectadas"], 3)
         self.assertEqual(d1["atraso-121-600s"]["detectadas"], 0)
         d3 = tabela["leituras-repetidas-de-estado-externo"]
         self.assertEqual(d3["in-spec"]["detectadas"], 3)
@@ -1957,6 +1964,160 @@ class TestRecallCirurgico(Base):
         self.assertNotIn(
             "fora_do_escopo_por_construcao",
             tabela["resposta-curta-seguida-de-acao"]["aceite-7-15-chars"])
+
+
+class TestR61Tuning(Base):
+    """Front A (v2.1-proposta) — mudanças guiadas pela medição de recall."""
+
+    def test_cd_e_wrapper_neutro(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("cd /home/x/proj && tail -2 run.log"), "leitura")
+        self.assertEqual(cc("cd /home/x && py_compile a.py"), "execucao")
+        self.assertEqual(cc("cd /home/x"), "execucao")  # só cd: nada a ler
+
+    def test_heredoc_python_por_payload(self):
+        from tools.atividades import classificar_comando as cc
+        ler = ("python3 - <<'PY'\nimport json\n"
+               "d=json.load(open('/tmp/x.json'))\nprint(d['a'])\nPY")
+        escrever_ = ("python3 - <<'PY'\nimport json\n"
+                     "json.dump({}, open('/tmp/x.json','w'))\nPY")
+        self.assertEqual(cc(ler), "leitura")
+        self.assertEqual(cc(escrever_), "escrita")
+
+    def test_d1_lexicon_e_imperativo_e_execucao(self):
+        work = self.tmp / "w1"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "prepara os disparos de hoje", "u1"),
+            e_assistant_text(10, "Pronto:\n" + "x" * 900, "a0"),
+            e_user(100, "blz manda", "u2"),               # lexicon (9 chars)
+            e_tool(115, "Bash", {"command": "python3 run.py"}, "t1", "a1"),
+            e_user(700, "dispara o 1", "u3"),             # lexicon/imperativo
+            e_tool(724, "Bash", {"command": "python3 seq_driver.py 1"},
+                   "t2", "a2"),
+            e_user(1400, "acho que pode ser", "u4"),      # NÃO qualifica
+            e_tool(1415, "Write", {"file_path": "/x", "content": "y"},
+                   "t3", "a3"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d1 = [r for r in reg.nivel(2)
+              if r["forma"] == "resposta-curta-seguida-de-acao"]
+        self.assertEqual(len(d1), 2)
+        gatilhos = {r["params"]["gatilho"] for r in d1}
+        self.assertTrue(gatilhos <= {"lexicon", "imperativo"})
+        self.assertEqual({r["params"]["classe_acao"] for r in d1},
+                         {"execucao"})
+
+    def test_d3_mesmo_alvo_nao_mesma_flag(self):
+        from tools.atividades import _chave_leitura
+        self.assertEqual(_chave_leitura("tail -c 100 /tmp/f.log"),
+                         ("tail", "/tmp/f.log"))
+        self.assertEqual(_chave_leitura("cd /x && grep -n pat art.tex"),
+                         ("grep", "art.tex"))
+        work = self.tmp / "w2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "monitorando o arquivo de saída", "u1"),
+            e_tool(60, "Bash", {"command": "tail -c 100 /tmp/f.log"},
+                   "t1", "a1"),
+            e_tool(120, "Bash", {"command": "tail -n 5 /tmp/f.log"},
+                   "t2", "a2"),
+            e_tool(180, "Bash", {"command": "cd /tmp && tail /tmp/f.log"},
+                   "t3", "a3"),
+            # alvos DISTINTOS não agrupam
+            e_tool(300, "Bash", {"command": "cat /tmp/a.txt"}, "t4", "a4"),
+            e_tool(360, "Bash", {"command": "cat /tmp/b.txt"}, "t5", "a5"),
+            e_tool(420, "Bash", {"command": "cat /tmp/c.txt"}, "t6", "a6"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d3 = [r for r in reg.nivel(2)
+              if r["forma"] == "leituras-repetidas-de-estado-externo"]
+        self.assertEqual(len(d3), 1)
+        self.assertEqual(d3[0]["params"]["n_repeticoes"], 3)
+        self.assertEqual(d3[0]["params"]["alvo"], "/tmp/f.log")
+
+    def test_d2_resposta_do_lexicon(self):
+        work = self.tmp / "w3"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "como fica a estrutura da seção quatro?", "u1"),
+            e_assistant_text(30, "Explicação:\n" + "y" * 900, "a1"),
+            e_user(90, "blz perfeito", "u2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d2 = [r for r in reg.nivel(2)
+              if r["forma"] == "pergunta-explicacao-resposta-curta"]
+        self.assertEqual(len(d2), 0)  # "blz perfeito" NÃO está no lexicon
+        work2 = self.tmp / "w3b"
+        escrever(work2 / "proj" / f"{SID}.jsonl", [
+            e_user(0, "como fica a estrutura da seção quatro?", "u1"),
+            e_assistant_text(30, "Explicação:\n" + "y" * 900, "a1"),
+            e_user(90, "blz manda", "u2"),
+        ])
+        reg2, _ = pipeline(work2, "hostX")
+        d2b = [r for r in reg2.nivel(2)
+               if r["forma"] == "pergunta-explicacao-resposta-curta"]
+        self.assertEqual(len(d2b), 1)
+
+
+class TestR61Positivas(Base):
+    """Front B — catálogo positivo (v2.1)."""
+
+    def test_resposta_longa_em_voz_propria(self):
+        work = self.tmp / "w1"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "me explica a projeção ortogonal de novo?", "u1"),
+            e_assistant_text(30, "Explicação:\n" + "e" * 900, "a1"),
+            e_user(400, "então deixa eu tentar dizer com as minhas "
+                        "palavras: " + "a projeção pega o vetor e joga no "
+                        "subespaço mais próximo, o resto é o erro ortogonal "
+                        "que não tem componente ali; " * 3, "u2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        p1 = [r for r in reg.nivel(2)
+              if r["forma"] == "resposta-longa-em-voz-propria-apos-explicacao"]
+        self.assertEqual(len(p1), 1)
+        self.assertGreaterEqual(p1[0]["params"]["chars_resposta"], 300)
+
+    def test_pergunta_de_aprofundamento(self):
+        work = self.tmp / "w2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "resume a seção de related work pra mim", "u1"),
+            e_assistant_text(30, "Resumo:\n" + "r" * 900, "a1"),
+            e_user(300, "e como isso se compara com o baseline geométrico "
+                        "que a gente usou no capítulo dois?", "u2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        p2 = [r for r in reg.nivel(2)
+              if r["forma"] == "pergunta-de-aprofundamento-apos-explicacao"]
+        self.assertEqual(len(p2), 1)
+
+    def test_retomada_de_entrega_com_vocabulario(self):
+        work = self.tmp / "w3"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha a entrega do experimento de ranking", "u1"),
+            e_assistant_text(
+                30, "Entrega pronta. Duas perguntas de autoteste: qual "
+                    "baseline geometrico venceu no ranking parcial? como o "
+                    "subespaco de calibracao muda o resultado?", "a1"),
+            e_user(600, "sobre o autoteste: o baseline geometrico venceu "
+                        "porque o subespaco estava mal calibrado", "u2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        p3 = [r for r in reg.nivel(2)
+              if r["forma"] ==
+              "retomada-de-entrega-com-vocabulario-da-entrega"]
+        self.assertEqual(len(p3), 1)
+        self.assertGreaterEqual(p3[0]["params"]["tokens_compartilhados"], 3)
+
+    def test_zeros_honestos_sem_material(self):
+        work = self.tmp / "w4"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "sessão curta sem explicações longas", "u1"),
+            e_assistant_text(10, "ok", "a1"),
+        ])
+        reg, proj = pipeline(work, "hostX")
+        for f in ("resposta-longa-em-voz-propria-apos-explicacao",
+                  "pergunta-de-aprofundamento-apos-explicacao",
+                  "retomada-de-entrega-com-vocabulario-da-entrega"):
+            self.assertIn(f, proj["formas_sem_instancias"])
 
 
 class TestCwdModal(Base):
