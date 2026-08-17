@@ -129,7 +129,7 @@ empty over fabricated), `para` (explicit target reader; empty resolves to the me
         'fact_audit':            lambda o: f"<independent audit: every edge grounded in its cite vs grounding1>\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review; begin with the 4-line ACCEPTANCE header (ACCEPTANCE, UNSUPPORTED_CLAIMS, TREATMENT_LEAK, CLARITY_STRIKES)>\n\n{o['treatment_cleanup']}",
+        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',
