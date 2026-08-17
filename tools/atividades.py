@@ -289,6 +289,11 @@ def redigir(texto, entropia=False):
     if not texto:
         return texto
     for rx in _RE_SEGREDOS:
+        # guarda de custo: o padrão de bloco PEM é quadrático em linhas
+        # gigantes que CONTÊM o texto "PRIVATE KEY" sem END (ex.: transcripts
+        # que discutem a própria regex) — só roda com o marcador presente
+        if "PRIVATE KEY" in rx.pattern and "PRIVATE KEY" not in texto:
+            continue
         texto = rx.sub(_MASK, texto)
     if entropia:
         texto = _mascarar_entropia(texto)
