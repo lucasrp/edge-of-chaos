@@ -15,8 +15,9 @@ from pathlib import Path
 from tools.atividades import (
     CitacaoInvalida, EscritaProibida, OrcamentoLLM, Registry,
     RendererViolation, THRESHOLDS, _guard_estado, ausencia, cohen_kappa,
-    derivar_agencia, eval_ingerir, fold_padroes, montar_cobertura, pipeline,
-    persistir, redigir, render_report, scan_arquivo, tempo_ativo_s,
+    derivar_agencia, eval_ingerir, eval_preparar, fold_padroes,
+    montar_cobertura, pipeline, persistir, redigir, render_report,
+    scan_arquivo, tempo_ativo_s,
 )
 
 SID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001"
@@ -170,23 +171,41 @@ class TestNiveis(Base):
 
 
 class TestAgencia(unittest.TestCase):
-    def test_autorizado_por_voz_nao_interrogativa(self):
-        ag = derivar_agencia(100.0, False, [(90.0, "faz o commit")])
+    def test_imperativo_verbo_inicial_autoriza(self):
+        ag = derivar_agencia(100.0, False, [(90.0, "faz o commit", False)])
         self.assertEqual(ag["executor"], "agente")
         self.assertEqual(ag["autorizacao"], "autorizado")
 
+    def test_aceite_lexicon_exige_antecedente(self):
+        """Finding R1 #6 (dig-2 C/DAMSL): 'ok' só autoriza COM antecedente."""
+        com = derivar_agencia(100.0, False, [(90.0, "ok", True)])
+        self.assertEqual(com["autorizacao"], "autorizado")
+        sem = derivar_agencia(100.0, False, [(90.0, "ok", False)])
+        self.assertEqual(sem["autorizacao"], "desconhecido")
+
+    def test_saudacao_nao_autoriza(self):
+        """Finding R1 #6: 'iae' é saudação, nunca autorização."""
+        ag = derivar_agencia(100.0, False, [(90.0, "iae", True)])
+        self.assertEqual(ag["autorizacao"], "desconhecido")
+        self.assertEqual(ag["regra"], "saudacao-nao-autoriza")
+
+    def test_voz_proxima_sem_marcador_nao_autoriza(self):
+        ag = derivar_agencia(100.0, False,
+                             [(90.0, "hoje o dia rendeu bem", True)])
+        self.assertEqual(ag["autorizacao"], "desconhecido")
+
     def test_pergunta_nao_autoriza(self):
-        ag = derivar_agencia(100.0, False, [(90.0, "pode commitar?")])
+        ag = derivar_agencia(100.0, False, [(90.0, "pode commitar?", True)])
         self.assertEqual(ag["autorizacao"], "desconhecido")
 
     def test_sem_sinal_vira_desconhecido_nunca_chutado(self):
-        ag = derivar_agencia(500.0, False, [(90.0, "faz o commit")])
+        ag = derivar_agencia(500.0, False, [(90.0, "faz o commit", True)])
         self.assertEqual(ag["autorizacao"], "desconhecido")
         ag2 = derivar_agencia(100.0, False, [])
         self.assertEqual(ag2["autorizacao"], "desconhecido")
 
     def test_sidechain_autonomo(self):
-        ag = derivar_agencia(100.0, True, [(99.0, "vai")])
+        ag = derivar_agencia(100.0, True, [(99.0, "vai", True)])
         self.assertEqual(ag["autorizacao"], "autonomo")
 
 
@@ -358,9 +377,9 @@ class TestRenderer(Base):
         work = self.tmp / "work2"
         escrever(work / "proj" / f"{SID}.jsonl", [
             e_user(0, "análise do incidente de ontem no cluster", "u0"),
-            e_user(10, "não ocorreu?", "u1"),
-            e_user(20, "não ocorreu?", "u2"),
-            e_user(30, "não ocorreu?", "u3"),
+            e_user(10, "não ocorreu", "u1"),
+            e_user(20, "não ocorreu", "u2"),
+            e_user(30, "não ocorreu", "u3"),
         ])
         reg, proj = pipeline(work, "hostX")
         formas = {r["forma"] for r in reg.nivel(2)}
@@ -425,12 +444,16 @@ class TestGuardaEval(Base):
                    "t1", "a1"),
         ])
         reg, _ = pipeline(work, "hostX")
-        amostra = eval_preparar(reg, work)
+        amostra, prereg = eval_preparar(reg, work)
         formas = {i["forma"] for i in amostra["itens"]}
         self.assertGreaterEqual(len(formas), 2)
         for i in amostra["itens"]:
             self.assertTrue(i["descricao_mecanica"])
             self.assertTrue(i["evidencia"])
+        # pré-registro (finding R1 #14): hash gravado + gold dos catch
+        self.assertEqual(len(prereg["sha256_bloco_congelado"]), 64)
+        self.assertEqual(len(prereg["catch_gold_por_item"]), 2)
+        self.assertIn(prereg["tipo_amostra"], ("censo", "amostra"))
 
     def test_cohen_kappa(self):
         # concordância perfeita numa classe só → p_e = 1 → κ degenerado (None)
@@ -459,8 +482,7 @@ class TestDegradacaoDeclarada(Base):
         self.assertTrue(any("degradação DECLARADA" in d
                             for d in proj["degradacoes"]))
 
-    def test_com_completer_gera_n3_e_n4(self):
-        work = self.tmp / "work"
+    def _fixture_d1(self, work):
         escrever(work / "proj" / f"{SID}.jsonl", [
             e_user(0, "fecha o texto do resumo agora", "u1"),
             e_user(100, "ok", "u2"),
@@ -468,23 +490,359 @@ class TestDegradacaoDeclarada(Base):
                    "t1", "a1"),
         ])
 
-        def fake_complete(prompt):
-            if "hipóteses de mentoria" in prompt:
-                return ('{"hipotese": "Você revisa antes do ok?", '
-                        '"falsificacao": "um relato de revisão prévia"}')
-            if "Nomeie" in prompt:
-                return "Fechamento do resumo"
-            return ('{"claim": "sequência compatível com aceite rápido", '
-                    '"confianca": 0.6, "alternativas": ["revisão prévia em '
-                    'outra superfície"]}')
+    @staticmethod
+    def _fake_complete(prompt):
+        if "hipóteses de mentoria" in prompt:
+            return ('{"hipotese": "Você revisa antes do ok?", '
+                    '"falsificacao": "um relato de revisão prévia"}')
+        if "Nomeie" in prompt:
+            return "Fechamento do resumo"
+        return ('{"claim": "sequência compatível com aceite rápido", '
+                '"confianca": 0.6, "alternativas": ["revisão prévia em '
+                'outra superfície"]}')
 
-        reg, proj = pipeline(work, "hostX", complete_fn=fake_complete)
+    _EVAL_OK = {"por_forma": {"resposta-curta-seguida-de-acao":
+                              {"veredicto": "confiavel"}}}
+
+    def test_sem_eval_nao_gera_n3_n4_mesmo_com_completer(self):
+        """Finding R1 #2: gate do estágio 0 na GERAÇÃO — sem eval, nada sobe."""
+        work = self.tmp / "workg"
+        self._fixture_d1(work)
+        reg, proj = pipeline(work, "hostX", complete_fn=self._fake_complete)
+        self.assertEqual(reg.nivel(3), [])
+        self.assertEqual(reg.nivel(4), [])
+        self.assertTrue(any("estágio 0 pendente" in d
+                            for d in proj["degradacoes"]))
+
+    def test_forma_reprovada_nao_gera_n3_n4(self):
+        """Finding R1 #2: forma sem selo `confiavel` não gera N3/N4."""
+        work = self.tmp / "workr"
+        self._fixture_d1(work)
+        ev = {"por_forma": {"resposta-curta-seguida-de-acao":
+                            {"veredicto": "experimental"}}}
+        reg, proj = pipeline(work, "hostX", complete_fn=self._fake_complete,
+                             eval_estagio0=ev)
+        self.assertEqual(reg.nivel(3), [])
+        self.assertEqual(reg.nivel(4), [])
+        self.assertTrue(any("sem selo" in d for d in proj["degradacoes"]))
+
+    def test_com_completer_e_eval_aprovado_gera_n3_e_n4(self):
+        work = self.tmp / "work"
+        self._fixture_d1(work)
+        reg, proj = pipeline(work, "hostX", complete_fn=self._fake_complete,
+                             eval_estagio0=self._EVAL_OK)
         self.assertGreaterEqual(len(reg.nivel(3)), 1)
         self.assertGreaterEqual(len(reg.nivel(4)), 1)
         n3 = reg.nivel(3)[0]
         self.assertTrue(n3["alternativas"])
-        html = render_report(reg, proj)
+        html = render_report(reg, proj, dict(
+            self._EVAL_OK,
+            por_forma={"resposta-curta-seguida-de-acao": {
+                "veredicto": "confiavel", "n": 1, "precisao": 1.0,
+                "concordancia": 1.0}},
+            thresholds_congelados={
+                "precisao_min": 0.8, "concordancia_min": 0.7},
+            rotuladores=["a", "b"], amostra=1))
         self.assertIn("Você revisa antes do ok?", html)
+
+    def test_render_gate_esconde_n3_n4_de_forma_reprovada(self):
+        """Finding R1 #2 (render): N3/N4 de forma reprovada ficam fora do
+        relatório principal mesmo se existirem no estado."""
+        work = self.tmp / "workh"
+        self._fixture_d1(work)
+        reg, proj = pipeline(work, "hostX", complete_fn=self._fake_complete,
+                             eval_estagio0=self._EVAL_OK)
+        ev_reprovado = dict(
+            self._EVAL_OK,
+            por_forma={"resposta-curta-seguida-de-acao": {
+                "veredicto": "experimental", "n": 1, "precisao": 0.2,
+                "concordancia": 1.0}},
+            thresholds_congelados={"precisao_min": 0.8,
+                                   "concordancia_min": 0.7},
+            rotuladores=["a", "b"], amostra=1)
+        html = render_report(reg, proj, ev_reprovado)
+        self.assertNotIn("sequência compatível com aceite rápido", html)
+        self.assertNotIn("Você revisa antes do ok?", html)
+        self.assertIn("fora do relatório principal", html)
+
+
+class TestClassificarComando(unittest.TestCase):
+    """Finding R1 #1 — probes do adversarial + regras do dig-2 perna A."""
+
+    def test_stderr_redirect_nao_e_escrita(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("ls -la 2>/dev/null"), "leitura")
+        self.assertEqual(cc("tail -c 100 x.log 2>&1"), "leitura")
+        self.assertEqual(cc("ls > /dev/null"), "leitura")
+
+    def test_git_leitura_vs_escrita(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("git branch -v"), "leitura")
+        self.assertEqual(cc("git stash list"), "leitura")
+        self.assertEqual(cc("git log --oneline -5"), "leitura")
+        self.assertEqual(cc("git status"), "leitura")
+        self.assertEqual(cc("git stash"), "escrita")
+        self.assertEqual(cc("git branch -d velha"), "escrita")
+        self.assertEqual(cc("git fetch origin"), "escrita")
+        self.assertEqual(cc("git commit -m 'x'"), "commit")
+        self.assertEqual(cc("git push origin main"), "commit")
+
+    def test_maior_que_dentro_de_aspas_nao_e_redirect(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("jq '.a > .b' f.json"), "leitura")
+        self.assertEqual(cc("python3 -c 'print(1>2)'"), "execucao")
+        self.assertEqual(cc("grep -E 'a>b' arquivo"), "leitura")
+
+    def test_redirect_para_arquivo_real_e_escrita(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("echo oi > /tmp/x"), "escrita")
+        self.assertEqual(cc("cat a >> b.log"), "escrita")
+
+    def test_por_segmento_pega_o_mais_privilegiado(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("cat a | wc -l"), "leitura")
+        self.assertEqual(cc("cat a | wc -l && git commit -m 'p'"), "commit")
+        self.assertEqual(cc("ls && python3 x.py"), "execucao")
+        self.assertEqual(cc("sed -i 's/a/b/' f && cat f"), "escrita")
+
+    def test_ssh_e_wrappers(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("ssh roberto 'ls -la'"), "leitura")
+        self.assertEqual(cc("EDGE_HOME=/x timeout 30 pgrep -f beat"),
+                         "leitura")
+        self.assertEqual(cc("curl -o /tmp/f https://x"), "escrita")
+
+
+class TestRegressaoD1LeituraNaoDispara(Base):
+    """Finding R1 #1/#19: a MESMA forma do caso 17s, mas com comando de
+    leitura (tail + stderr-redirect) — o detector NÃO pode disparar."""
+
+    def test_voz_curta_seguida_de_leitura_nao_e_d1(self):
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "acompanha o log do servidor por favor", "u1"),
+            e_assistant_text(30, "Acompanhando:\n" + "x" * 900, "a1"),
+            e_user(1552, "ok", "u2"),
+            e_tool(1569, "Bash",
+                   {"command": "tail -n 50 servidor.log 2>/dev/null"},
+                   "t1", "a2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        self.assertEqual([r for r in reg.nivel(2)
+                          if r["forma"] == "resposta-curta-seguida-de-acao"],
+                         [])
+
+
+class TestD2Dedup(Base):
+    """Finding R1 #4: uma resposta resolve NO MÁXIMO uma pergunta; nenhum
+    turno humano intervém entre pergunta e resposta."""
+
+    def test_uma_resposta_nao_conta_para_duas_perguntas(self):
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "como funciona a projeção ortogonal aqui?", "u1"),
+            e_user(60, "e o produto interno entra onde nisso?", "u2"),
+            e_assistant_text(90, "Explicação longa:\n" + "y" * 900, "a1"),
+            e_user(120, "ok", "u3"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d2 = [r for r in reg.nivel(2)
+              if r["forma"] == "pergunta-explicacao-resposta-curta"]
+        self.assertEqual(len(d2), 1)  # só a pergunta u2 (imediata) pareia
+
+    def test_turno_humano_intermediario_quebra_o_par(self):
+        work = self.tmp / "work2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "como funciona a projeção ortogonal aqui?", "u1"),
+            e_assistant_text(30, "Explicação longa:\n" + "y" * 900, "a1"),
+            e_user(60, "hmm deixa eu pensar um pouco nisso", "u2"),
+            e_user(90, "ok", "u3"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d2 = [r for r in reg.nivel(2)
+              if r["forma"] == "pergunta-explicacao-resposta-curta"]
+        self.assertEqual(d2, [])
+
+
+class TestD3SemSidechain(Base):
+    """Finding R1 #5: leituras repetidas de SUBAGENTE não viram padrão do
+    operador."""
+
+    def test_leituras_de_subagente_nao_disparam_d3(self):
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "roda o diagnóstico completo por favor", "u1"),
+            e_assistant_text(10, "rodando", "a1"),
+        ])
+        escrever(work / "proj" / SID / "subagents" / "agent-a1.jsonl", [
+            dict(e_tool(20 + i * 60, "Bash",
+                        {"command": "pgrep -f servico"}, f"t{i}", f"sa{i}"),
+                 isSidechain=True)
+            for i in range(4)
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d3 = [r for r in reg.nivel(2)
+              if r["forma"] == "leituras-repetidas-de-estado-externo"]
+        self.assertEqual(d3, [])
+
+
+class TestEvalPacote(Base):
+    """Findings R1 #3/#7: o pacote do eval carrega o fato julgado COMPLETO,
+    minimizado e redigido — sem bytes crus de thinking/tool_result."""
+
+    def test_pacote_sem_segredo_e_sem_thinking(self):
+        segredo = "sk-FAKEFAKEFAKE12345678901234"
+        work = self.tmp / "work"
+        entradas = [
+            e_user(0, "sobe a configuração nova do serviço", "u1"),
+            {"type": "assistant", "uuid": "a0", "timestamp": iso(5),
+             "isSidechain": False,
+             "message": {"role": "assistant", "content": [
+                 {"type": "thinking", "thinking": "PENSAMENTO-CRU-NUNCA-SAI",
+                  "signature": "ASSINATURA-CRUA-NUNCA-SAI"}]}},
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Bash",
+                   {"command": f"export API_KEY={segredo} && "
+                               "git commit -am 'cfg'"}, "t1", "a1"),
+        ]
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        reg, _ = pipeline(work, "hostX")
+        amostra, prereg = eval_preparar(reg, work)
+        blob = json.dumps(amostra, ensure_ascii=False) + json.dumps(
+            prereg, ensure_ascii=False)
+        self.assertNotIn("sk-FAKE", blob)
+        self.assertNotIn("PENSAMENTO-CRU", blob)
+        self.assertNotIn("ASSINATURA-CRUA", blob)
+        d1 = [i for i in amostra["itens"]
+              if i["forma"] == "resposta-curta-seguida-de-acao"
+              and "catch" not in i["n2_id"]]
+        self.assertTrue(d1)
+        cargas = json.dumps(d1[0]["evidencia"], ensure_ascii=False)
+        # o fato julgado (comando integral, redigido) está no pacote
+        self.assertIn("git commit -am", cargas)
+
+    def test_ingest_com_pre_registro_e_catch(self):
+        work = self.tmp / "work2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o resumo agora por favor", "u1"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        amostra, prereg = eval_preparar(reg, work)
+        catch_itens = set(int(k) for k in prereg["catch_gold_por_item"])
+        labels = [{"item": i["item"],
+                   "resposta": prereg["catch_gold_por_item"].get(
+                       str(i["item"]),
+                       prereg["catch_gold_por_item"].get(i["item"], "sim"))}
+                  for i in amostra["itens"]]
+        la = {"rotulador": "a", "labels": labels}
+        lb = {"rotulador": "b", "labels": labels}
+        ev = eval_ingerir(amostra, la, lb, prereg)
+        self.assertTrue(ev["pre_registro"]["verificado"])
+        self.assertEqual(ev["catch_trials"]["n"], 2)
+        self.assertEqual(ev["catch_trials"]["a"], 2)
+        self.assertEqual(ev["amostra"], len(amostra["itens"]) - 2)
+        for forma in ev["por_forma"].values():
+            pass  # catch fora das métricas: nenhum item catch nas formas
+        contados = sum(f["n"] for f in ev["por_forma"].values())
+        self.assertEqual(contados, len(amostra["itens"]) - len(catch_itens))
+
+
+class TestDiversidadeFronteiraDeSessao(Base):
+    """Finding R1 #8: UMA sessão cruzando a meia-noite não concede
+    diversidade de dias — padrão fica mesma-cena."""
+
+    def test_sessao_unica_cruzando_meia_noite_e_mesma_cena(self):
+        work = self.tmp / "work"
+        # BASE é 21:00Z; +4h de gap entre rajadas cruza a meia-noite
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "vamos virar a noite nesse projeto", "u0"),
+            e_user(10, "ok", "u1"),
+            e_user(20, "sim", "u2"),
+            e_user(30, "vai", "u3"),
+            e_user(4 * 3600 + 10, "bora", "u4"),
+            e_user(4 * 3600 + 20, "isso", "u5"),
+            e_user(4 * 3600 + 30, "segue", "u6"),
+        ])
+        _, proj = pipeline(work, "hostX", agora_ts=BASE + 86400)
+        p = next(x for x in proj["padroes"]
+                 if x["forma"] == "rajada-de-turnos-curtos")
+        self.assertGreaterEqual(p["diversidade"]["dias"], 2)
+        self.assertEqual(p["diversidade"]["sessoes"], 1)
+        self.assertEqual(p["estado"], "mesma-cena")
+
+
+class TestRedacaoAfinada(unittest.TestCase):
+    def test_prosa_comum_nao_e_redigida(self):
+        """Finding R1 #9: 'token de validação' é prosa, não segredo."""
+        self.assertEqual(redigir("o token de validação do argumento"),
+                         "o token de validação do argumento")
+        self.assertEqual(redigir("a password do formulário é discutida"),
+                         "a password do formulário é discutida")
+
+    def test_valor_com_forma_de_segredo_e_redigido(self):
+        self.assertIn("***", redigir("token abc123xyz9"))
+        self.assertIn("***", redigir("password=hunter2"))
+
+    def test_familias_completadas(self):
+        """Finding R1 #10: AIza, glpat-, sk_live_, npm_, PEM."""
+        casos = [
+            "AIza" + "A1" * 17 + "b",             # 35 depois do prefixo
+            "glpat-" + "x1" * 10 + "abcd",
+            "sk_live_" + "a1b2c3d4e5f6",
+            "npm_" + "a1" * 18,
+            "-----BEGIN PRIVATE KEY-----\\nMIIEvQ==\\n"
+            "-----END PRIVATE KEY-----",
+        ]
+        for c in casos:
+            self.assertIn("***", redigir(f"veja {c} aqui"), c)
+
+
+class TestRajadaSemInterrogativas(Base):
+    """Finding R1 #16: rajada de PERGUNTAS curtas não é
+    rajada-de-turnos-curtos (sobreporia D2)."""
+
+    def test_perguntas_curtas_nao_disparam_rajada(self):
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "sessão de dúvidas conceituais de hoje", "u0"),
+            e_user(10, "e agora?", "u1"),
+            e_user(20, "por quê?", "u2"),
+            e_user(30, "como?", "u3"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        self.assertEqual([r for r in reg.nivel(2)
+                          if r["forma"] == "rajada-de-turnos-curtos"], [])
+
+
+class TestRegistryColisao(unittest.TestCase):
+    def test_id_duplicado_divergente_estoura(self):
+        """Finding R1 #17: sobrescrever id silenciosamente é proibido."""
+        reg = Registry()
+        base = {"id": "n1-a", "nivel": 1, "kind": "voz-turno",
+                "conteudo_redigido": {"texto": "oi"}, "evidencia": {}}
+        reg.add(dict(base))
+        reg.add(dict(base))  # idempotente: mesmo conteúdo, ok
+        with self.assertRaises(CitacaoInvalida):
+            reg.add(dict(base, conteudo_redigido={"texto": "outro"}))
+
+
+class TestCwdModal(Base):
+    def test_cwd_e_o_modal_nao_o_ultimo(self):
+        """Finding R1 #18: sessão que muda de diretório fica com o cwd MODAL."""
+        work = self.tmp / "work"
+        entradas = [
+            e_user(0, "trabalhando no projeto principal hoje", "u1"),
+            e_user(60, "seguindo aqui no mesmo lugar", "u2"),
+            e_user(120, "continua no principal ainda sim", "u3"),
+        ]
+        entradas.append(dict(e_user(180, "um pulo rápido em outro dir", "u4"),
+                             cwd="/home/x/outro"))
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        s = scan_arquivo(caminho, "hostX")
+        self.assertEqual(s["cwd"], "/home/x/proj")
 
 
 if __name__ == "__main__":

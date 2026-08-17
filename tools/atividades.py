@@ -93,17 +93,30 @@ EVAL_CONCORDANCIA_MIN = 0.7
 # DETECÇÃO); aqui o objetivo é REDAÇÃO — recall > precisão — então o prefixo
 # `sk-` é redigido inteiro mesmo com falso positivo ocasional.
 _RE_SEGREDOS = [
-    # keyword→valor (gitleaks generic-api-key + detect-secrets KeywordDetector;
-    # cobre `password=…`, `token: …`, `secret …`)
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|passwd|bearer|credential)"
-               r"[=:\s]\s*\S+"),
-    # tokens nus (formatos conhecidos dos dois rule sets), sem exigir keyword
+    # keyword→valor (gitleaks generic-api-key + detect-secrets KeywordDetector).
+    # Finding R1 #9: exigir separador `=`/`:` OU valor com FORMA de segredo
+    # (≥8 chars do charset de token contendo dígito) — "token de validação"
+    # (prosa) não dispara mais; "token abc123xyz" e "password=hunter2" sim.
+    re.compile(r"(?i)\b(api[_-]?key|token|secret|password|passwd|bearer|"
+               r"credential)\b"
+               r"(?:[=:]\s*\S+|\s+(?=\S*\d)[A-Za-z0-9_\-/+=.]{8,})"),
+    # tokens nus (formatos conhecidos dos rule sets), sem exigir keyword.
+    # Finding R1 #10: famílias completadas — Google AIza, GitLab glpat-,
+    # Stripe sk_live_/pk_live_, npm_ (gitleaks.toml traz todas).
     re.compile(r"\b(sk-[A-Za-z0-9_\-]{6,}|sk-ant-[A-Za-z0-9_\-]{6,}"
                r"|ghp_[A-Za-z0-9]{10,}|gho_[A-Za-z0-9]{10,}"
                r"|github_pat_[A-Za-z0-9_]{10,}"
                r"|xox[bapors]-[A-Za-z0-9\-]{5,}"
                r"|AKIA[0-9A-Z]{16}"  # charset detect-secrets ([0-9A-Z]) ⊃ gitleaks ([A-Z2-7])
+               r"|AIza[0-9A-Za-z_\-]{35}"
+               r"|glpat-[A-Za-z0-9_\-]{20,}"
+               r"|(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}"
+               r"|npm_[A-Za-z0-9]{36}"
                r"|eyJ[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,})"),
+    # blocos PEM (BEGIN…END na mesma linha lógica; em jsonl o \n vem escapado)
+    re.compile(r"-----BEGIN [A-Z ]{0,24}PRIVATE KEY-----"
+               r"(?:.|\\n)*?-----END [A-Z ]{0,24}PRIVATE KEY-----", re.S),
+    re.compile(r"-----BEGIN [A-Z ]{0,24}PRIVATE KEY-----\S{0,4096}"),
     # valores de env com nome sensível (KEY/TOKEN/SECRET/PASS/CRED)
     re.compile(r"\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS|CRED)[A-Z0-9_]*"
                r"=\S+"),
@@ -176,6 +189,12 @@ class Registry:
         nivel = rec.get("nivel")
         if nivel not in (1, 2, 3, 4):
             raise CitacaoInvalida(f"{rec.get('id')}: nivel inválido {nivel!r}")
+        # colisão de id (finding R1 #17): sobrescrever silenciosamente é
+        # proibido; re-add idempotente do MESMO conteúdo é permitido
+        existente = self.by_id.get(rec.get("id"))
+        if existente is not None and existente != rec:
+            raise CitacaoInvalida(
+                f"{rec['id']}: id duplicado com conteúdo divergente")
         cits = _citacoes(rec)
         if nivel == 1 and cits:
             raise CitacaoInvalida(f"{rec['id']}: N1 não cita ninguém")
@@ -256,18 +275,97 @@ _RX_COMMIT_BRACKET = re.compile(r"\[[^\]\n]{1,60}\s([0-9a-f]{7,40})\]")
 _RX_COMMIT_RANGE = re.compile(r"\.\.([0-9a-f]{7,40})\b")
 
 
-def classificar_comando(cmd):
-    c = (cmd or "").strip()
-    if re.search(r"\bgit\s+(commit|push)\b", c):
-        return "commit"
-    if re.search(r"(>>?|\btee\b|\bmv\b|\bcp\b|\brm\b|\bmkdir\b|\btouch\b"
-                 r"|\bgit\s+(add|checkout|switch|branch|merge|rebase|stash)\b"
-                 r"|\b(pip|npm|apt|cargo)\s+install\b)", c):
+# Classificação de comando POR SEGMENTO (finding R1 #1; dig-2 perna A: prática
+# consolidada Codex `is_safe_git_command` / Claude Code read-only classifiers —
+# split em `&&`/`||`/`;`/`|`, classificar cada segmento, RO só se TODOS RO;
+# redirect julgado por fd/destino: `2>/dev/null`/`2>&1` NÃO são escrita,
+# `> /dev/null` não persiste nada, `> arquivo` sim; git com allowlist de
+# subcomandos de leitura).
+
+_RX_ASPAS = re.compile(r"'[^']*'|\"[^\"]*\"|`[^`]*`")
+_RX_SEP_SEGMENTO = re.compile(r"&&|\|\||;|\|&|\|")
+_RX_STDERR_REDIR = re.compile(r"\d+>&\d+|\d+>>?\s*\S+|>&\d+")
+_RX_REDIR_SAIDA = re.compile(r"(?:&>>?|>>|(?<![<>])>(?!>))\s*(\S+)")
+_DEV_SAIDAS_INOCUAS = frozenset(("/dev/null", "/dev/stdout", "/dev/stderr",
+                                 "/dev/tty"))
+_GIT_LEITURA = frozenset(("status", "log", "diff", "show", "blame", "describe",
+                          "rev-parse", "ls-files", "ls-remote", "shortlog",
+                          "reflog", "grep"))
+_GIT_BRANCH_FLAGS_RO = frozenset(("-a", "-r", "-v", "-vv", "--list",
+                                  "--show-current", "--contains", "--merged"))
+_LEITURA_HEADS = frozenset(("cat ls head tail grep rg find wc ps df du stat "
+                            "file which env jq sed awk tree diff sort uniq cut "
+                            "tr pgrep pstree top free uptime date md5sum sha1sum "
+                            "sha256sum hostname whoami pwd echo printf test "
+                            "readlink basename dirname uname getent id nproc "
+                            "ssh curl less more column comm strings xxd od").split())
+_ESCRITA_PALAVRAS = re.compile(
+    r"\b(tee|mv|cp|rm|rmdir|mkdir|touch|ln|chmod|chown|truncate|dd|rsync|scp)\b"
+    r"|\bsed\s+(-[a-zA-Z]*\s+)*-i\b"
+    r"|\b(pip3?|npm|apt|apt-get|cargo|yarn|pnpm)\s+(install|add|remove|update)\b"
+    r"|\bcurl\b[^|;&]*\s(-o|-O|--output)\b"
+    r"|\bwget\b(?![^|;&]*-q?O\s*-)")
+_WRAPPERS_1 = frozenset(("sudo", "nohup", "time", "nice", "command"))
+
+
+def _classificar_segmento(seg):
+    s = seg.strip()
+    if not s:
+        return None
+    sem_aspas = _RX_ASPAS.sub("''", s)
+    sem_stderr = _RX_STDERR_REDIR.sub(" ", sem_aspas)
+    toks = sem_stderr.split()
+    while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
+        toks = toks[1:]  # prefixos VAR=val
+    while toks and toks[0] in _WRAPPERS_1:
+        toks = toks[1:]
+    if toks and toks[0] == "timeout":
+        toks = toks[2:]  # timeout <dur> cmd
+    if not toks:
+        return None
+    head = toks[0].rsplit("/", 1)[-1]
+    if head == "git":
+        sub = toks[1] if len(toks) > 1 else ""
+        resto = toks[2:]
+        if sub.startswith("-"):
+            # flag global (-C/--git-dir/-c/--paginate…): Codex trata como
+            # não-RO — conservador, vira escrita (dig-2 perna A)
+            return "escrita"
+        if sub in ("commit", "push"):
+            return "commit"
+        if sub in _GIT_LEITURA:
+            return "leitura"
+        if sub == "branch" and all(t in _GIT_BRANCH_FLAGS_RO for t in resto):
+            return "leitura"
+        if sub == "stash" and resto[:1] in (["list"], ["show"]):
+            return "leitura"
+        if sub == "remote" and (not resto or resto[0] in ("-v", "show")):
+            return "leitura"
+        return "escrita"  # add/checkout/switch/merge/rebase/stash/fetch/pull…
+    m = _RX_REDIR_SAIDA.search(sem_stderr)
+    if m and m.group(1) not in _DEV_SAIDAS_INOCUAS:
         return "escrita"
-    if re.search(r"^(cat|ls|head|tail|grep|rg|find|wc|ps|df|du|stat|file|which"
-                 r"|env|curl|wget|ssh|jq|sed|awk|tree|git)\b", c.split("&&")[0].strip()):
+    if _ESCRITA_PALAVRAS.search(sem_stderr):
+        return "escrita"
+    if "$(" in sem_stderr:  # substituição embutida: não afirmar leitura
+        return "execucao"
+    if head in _LEITURA_HEADS:
         return "leitura"
     return "execucao"
+
+
+_PRIORIDADE_CLASSE = {"commit": 3, "escrita": 2, "execucao": 1, "leitura": 0}
+
+
+def classificar_comando(cmd):
+    """Classe do comando inteiro = classe mais privilegiada entre os segmentos
+    (RO só se todos os segmentos são RO — dig-2 perna A)."""
+    classes = [c for c in (_classificar_segmento(seg) for seg in
+                           _RX_SEP_SEGMENTO.split(_RX_ASPAS.sub("''", cmd or "")))
+               if c]
+    if not classes:
+        return "execucao"
+    return max(classes, key=lambda c: _PRIORIDADE_CLASSE[c])
 
 
 def _texto_de(content):
@@ -293,27 +391,87 @@ def _eh_voz(entry, texto):
     return True
 
 
+# Lexicons FECHADOS e declarados (finding R1 #6; dig-2 perna C: DAMSL/SWBD
+# accept/acknowledge vs conventional-opening vs action-directive; prática
+# Prow/lgtm = regex-âncora + ANTECEDENTE + identidade — nunca classificador de
+# sentimento). `ok` só autoriza com antecedente (proposta do assistant antes).
+_GRANT_LEX = frozenset((
+    "ok", "okay", "sim", "pode", "vai", "manda", "bora", "dale", "isso",
+    "blz", "beleza", "go", "yes", "y", "lgtm", "aprovado", "aprovo",
+    "confirmo", "fechou", "fechado", "show", "perfeito", "pode ir",
+    "pode sim", "vai la", "vai lá", "manda ver", "manda bala", "ship it",
+    "go ahead", "faz isso", "isso mesmo", "toca"))
+_GREETING_LEX = frozenset((
+    "oi", "iae", "eai", "e ai", "e aí", "opa", "ola", "olá", "hey", "hi",
+    "hello", "salve", "bom dia", "boa tarde", "boa noite", "fala"))
+_IMPERATIVO_V1 = frozenset((
+    # PT (2ª/3ª sing.) + EN, verbo-inicial = action-directive (SWBD-DAMSL)
+    "faz", "faça", "roda", "rode", "cria", "crie", "publica", "publique",
+    "escreve", "escreva", "commita", "commit", "sobe", "suba", "aplica",
+    "aplique", "executa", "execute", "gera", "gere", "corrige", "corrija",
+    "adiciona", "adicione", "remove", "remova", "deleta", "delete",
+    "atualiza", "atualize", "testa", "teste", "instala", "instale", "abre",
+    "abra", "fecha", "feche", "muda", "mude", "troca", "troque", "usa",
+    "use", "manda", "mande", "termina", "termine", "continua", "continue",
+    "refaz", "refaça", "conserta", "conserte", "implementa", "implemente",
+    "run", "make", "create", "write", "push", "apply", "fix", "add",
+    "update", "install", "generate", "deploy", "refactor", "build", "start",
+    "stop", "merge", "rebase", "revert"))
+
+
+def _normalizar_voz(texto):
+    return re.sub(r"[\s]+", " ",
+                  re.sub(r"[.!,;…]+$", "", (texto or "").strip().lower()))
+
+
 def derivar_agencia(ts_acao, sidechain, vozes):
-    """Mecânica, nunca chutada (Codex #10).
+    """Mecânica, nunca chutada (Codex #10; finding R1 #6).
 
     executor: 'agente' — tool calls no transcript são executados pelo agente.
-    autorizacao: sidechain → 'autonomo'; turno humano de texto que não termina
-    em '?' ≤120s antes → 'autorizado'; sem sinal → 'desconhecido'.
-    revisao_humana: sem sinal mecânico nas superfícies varridas → 'desconhecido'.
+    autorizacao:
+      sidechain → 'autonomo';
+      turno humano ≤120s antes que seja (a) aceite do lexicon fechado COM
+      antecedente de texto do assistant (proposta antes do aceite — trava do
+      dig-2/DAMSL), ou (b) imperativo verbo-inicial do lexicon fechado
+      → 'autorizado';
+      saudação, interrogativa, ou voz sem marcador → 'desconhecido' (voz
+      próxima NÃO é autorização; nunca chutado).
+    revisao_humana: sem sinal mecânico nas superfícies varridas →
+      'desconhecido'.
+
+    `vozes`: lista de (ts, texto, tem_antecedente_assistant).
     """
     if sidechain:
-        aut, regra = "autonomo", "sidechain"
-    else:
-        aut, regra = "desconhecido", "sem-sinal"
-        for ts_voz, texto in reversed(vozes):
-            if ts_voz is None or ts_acao is None:
-                continue
-            d = ts_acao - ts_voz
-            if 0 <= d <= 120 and not texto.rstrip().endswith("?"):
-                aut, regra = "autorizado", f"voz-nao-interrogativa-{d:.0f}s-antes"
-                break
-            if ts_voz < ts_acao - 120:
-                break
+        return {"executor": "agente", "autorizacao": "autonomo",
+                "revisao_humana": "desconhecido", "regra": "sidechain"}
+    aut, regra = "desconhecido", "sem-sinal"
+    for ts_voz, texto, tem_antecedente in reversed(vozes):
+        if ts_voz is None or ts_acao is None:
+            continue
+        d = ts_acao - ts_voz
+        if ts_voz < ts_acao - 120:
+            break
+        if not (0 <= d <= 120):
+            continue
+        t = _normalizar_voz(texto)
+        if t.endswith("?"):
+            regra = "voz-interrogativa-proxima-nao-autoriza"
+            break
+        if t in _GREETING_LEX:
+            regra = "saudacao-nao-autoriza"
+            break
+        if t in _GRANT_LEX and tem_antecedente:
+            aut = "autorizado"
+            regra = f"aceite-lexicon-com-antecedente-{d:.0f}s-antes"
+            break
+        primeira = t.split(" ", 1)[0] if t else ""
+        if primeira in _IMPERATIVO_V1:
+            aut = "autorizado"
+            regra = f"imperativo-verbo-inicial-{d:.0f}s-antes"
+            break
+        regra = ("aceite-sem-antecedente-nao-autoriza"
+                 if t in _GRANT_LEX else "voz-proxima-sem-marcador")
+        break
     return {"executor": "agente", "autorizacao": aut,
             "revisao_humana": "desconhecido", "regra": regra}
 
@@ -330,6 +488,8 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
     eventos, vozes, assistant_turnos, ts_todos = [], [], [], []
     pendentes = {}  # tool_use_id -> (n1, classe)
     cwd, uuids_vistos, linhas_puladas = "", set(), 0
+    cwds = Counter()          # cwd MODAL, não o último (finding R1 #18)
+    viu_assistant_texto = False  # antecedente p/ aceite (finding R1 #6)
 
     atual = {"uuid": None, "sha256_linha": None}
 
@@ -373,6 +533,8 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
             if ts is not None:
                 ts_todos.append(ts)
             cwd = e.get("cwd") or cwd
+            if e.get("cwd"):
+                cwds[e["cwd"]] += 1
             eh_side = bool(sidechain or e.get("isSidechain"))
             tipo = e.get("type")
             msg = e.get("message") or {}
@@ -387,7 +549,8 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                     ev["conteudo_redigido"] = {"texto": texto_red,
                                                "chars": len(texto.strip())}
                     eventos.append(ev)
-                    vozes.append((ts, texto.strip(), ev["id"], linha_n))
+                    vozes.append((ts, texto.strip(), ev["id"], linha_n,
+                                  viu_assistant_texto))
                 # tool_results: procurar hash de commit p/ tool calls pendentes
                 if isinstance(content, list):
                     for b in content:
@@ -424,6 +587,7 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                     assistant_turnos.append({
                         "ts": ts, "linha": linha_n, "chars": len(texto),
                         "n_perguntas": texto.count("?")})
+                    viu_assistant_texto = True
                 for b in content:
                     if not (isinstance(b, dict) and b.get("type") == "tool_use"):
                         continue
@@ -456,18 +620,20 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                         "arquivos": [redigir(a)[:200] for a in arquivos],
                         "comando_cabeca": cabeca, "sidechain": eh_side}
                     ev["agencia"] = derivar_agencia(
-                        ts, eh_side, [(t, x) for t, x, _, _ in vozes])
+                        ts, eh_side, [(t, x, a) for t, x, _, _, a in vozes])
                     eventos.append(ev)
                     if b.get("id"):
                         pendentes[b["id"]] = (ev, classe)
 
     abertura = ""
-    for _, t, _, _ in vozes:
+    for _, t, _, _, _ in vozes:
         if len(t) >= 8:
             abertura = redigir(t)[:200]
             break
     if not abertura and vozes:
         abertura = redigir(vozes[0][1])[:200]
+    if cwds:
+        cwd = cwds.most_common(1)[0][0]  # modal (finding R1 #18)
 
     return {"session_id": session_id, "host": host, "arquivo": arquivo_rel,
             "sha1": sha1, "cwd": cwd, "sidechain": sidechain,
@@ -513,14 +679,14 @@ def detectar_sessao(sessao, reg):
     """Detectores intra-sessão (D1, D2, D3, D5, D6) sobre os N1 já registrados."""
     out = []
     th = THRESHOLDS
-    vozes = sessao["vozes"]  # (ts, texto, n1_id, linha)
+    vozes = sessao["vozes"]  # (ts, texto, n1_id, linha, tem_antecedente)
     acoes = [e for e in sessao["eventos"] if e["kind"] != "voz-turno"
              and e["ts"] is not None]
     acoes.sort(key=lambda e: e["ts"])
 
     # D1 resposta-curta-seguida-de-acao
     p = th["resposta-curta-seguida-de-acao"]
-    for ts, texto, vid, linha in vozes:
+    for ts, texto, vid, linha, _a in vozes:
         if 0 < len(texto) <= p["max_chars_voz"]:
             for ac in acoes:
                 d = _parse_ts(ac["ts"]) - ts
@@ -532,32 +698,34 @@ def detectar_sessao(sessao, reg):
                         {"de": _iso(ts), "ate": ac["ts"]}))
                     break
 
-    # D2 pergunta-explicacao-resposta-curta
+    # D2 pergunta-explicacao-resposta-curta — dedup (finding R1 #4): a
+    # resposta é o turno humano IMEDIATAMENTE seguinte à pergunta (nenhum
+    # turno humano intervém) e cada resposta resolve no máximo uma pergunta.
     p = th["pergunta-explicacao-resposta-curta"]
     ats = sorted(sessao["assistant_turnos"], key=lambda a: a["ts"])
-    for i, (ts, texto, vid, linha) in enumerate(vozes):
-        if not texto.rstrip().endswith("?"):
+    for i, (ts, texto, vid, linha, _a) in enumerate(vozes):
+        if not texto.rstrip().endswith("?") or i + 1 >= len(vozes):
             continue
-        expl = next((a for a in ats if a["ts"] > ts
+        ts2, t2, vid2, _, _ = vozes[i + 1]
+        if not (0 < len(t2) <= p["max_chars_resposta"]
+                and 0 < ts2 - ts <= p["janela_s"]):
+            continue
+        expl = next((a for a in ats if ts < a["ts"] < ts2
                      and a["chars"] >= p["min_chars_explicacao"]), None)
-        if not expl:
-            continue
-        resp = next(((ts2, t2, vid2) for ts2, t2, vid2, _ in vozes[i + 1:]
-                     if ts2 > expl["ts"] and 0 < len(t2) <= p["max_chars_resposta"]
-                     and ts2 - ts <= p["janela_s"]), None)
-        if resp:
+        if expl:
             out.append(_mk_n2(
-                reg, "pergunta-explicacao-resposta-curta", [vid, resp[2]],
+                reg, "pergunta-explicacao-resposta-curta", [vid, vid2],
                 {"assistant_linha": expl["linha"], "assistant_chars": expl["chars"]},
-                {"de": _iso(ts), "ate": _iso(resp[0])}))
+                {"de": _iso(ts), "ate": _iso(ts2)}))
 
-    # D3 leituras-repetidas-de-estado-externo
+    # D3 leituras-repetidas-de-estado-externo — SEM sidechain (finding R1 #5):
+    # ação de subagente não entra no padrão do operador (Codex #4)
     p = th["leituras-repetidas-de-estado-externo"]
     por_cabeca = defaultdict(list)
     for ac in acoes:
         c = ac["conteudo_redigido"]
         if c.get("tool") == "Bash" and c.get("classe") == "leitura" \
-                and c.get("comando_cabeca"):
+                and c.get("comando_cabeca") and not c.get("sidechain"):
             por_cabeca[c["comando_cabeca"]].append(ac)
     for cabeca, lst in por_cabeca.items():
         i = 0
@@ -580,7 +748,7 @@ def detectar_sessao(sessao, reg):
     if ats and vozes:
         ultimo = ats[-1]
         if ultimo["n_perguntas"] >= p["min_perguntas"] \
-                and not any(ts > ultimo["ts"] for ts, _, _, _ in vozes):
+                and not any(ts > ultimo["ts"] for ts, _, _, _, _ in vozes):
             out.append(_mk_n2(
                 reg, "entrega-com-perguntas-sem-turno-de-resposta-observado",
                 [vozes[-1][2]],
@@ -588,9 +756,12 @@ def detectar_sessao(sessao, reg):
                  "n_perguntas": ultimo["n_perguntas"]},
                 {"de": _iso(vozes[-1][0]), "ate": _iso(ultimo["ts"])}))
 
-    # D6 rajada-de-turnos-curtos
+    # D6 rajada-de-turnos-curtos — SEM turnos interrogativos (finding R1 #16:
+    # rajada de perguntas curtas sobrepunha D2 nos mesmos turnos)
     p = th["rajada-de-turnos-curtos"]
-    curtos = [(ts, vid) for ts, t, vid, _ in vozes if 0 < len(t) <= p["max_chars"]]
+    curtos = [(ts, vid) for ts, t, vid, _, _ in vozes
+              if 0 < len(t) <= p["max_chars"]
+              and not t.rstrip().endswith("?")]
     i = 0
     while i < len(curtos):
         j = i
@@ -623,7 +794,7 @@ def detectar_cross_sessao(sessoes, reg):
     for s in sessoes:
         if s["sidechain"] or not s["vozes"]:
             continue
-        ts, _, vid, _ = s["vozes"][0]
+        ts, _, vid, _, _ = s["vozes"][0]
         abertos.append((s, _tokens(s["abertura"]), ts, vid))
     for i in range(len(abertos)):
         for j in range(i + 1, len(abertos)):
@@ -745,7 +916,11 @@ def clusterizar(sessoes, complete_fn=None, orcamento=None):
 # Camada 3 — fold de padrões (estados; diversidade; Codex #13)
 # ---------------------------------------------------------------------------
 
-def fold_padroes(reg, agora_ts=None):
+def fold_padroes(reg, agora_ts=None, cobertura=None):
+    """Fold N2→padrões. Diversidade (finding R1 #8): UMA sessão cruzando a
+    meia-noite NÃO concede diversidade de dias — padrão só sai de `mesma-cena`
+    com ≥2 SESSÕES distintas (dias contam apenas quando vêm de sessões
+    distintas). Cobertura anexada a cada padrão (Codex #18 / finding #11)."""
     agora_ts = agora_ts or datetime.now(tz=timezone.utc).timestamp()
     padroes = []
     por_forma = defaultdict(list)
@@ -760,7 +935,7 @@ def fold_padroes(reg, agora_ts=None):
         first_seen, last_seen = (vistos[0], vistos[-1]) if vistos else (None, None)
         if any(n2.get("invalid_at") for n2 in lst):
             estado = "invalidado"
-        elif len(sessoes) < 2 and len(dias) < 2:
+        elif len(sessoes) < 2:
             estado = "mesma-cena"
         elif last_seen and (agora_ts - _parse_ts(last_seen)) > \
                 PADRAO_DORMENTE_DIAS * 86400:
@@ -771,10 +946,14 @@ def fold_padroes(reg, agora_ts=None):
             "forma": forma, "instancias": [n2["id"] for n2 in lst],
             "n": len(lst),
             "diversidade": {"sessoes": len(sessoes), "dias": len(dias),
-                            "hosts": len(hosts)},
+                            "hosts": len(hosts),
+                            "nota": "dias de UMA mesma sessão não concedem "
+                                    "diversidade (fronteira de sessão manda)"},
             "first_seen": first_seen, "last_seen": last_seen,
-            "estado": estado, "detector_version": DETECTOR_VERSION})
-    return padroes
+            "estado": estado, "detector_version": DETECTOR_VERSION,
+            "cobertura": cobertura})
+    formas_sem_instancias = sorted(set(THRESHOLDS) - set(por_forma))
+    return padroes, formas_sem_instancias
 
 
 # ---------------------------------------------------------------------------
@@ -804,14 +983,21 @@ def _resumo_instancia(n1):
     return f"- [{n1['kind']} @ {n1['ts']}] {que}"
 
 
-def inferir_n3(reg, complete_fn, orcamento, model="injetado"):
+def inferir_n3(reg, complete_fn, orcamento, model="injetado",
+               formas_permitidas=None):
     """≤1 call por correlação; claim com confiança + alternativas inocentes.
+
+    GATE do estágio 0 (finding R1 #2): só formas com veredicto `confiavel`
+    geram N3 — `formas_permitidas` vem do eval; None/vazio → nada sobe.
 
     O prompt EMBUTE o resumo redigido das instâncias N1 — sem isso o modelo
     responde meta-reclamações de "transcript não fornecido" (observado no
     backfill de 2026-08-17)."""
     out = []
+    permitidas = formas_permitidas or set()
     for n2 in sorted(reg.nivel(2), key=lambda r: r["id"]):
+        if n2["forma"] not in permitidas:
+            continue
         if not orcamento.permitir("n3"):
             break
         evid = "\n".join(_resumo_instancia(reg.by_id[i])
@@ -930,60 +1116,178 @@ def _descricao_mecanica(n2):
     return d + f" (observado: {json.dumps({k: v for k, v in p.items() if k not in THRESHOLDS[f]}, ensure_ascii=False)})"
 
 
-def _trecho(workdir, arquivo_rel, linha, contexto=1):
-    """Linhas cruas (da cópia de trabalho JÁ redigida) ao redor da âncora."""
+def _linha_json(workdir, arquivo_rel, linha_alvo):
     caminho = Path(workdir) / arquivo_rel
-    linhas = []
     try:
         with open(caminho, encoding="utf-8", errors="replace") as fh:
-            for n, l in enumerate(fh, 1):
-                if abs(n - linha) <= contexto:
-                    linhas.append({"linha": n, "conteudo": redigir(l.strip())[:700]})
-                if n > linha + contexto:
+            for n, linha in enumerate(fh, 1):
+                if n == linha_alvo:
+                    return json.loads(linha)
+                if n > linha_alvo:
                     break
-    except OSError as ex:
-        linhas.append({"linha": linha, "conteudo": f"[trecho indisponível: {ex}]"})
-    return linhas
+    except Exception:
+        return None
+    return None
 
 
-def eval_preparar(reg, workdir, max_amostra=30, seed=17):
-    """Amostra estratificada por forma (round-robin determinístico)."""
+def _carga_util(workdir, arquivo_rel, linha):
+    """O fato julgado, COMPLETO, minimizado e redigido (findings R1 #3/#7).
+
+    Extrai SÓ os campos load-bearing da linha ancorada: texto humano, texto
+    do assistant (integral até 4000 chars, com chars_total), comando integral
+    de tool_use, file_path. Bytes de thinking/signature/tool_result NUNCA
+    entram no pacote — o caminho do eval passa pela mesma minimização e
+    redaction do resto (brief v2 §2)."""
+    j = _linha_json(workdir, arquivo_rel, linha)
+    if not isinstance(j, dict):
+        return {"linha": linha, "indisponivel": True}
+    msg = j.get("message") or {}
+    content = msg.get("content")
+    out = {"linha": linha, "ts": j.get("timestamp"), "tipo": j.get("type")}
+    textos, tools = [], []
+    if isinstance(content, str):
+        textos.append(content)
+    elif isinstance(content, list):
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "text":
+                textos.append(b.get("text") or "")
+            elif b.get("type") == "tool_use":
+                inp = b.get("input") or {}
+                tc = {"tool": b.get("name")}
+                if inp.get("command"):
+                    tc["comando_completo"] = redigir(inp["command"])[:4000]
+                for k in ("file_path", "notebook_path"):
+                    if inp.get(k):
+                        tc["file_path"] = redigir(inp[k])[:300]
+                tools.append(tc)
+    texto = "\n".join(t for t in textos if t)
+    if texto:
+        campo = ("texto_humano" if j.get("type") == "user"
+                 else "texto_assistant")
+        out[campo] = redigir(texto)[:4000]
+        out["chars_total"] = len(texto)
+    if tools:
+        out["tool_calls"] = tools
+    return out
+
+
+def _itens_catch(seed_base):
+    """Catch trials (dig-2 perna B: gold seeding, Oleson 2011/Snow 2008) —
+    itens sintéticos com rótulo conhecido, um deles com ERRO TENTADOR (pernas
+    de timing batem, mas o comando é só leitura → gold `nao`). Excluídos do
+    IAA e da precisão; medem atenção/aterramento do rotulador."""
+    t0 = "2026-08-12T14:03:10.000000+00:00"
+    catch1 = {
+        "n2_id": f"n2-catch-{seed_base}a", "forma": "resposta-curta-seguida-de-acao",
+        "descricao_mecanica": "turno humano com <= 6 chars seguido, em ate "
+                              "120s, de tool call de escrita/commit "
+                              "(observado: {\"delta_s\": 12.0, \"chars_voz\": 2})",
+        "pergunta": PERGUNTA_MECANICA,
+        "evidencia": [
+            {"ancora": {"kind": "voz-turno", "linha": None},
+             "carga": {"tipo": "user", "ts": t0, "texto_humano": "ok",
+                       "chars_total": 2}},
+            {"ancora": {"kind": "tool-call", "linha": None},
+             "carga": {"tipo": "assistant",
+                       "ts": "2026-08-12T14:03:22.000000+00:00",
+                       "tool_calls": [{"tool": "Bash", "comando_completo":
+                                       "tail -n 50 servidor.log 2>/dev/null"}]}}]}
+    catch2 = {
+        "n2_id": f"n2-catch-{seed_base}b",
+        "forma": "leituras-repetidas-de-estado-externo",
+        "descricao_mecanica": ">= 3 execucoes Bash de leitura com a mesma "
+                              "cabeca de comando em <= 3600s (observado: "
+                              "{\"comando_cabeca\": \"grep -c\", "
+                              "\"n_repeticoes\": 3})",
+        "pergunta": PERGUNTA_MECANICA,
+        "evidencia": [
+            {"ancora": {"kind": "tool-call", "linha": None},
+             "carga": {"tipo": "assistant",
+                       "ts": f"2026-08-12T15:0{m}:00.000000+00:00",
+                       "tool_calls": [{"tool": "Bash", "comando_completo":
+                                       f"grep -c padrao arquivo{m}.log"}]}}
+            for m in (1, 3, 5)]}
+    return [(catch1, "nao"), (catch2, "sim")]
+
+
+def eval_preparar(reg, workdir, max_amostra=30, seed=17, com_catch=True):
+    """Amostra estratificada por forma (round-robin determinístico), pacotes
+    com o fato julgado completo (finding R1 #3), catch trials semeados e
+    RECIBO DE PRÉ-REGISTRO (finding R1 #14): hash sha256 do bloco congelado
+    gravado ANTES de qualquer rótulo.
+
+    Retorna (amostra, pre_registro). O pre_registro NÃO é entregue aos
+    rotuladores (contém o gold dos catch)."""
     import random
     rnd = random.Random(seed)
     por_forma = defaultdict(list)
     for n2 in reg.nivel(2):
         por_forma[n2["forma"]].append(n2)
+    populacao = sum(len(v) for v in por_forma.values())
     for lst in por_forma.values():
         lst.sort(key=lambda r: r["id"])
         rnd.shuffle(lst)
-    itens, rodada = [], 0
+    itens = []
     while len(itens) < max_amostra and any(por_forma.values()):
         for forma in sorted(por_forma):
             if por_forma[forma] and len(itens) < max_amostra:
                 n2 = por_forma[forma].pop()
-                trechos = []
+                evid = []
                 for iid in n2["instancias"][:6]:
                     n1 = reg.by_id[iid]
                     ev = n1["evidencia"]
-                    trechos.append({
+                    evid.append({
                         "ancora": {"arquivo": ev["arquivo_jsonl"],
-                                   "linha": ev["linha"], "kind": n1["kind"]},
-                        "linhas": _trecho(workdir, ev["arquivo_jsonl"],
-                                          ev["linha"])})
+                                   "linha": ev["linha"], "kind": n1["kind"],
+                                   "uuid": ev.get("uuid")},
+                        "carga": _carga_util(workdir, ev["arquivo_jsonl"],
+                                             ev["linha"])})
+                # D2: a explicação do assistant é perna julgada — entra no
+                # pacote (finding R1 #3), via assistant_linha dos params
+                if n2["forma"] == "pergunta-explicacao-resposta-curta" \
+                        and n2["params"].get("assistant_linha"):
+                    arq = reg.by_id[n2["instancias"][0]]["evidencia"][
+                        "arquivo_jsonl"]
+                    evid.append({
+                        "ancora": {"arquivo": arq,
+                                   "linha": n2["params"]["assistant_linha"],
+                                   "kind": "assistant-explicacao"},
+                        "carga": _carga_util(
+                            workdir, arq, n2["params"]["assistant_linha"])})
                 itens.append({
-                    "item": len(itens) + 1, "n2_id": n2["id"],
-                    "forma": n2["forma"],
+                    "n2_id": n2["id"], "forma": n2["forma"],
                     "descricao_mecanica": _descricao_mecanica(n2),
                     "pergunta": PERGUNTA_MECANICA,
-                    "evidencia": trechos})
-        rodada += 1
-    return {"pergunta": PERGUNTA_MECANICA,
-            "thresholds_congelados": {
-                "precisao_min": EVAL_PRECISAO_MIN,
-                "concordancia_min": EVAL_CONCORDANCIA_MIN,
-                "detector_version": DETECTOR_VERSION,
-                "thresholds": THRESHOLDS},
-            "itens": itens}
+                    "evidencia": evid})
+    catch_gold = {}
+    if com_catch:
+        for item, gold in _itens_catch(seed):
+            pos = rnd.randrange(len(itens) + 1) if itens else 0
+            itens.insert(pos, item)
+            catch_gold[item["n2_id"]] = gold
+    for n, item in enumerate(itens, 1):
+        item["item"] = n
+    bloco = {"precisao_min": EVAL_PRECISAO_MIN,
+             "concordancia_min": EVAL_CONCORDANCIA_MIN,
+             "detector_version": DETECTOR_VERSION,
+             "thresholds": THRESHOLDS}
+    bloco_txt = json.dumps(bloco, sort_keys=True, ensure_ascii=False)
+    pre_registro = {
+        "gravado_em": datetime.now(tz=timezone.utc).isoformat(),
+        "sha256_bloco_congelado": hashlib.sha256(
+            bloco_txt.encode()).hexdigest(),
+        "bloco": bloco,
+        "catch_gold_por_item": {i["item"]: catch_gold[i["n2_id"]]
+                                for i in itens if i["n2_id"] in catch_gold},
+        "populacao_n2": populacao,
+        "tipo_amostra": ("censo" if len(itens) - len(catch_gold) >= populacao
+                         else "amostra")}
+    amostra = {"pergunta": PERGUNTA_MECANICA,
+               "thresholds_congelados": bloco,
+               "itens": itens}
+    return amostra, pre_registro
 
 
 _CLASSES_EVAL = ("sim", "nao", "evidencia-insuficiente")
@@ -1019,7 +1323,7 @@ def cohen_kappa(pares):
     return round(p_o, 3), round((p_o - p_e) / (1 - p_e), 3)
 
 
-def eval_ingerir(amostra, labels_a, labels_b):
+def eval_ingerir(amostra, labels_a, labels_b, pre_registro=None):
     """Precisão (vs consenso unânime) + concordância por forma; demote.
 
     Metodologia do dig-1 (perna C — Cohen 1960; Landis & Koch 1977; McHugh
@@ -1038,11 +1342,29 @@ def eval_ingerir(amostra, labels_a, labels_b):
           for l in labels_a["labels"]}
     lb = {l["item"]: _normalizar_rotulo(l["resposta"])
           for l in labels_b["labels"]}
+    pre_registro = pre_registro or {}
+    catch_gold = {int(k): v for k, v in
+                  (pre_registro.get("catch_gold_por_item") or {}).items()}
+    # recibo de pré-registro (finding R1 #14): o bloco congelado da amostra
+    # tem que bater com o hash gravado ANTES dos rótulos
+    hash_agora = hashlib.sha256(json.dumps(
+        amostra["thresholds_congelados"], sort_keys=True,
+        ensure_ascii=False).encode()).hexdigest()
+    pre_ok = (pre_registro.get("sha256_bloco_congelado") == hash_agora
+              if pre_registro else None)
+    catch_acertos = {"a": 0, "b": 0, "n": len(catch_gold)}
+    for item_n, gold in catch_gold.items():
+        if la.get(item_n) == gold:
+            catch_acertos["a"] += 1
+        if lb.get(item_n) == gold:
+            catch_acertos["b"] += 1
     por_forma = defaultdict(lambda: {"n": 0, "concordam": 0, "sim": 0,
                                      "nao": 0, "insuficiente": 0,
                                      "sem_consenso": 0, "pares": []})
     todos_pares = []
     for item in amostra["itens"]:
+        if item["item"] in catch_gold:
+            continue  # catch fora do IAA e da precisão (dig-2 perna B)
         f = por_forma[item["forma"]]
         f["n"] += 1
         a, b = la.get(item["item"]), lb.get(item["item"])
@@ -1075,15 +1397,34 @@ def eval_ingerir(amostra, labels_a, labels_b):
             precisao=(round(prec, 3) if prec is not None else None),
             veredicto="confiavel" if confiavel else "experimental")
     p_o_global, kappa_global = cohen_kappa(todos_pares)
+    n_reais = len(amostra["itens"]) - len(catch_gold)
+    prevalencia = Counter(a for a, _ in todos_pares)
     return {"thresholds_congelados": amostra["thresholds_congelados"],
+            "pre_registro": {
+                "verificado": pre_ok,
+                "sha256_bloco_congelado": pre_registro.get(
+                    "sha256_bloco_congelado"),
+                "gravado_em": pre_registro.get("gravado_em")},
             "rotuladores": [labels_a.get("rotulador", "a"),
                             labels_b.get("rotulador", "b")],
-            "amostra": len(amostra["itens"]), "por_forma": resultado,
+            "amostra": n_reais,
+            "tipo_amostra": pre_registro.get("tipo_amostra") or "amostra",
+            "populacao_n2": pre_registro.get("populacao_n2"),
+            "catch_trials": dict(
+                catch_acertos,
+                nota="itens sintéticos com gold pré-registrado (um com erro "
+                     "tentador); fora do IAA e da precisão — medem "
+                     "atenção/aterramento (Oleson 2011, Snow 2008)"),
+            "por_forma": resultado,
             "global": {"p_o": p_o_global, "kappa": kappa_global,
+                       "taxa_desacordo": (round(1 - p_o_global, 3)
+                                          if p_o_global is not None else None),
                        "n_pares": len(todos_pares),
+                       "prevalencia_rotulador_a": dict(prevalencia),
                        "nota": "κ de Cohen 3-classes agregado; em n≈30 o IC é "
                                "largo (Sim & Wright 2005) — ler junto com as "
-                               "contagens cruas, nunca sozinho"},
+                               "contagens cruas e a prevalência (Feinstein & "
+                               "Cicchetti 1990), nunca sozinho"},
             "avaliado_em": datetime.now(tz=timezone.utc).isoformat()}
 
 
@@ -1117,8 +1458,12 @@ def ausencia(cobertura):
 # ---------------------------------------------------------------------------
 
 def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
-             model="injetado"):
-    """Cópia de trabalho (já redigida) → registry + projeção completa."""
+             model="injetado", eval_estagio0=None):
+    """Cópia de trabalho (já redigida) → registry + projeção completa.
+
+    `eval_estagio0` (resultado de eval_ingerir): GATE dos N3/N4 (finding R1
+    #2) — sem ele, NENHUM N3/N4 é gerado (degradação declarada); com ele, só
+    formas `confiavel` sobem."""
     workdir = Path(workdir)
     arquivos = sorted(str(p) for p in workdir.rglob("*.jsonl"))
     principais = [a for a in arquivos if "/subagents/" not in a]
@@ -1168,9 +1513,24 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
         degradacoes.append(
             "N3/N4 não gerados e clusters sem nome LLM: completer ausente — "
             "degradação DECLARADA para N2-only (brief v2 §4)")
+    formas_confiaveis = {
+        f for f, v in ((eval_estagio0 or {}).get("por_forma") or {}).items()
+        if v.get("veredicto") == "confiavel"}
+    formas_presentes = {n2["forma"] for n2 in reg.nivel(2)}
+    if eval_estagio0 is None:
+        degradacoes.append(
+            "estágio 0 pendente: NENHUM N3/N4 gerado (gate do finding R1 #2; "
+            "rode eval e repasse o resultado via --eval)")
+    else:
+        reprovadas = sorted(formas_presentes - formas_confiaveis)
+        if reprovadas:
+            degradacoes.append(
+                "formas sem selo `confiavel` no estágio 0 — N3/N4 NÃO "
+                f"gerados para: {', '.join(reprovadas)}")
     atividades, cluster_log = clusterizar(sessoes, complete_fn, orc)
-    if complete_fn is not None:
-        inferir_n3(reg, complete_fn, orc, model=model)
+    if complete_fn is not None and formas_confiaveis:
+        inferir_n3(reg, complete_fn, orc, model=model,
+                   formas_permitidas=formas_confiaveis)
         hipotetizar_n4(reg, complete_fn, orc, model=model)
         if orc.negadas:
             degradacoes.append(
@@ -1178,12 +1538,12 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
                 f"(teto {orc.teto})")
 
     agora_ts = agora_ts or datetime.now(tz=timezone.utc).timestamp()
-    padroes = fold_padroes(reg, agora_ts)
     ts_all = [t for s in sessoes for t in s["ts_todos"]]
     janela = {"de": _iso(min(ts_all)) if ts_all else None,
               "ate": _iso(max(ts_all)) if ts_all else None,
               "criterio": f"mtime nos últimos {janela_dias} dias"}
     cobertura = montar_cobertura([host], len(sessoes), puladas, janela)
+    padroes, formas_sem_instancias = fold_padroes(reg, agora_ts, cobertura)
 
     # índice N2 por sessão → atividade
     n2_por_sessao = defaultdict(list)
@@ -1194,10 +1554,15 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
         atv["n2_ids"] = sorted({i for sid in atv["session_ids"]
                                 for i in n2_por_sessao.get(sid, [])})
         voz = sum(t["n_eventos_voz"] for t in atv["sessions"])
-        aca = sum(t["n_eventos_acao"] for t in atv["sessions"])
-        atv["voz_acao"] = {"voz": voz, "acao": aca, "unidade": "eventos",
-                           "nota": "proporção de EVENTOS por trilho; não é "
-                                   "tempo nem tokens"}
+        aca_total = sum(t["n_eventos_acao"] for t in atv["sessions"])
+        aca_side = sum(t["n_eventos_acao_sidechain"] for t in atv["sessions"])
+        # finding R1 #12: manchete NÃO mistura operador e delegado
+        atv["voz_acao"] = {"voz": voz, "acao": aca_total - aca_side,
+                           "acao_delegada_sidechain": aca_side,
+                           "unidade": "eventos",
+                           "nota": "proporção de EVENTOS por trilho; 'acao' "
+                                   "exclui subagentes (delegado ao lado); "
+                                   "não é tempo nem tokens"}
         atv["cobertura"] = cobertura
 
     projecao = {
@@ -1211,8 +1576,9 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
         "atividades": atividades,
         "cluster_log": cluster_log,
         "padroes": padroes,
+        "formas_sem_instancias": formas_sem_instancias,
         "contagens": {f"n{n}": len(reg.nivel(n)) for n in (1, 2, 3, 4)},
-        "eval_estagio0": None}
+        "eval_estagio0": eval_estagio0}
     return reg, projecao
 
 
@@ -1221,6 +1587,7 @@ def persistir(state_dir, reg, projecao):
     state.mkdir(parents=True, exist_ok=True)
     avisos = []
     ordem = sorted(reg.by_id.values(), key=lambda r: (r["nivel"], r["id"]))
+    marcas = 0
     with open(state / "atividades.jsonl", "w", encoding="utf-8") as fh:
         fh.write(json.dumps({"tipo": "run", "gerado_em": projecao["gerado_em"],
                              "detector_version": DETECTOR_VERSION,
@@ -1232,7 +1599,14 @@ def persistir(state_dir, reg, projecao):
             if hits:  # cinto-e-suspensório: nunca persistir; redigir e avisar
                 linha = redigir(linha)
                 avisos.append({"id": rec["id"], "redaction_tardia": len(hits)})
+            marcas += linha.count(_MASK)
             fh.write(linha + "\n")
+    # finding R1 #9: *** é artefato de redaction, marcado e CONTADO — nunca
+    # passa por conteúdo original
+    projecao["redaction"] = {
+        "marcas_no_estado": marcas,
+        "nota": "toda ocorrência de *** nos arquivos persistidos é artefato "
+                "de redaction, não conteúdo original"}
     if avisos:
         projecao.setdefault("degradacoes", []).append(
             f"redaction tardia aplicada em {len(avisos)} registros "
@@ -1314,6 +1688,20 @@ def render_report(reg, projecao, eval_estagio0=None):
              f"ausência.</p>")
     for d in projecao.get("degradacoes", []):
         H.append(f"<p class='aviso'>Degradação declarada: {_esc(d)}</p>")
+    if projecao.get("redaction"):
+        r = projecao["redaction"]
+        H.append(f"<p>Redaction: {r['marcas_no_estado']} marcas "
+                 f"<code>***</code> no estado persistido — {_esc(r['nota'])}."
+                 f"</p>")
+    # finding R1 #11: "rodou, 0 hits" ≠ "não rodou" — distinção explícita
+    fsi = projecao.get("formas_sem_instancias") or []
+    if fsi:
+        H.append("<p>Detectores que RODARAM nas superfícies varridas e "
+                 "voltaram com 0 instâncias: "
+                 + ", ".join(f"<code>{_esc(f)}</code>" for f in fsi)
+                 + f" — 0 instâncias em {_esc(superficies_de(cob))} "
+                   "(o detector rodou; isto não é afirmação sobre outras "
+                   "superfícies).</p>")
 
     # Por Atividade
     H.append("<h2>Atividades</h2>")
@@ -1324,6 +1712,8 @@ def render_report(reg, projecao, eval_estagio0=None):
                  f" · cwd <code>{_esc(atv['cwd'])}</code></p>")
         va = atv["voz_acao"]
         H.append(f"<p>voz×ação: {va['voz']}×{va['acao']} "
+                 f"(+{va.get('acao_delegada_sidechain', 0)} ações delegadas a "
+                 f"subagentes, fora da manchete) "
                  f"(unidade: {va['unidade']}; {_esc(va['nota'])})</p>")
         H.append("<table><tr><th>sessão</th><th>início</th><th>fim</th>"
                  "<th>min ativos (teto 300s)</th><th>sens. 120/600s</th>"
@@ -1340,7 +1730,8 @@ def render_report(reg, projecao, eval_estagio0=None):
                 f"<td>{t['n_eventos_voz']}</td>"
                 f"<td>{t['n_eventos_acao']} ({t['n_eventos_acao_sidechain']} "
                 f"sidechain)</td>"
-                f"<td>{_esc(', '.join(c[:7] for c in t['commits'][:6]))}"
+                f"<td>{_esc(', '.join(c[:7] for c in t['commits'][:8]))}"
+                f"{_esc(' +' + str(len(t['commits']) - 8) if len(t['commits']) > 8 else '')}"
                 f"</td></tr>")
         H.append("</table>")
         # N2 navegáveis até a âncora
@@ -1390,10 +1781,26 @@ def render_report(reg, projecao, eval_estagio0=None):
     H.append("<h2>Estágio 0 — avaliação cega dos detectores</h2>")
     if eval_estagio0:
         tc = eval_estagio0["thresholds_congelados"]
+        tipo = eval_estagio0.get("tipo_amostra", "amostra")
+        pop = eval_estagio0.get("populacao_n2")
         H.append(f"<p>Rotuladores cegos: {_esc(', '.join(eval_estagio0['rotuladores']))} · "
-                 f"amostra {eval_estagio0['amostra']} · thresholds congelados "
-                 f"antes da rodada: precisão ≥ {tc['precisao_min']}, "
+                 f"{_esc(tipo)} de {eval_estagio0['amostra']} itens"
+                 f"{f' (população N2 = {pop})' if pop else ''} · thresholds "
+                 f"congelados antes da rodada: precisão ≥ {tc['precisao_min']}, "
                  f"concordância ≥ {tc['concordancia_min']}.</p>")
+        pr = eval_estagio0.get("pre_registro") or {}
+        if pr.get("sha256_bloco_congelado"):
+            ver = {True: "verificado", False: "FALHOU",
+                   None: "sem recibo"}[pr.get("verificado")]
+            H.append(f"<p>Pré-registro: sha256 <code>"
+                     f"{_esc(pr['sha256_bloco_congelado'][:16])}…</code> "
+                     f"gravado em {_esc(pr.get('gravado_em'))} — {_esc(ver)}."
+                     f"</p>")
+        ct = eval_estagio0.get("catch_trials") or {}
+        if ct.get("n"):
+            H.append(f"<p>Catch trials (gold pré-registrado, fora das "
+                     f"métricas): rotulador A {ct['a']}/{ct['n']} · "
+                     f"rotulador B {ct['b']}/{ct['n']}.</p>")
         H.append("<table><tr><th>forma</th><th>n</th><th>precisão</th>"
                  "<th>concordância (p_o)</th><th>κ</th><th>veredicto</th></tr>")
         for forma, f in sorted(eval_estagio0["por_forma"].items()):
@@ -1405,9 +1812,11 @@ def render_report(reg, projecao, eval_estagio0=None):
         H.append("</table>")
         g = eval_estagio0.get("global") or {}
         if g:
-            H.append(f"<p>Agregado: p_o {g.get('p_o')} · κ de Cohen "
+            H.append(f"<p>Agregado: p_o {g.get('p_o')} · taxa de desacordo "
+                     f"{g.get('taxa_desacordo')} · κ de Cohen "
                      f"{g.get('kappa') if g.get('kappa') is not None else '—'} "
-                     f"(3 classes, {g.get('n_pares')} pares). "
+                     f"(3 classes, {g.get('n_pares')} pares) · prevalência "
+                     f"{_esc(json.dumps(g.get('prevalencia_rotulador_a', {}), ensure_ascii=False))}. "
                      f"{_esc(g.get('nota', ''))}</p>")
         H.append("<p>O caso 7fed4159/17s é TESTE DE REGRESSÃO do detector "
                  "genérico, nunca evidência de validade.</p>")
@@ -1415,19 +1824,44 @@ def render_report(reg, projecao, eval_estagio0=None):
         H.append(f"<p>Estágio 0 ainda não executado — TODAS as formas estão "
                  f"marcadas experimentais. Métricas: {_esc(aus)}.</p>")
 
+    # GATE de render (finding R1 #2): N3/N4 cuja base toca forma sem selo
+    # `confiavel` NÃO entram no relatório principal — declarados na contagem
+    def _formas_de_n3(n3):
+        return {reg.by_id[b]["forma"] for b in n3["base"] if b in reg.by_id}
+
+    def _n3_confiavel(n3):
+        return all(veredicto(f) == "confiavel" for f in _formas_de_n3(n3))
+
+    n3s_gate = [n3 for n3 in n3s.values() if _n3_confiavel(n3)]
+    n3s_fora = len(n3s) - len(n3s_gate)
+    n4s_gate = [n4 for n4 in n4s
+                if all(_n3_confiavel(n3s[b]) for b in n4["base"]
+                       if b in n3s)]
+    n4s_fora = len(n4s) - len(n4s_gate)
+
     # N3
-    if n3s:
-        H.append("<h2>Inferências (N3) — com incerteza declarada</h2><ul>")
-        for n3 in sorted(n3s.values(), key=lambda r: -r["confianca"]):
+    if n3s_gate or n3s_fora:
+        H.append("<h2>Inferências (N3) — com incerteza declarada</h2>")
+        if n3s_fora:
+            H.append(f"<p class='exp'>{n3s_fora} inferência(s) fora do "
+                     "relatório principal: base em forma sem selo do "
+                     "estágio 0.</p>")
+    if n3s_gate:
+        H.append("<ul>")
+        for n3 in sorted(n3s_gate, key=lambda r: -r["confianca"]):
             alts = "; ".join(n3["alternativas"])
             H.append(f"<li>{_esc(n3['claim'])} <i>(confiança "
                      f"{n3['confianca']:.2f}; alternativas inocentes: "
                      f"{_esc(alts)}; base {_esc(', '.join(n3['base']))})</i></li>")
         H.append("</ul>")
 
-    # N4 — SÓ perguntas quando proposta
+    # N4 — SÓ perguntas quando proposta; gate idem
     H.append("<h2>Perguntas ao operador (hipóteses N4 — a sua correção "
              "vence)</h2>")
+    if n4s_fora:
+        H.append(f"<p class='exp'>{n4s_fora} hipótese(s) fora do relatório "
+                 "principal: base em forma sem selo do estágio 0.</p>")
+    n4s = n4s_gate
     if n4s:
         H.append("<ul>")
         for n4 in n4s:
@@ -1524,11 +1958,13 @@ def _carregar_estado(state_dir):
 
 def _cmd_backfill(args):
     complete_fn = _complete_cmd_fn(args.complete_cmd) if args.complete_cmd else None
+    ev = json.loads(Path(args.eval).read_text()) if args.eval else None
     reg, projecao = pipeline(args.workdir, args.host, complete_fn,
                              janela_dias=args.janela_dias,
-                             model=args.complete_cmd or "nenhum")
+                             model=args.complete_cmd or "nenhum",
+                             eval_estagio0=ev)
     state = persistir(args.state, reg, projecao)
-    html = render_report(reg, projecao, None)
+    html = render_report(reg, projecao, ev)
     (state / "report.html").write_text(html, encoding="utf-8")
     print(json.dumps({"state": str(state), **projecao["contagens"],
                       "atividades": len(projecao["atividades"]),
@@ -1542,15 +1978,25 @@ def _cmd_eval(args):
     state = Path(args.state)
     reg, projecao = _carregar_estado(state)
     if args.acao == "prepare":
-        amostra = eval_preparar(reg, args.workdir, max_amostra=args.max)
+        amostra, pre_registro = eval_preparar(reg, args.workdir,
+                                              max_amostra=args.max)
+        # recibo de pré-registro gravado ANTES de qualquer rótulo (finding
+        # R1 #14); NÃO entregar aos rotuladores (contém o gold dos catch)
+        _guard_estado(state)
+        (state / "pre-registro.json").write_text(
+            json.dumps(pre_registro, ensure_ascii=False, indent=1),
+            encoding="utf-8")
         Path(args.out).write_text(redigir(json.dumps(
             amostra, ensure_ascii=False, indent=1)), encoding="utf-8")
-        print(f"amostra: {len(amostra['itens'])} itens → {args.out}")
+        print(f"amostra: {len(amostra['itens'])} itens → {args.out}; "
+              f"pré-registro → {state / 'pre-registro.json'}")
     else:  # ingest
         amostra = json.loads(Path(args.amostra).read_text())
         la = json.loads(Path(args.labels[0]).read_text())
         lb = json.loads(Path(args.labels[1]).read_text())
-        ev = eval_ingerir(amostra, la, lb)
+        prp = Path(args.pre_registro or (state / "pre-registro.json"))
+        pre_registro = json.loads(prp.read_text()) if prp.exists() else None
+        ev = eval_ingerir(amostra, la, lb, pre_registro)
         _guard_estado(state)
         (state / "eval.json").write_text(
             json.dumps(ev, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -1635,6 +2081,9 @@ def main(argv=None):
     p.add_argument("--complete-cmd", default=None,
                    help="comando shell: prompt no stdin → completion no stdout "
                         "(seam complete_fn); ausente → N2-only declarado")
+    p.add_argument("--eval", default=None,
+                   help="eval.json do estágio 0 — GATE dos N3/N4 (sem ele, "
+                        "nenhum N3/N4 é gerado; degradação declarada)")
     p.set_defaults(fn=_cmd_backfill)
 
     p = sub.add_parser("eval", help="estágio 0 — avaliação cega")
@@ -1644,6 +2093,8 @@ def main(argv=None):
     p.add_argument("--out", help="arquivo da amostra (prepare)")
     p.add_argument("--amostra", help="arquivo da amostra (ingest)")
     p.add_argument("--labels", nargs=2, help="dois arquivos de rótulos (ingest)")
+    p.add_argument("--pre-registro", dest="pre_registro", default=None,
+                   help="recibo de pré-registro (default: <state>/pre-registro.json)")
     p.add_argument("--max", type=int, default=30)
     p.set_defaults(fn=_cmd_eval)
 
