@@ -1300,6 +1300,184 @@ class TestR4AcaoSemBase(unittest.TestCase):
             "padrão de pergunta seguida de resposta curta", 0, 0))
 
 
+class TestR5Segmentacao(Base):
+    """R5: sessão → trechos; cortes mecânicos versionados, ancorados."""
+
+    def test_gap_15min_corta_e_400s_nao(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "w1"
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "primeira parte do trabalho de hoje", "u1"),
+            e_user(60, "seguindo na mesma parte ainda", "u2"),
+            e_user(60 + 1000, "voltei do almoço, retomando aqui", "u3"),
+            e_user(60 + 1400, "continuando depois de pensar", "u4"),
+        ])
+        s = _sa(caminho, "hostX")
+        trechos, cortes = segmentar(s)
+        self.assertEqual(len(trechos), 2)
+        self.assertEqual(cortes[0]["sinal"], "gap")
+        self.assertEqual(cortes[0]["linha"], 3)  # âncora: linha da retomada
+        # 400s (< 900) NÃO corta — u4 fica no trecho 2
+        self.assertEqual(len(trechos[1]["vozes"]), 2)
+        self.assertEqual(trechos[0]["trecho_id"], f"tre-{SID[:8]}-L1")
+
+    def test_marcador_de_voz_literal_do_operador(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "w2"
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "bom dia, retomando o trabalho no projeto", "u1"),
+            e_user(60, "vamos continuar a atividade 1. a atividade 2 ta "
+                       "superada", "u2"),
+            e_user(120, "então bora nessa parte agora", "u3"),
+        ])
+        s = _sa(caminho, "hostX")
+        trechos, cortes = segmentar(s)
+        self.assertEqual(len(trechos), 2)
+        self.assertEqual(cortes[0]["sinal"], "marcador-de-voz")
+        self.assertEqual(cortes[0]["linha"], 2)
+
+    def test_marcador_no_primeiro_turno_nao_corta(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "w3"
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "vamos continuar a atividade 1 de onde paramos", "u1"),
+            e_user(60, "seguindo aqui sem mudança nenhuma", "u2"),
+        ])
+        s = _sa(caminho, "hostX")
+        trechos, _ = segmentar(s)
+        self.assertEqual(len(trechos), 1)  # honesto: sem sinal interno
+
+    def test_cwd_sustentado_corta_e_digressao_nao(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "w4"
+        entradas = [e_user(0, "trabalhando no projeto principal", "u1")]
+        for i in range(5):
+            entradas.append(e_tool(10 + i * 10, "Bash",
+                                   {"command": "ls"}, f"ta{i}", f"aa{i}"))
+        # digressão: 2 eventos noutro cwd — NÃO corta
+        for i in range(2):
+            entradas.append(dict(
+                e_tool(70 + i * 10, "Bash", {"command": "ls"},
+                       f"td{i}", f"ad{i}"), cwd="/home/x/digressao"))
+        # mudança sustentada: 5 eventos — corta
+        for i in range(5):
+            entradas.append(dict(
+                e_tool(100 + i * 10, "Bash", {"command": "ls"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/outro"))
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        s = _sa(caminho, "hostX")
+        trechos, cortes = segmentar(s)
+        self.assertEqual(len(trechos), 2)
+        self.assertEqual(cortes[0]["sinal"], "cwd-sustentado")
+        self.assertEqual(trechos[0]["cwd"], "/home/x/proj")
+        self.assertEqual(trechos[1]["cwd"], "/home/x/outro")
+
+    def test_cwd_ambiguo_sem_completer_nao_corta(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "w5"
+        entradas = [e_user(0, "trabalhando no projeto principal", "u1"),
+                    e_tool(10, "Bash", {"command": "ls"}, "t0", "a0")]
+        for i in range(3):  # 3 eventos: ambíguo
+            entradas.append(dict(
+                e_tool(30 + i * 10, "Bash", {"command": "ls"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/outro"))
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        s = _sa(caminho, "hostX")
+        trechos, _ = segmentar(s)  # sem completer → conservador
+        self.assertEqual(len(trechos), 1)
+
+    def test_conservacao_de_tempo_exata(self):
+        work = self.tmp / "w6"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "parte um do dia começa aqui agora", "u1"),
+            e_user(200, "seguindo na parte um ainda sim", "u2"),
+            e_user(200 + 950, "voltei, parte dois do dia agora", "u3"),
+            e_user(200 + 950 + 100, "continuando na parte dois aqui", "u4"),
+            e_user(200 + 950 + 100 + 2000, "e a parte três pra fechar", "u5"),
+        ])
+        reg, proj = pipeline(work, "hostX")
+        from tools.atividades import tempo_ativo_s
+        rec = proj["segmentacao"]["por_sessao"][0]
+        self.assertGreaterEqual(rec["n_trechos"], 2)
+        self.assertAlmostEqual(rec["conservacao_s"]["delta"], 0.0, places=6)
+        # conservação em TODOS os tetos, direto nos trechos
+        import glob as _g
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        s = _sa(_g.glob(str(work / "proj" / "*.jsonl"))[0], "hostX")
+        trechos, _ = segmentar(s)
+        for cap in (300, 120, 600):
+            soma = sum(t["segundos_ativos_atribuidos"][cap] for t in trechos)
+            self.assertAlmostEqual(soma, tempo_ativo_s(s["ts_todos"], cap),
+                                   places=9, msg=f"cap {cap}")
+
+    def test_anti_inflacao_trechos_nao_sao_diversidade(self):
+        """Sessão cortada em 2 trechos NÃO tira padrão de mesma-cena."""
+        work = self.tmp / "w7"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "trabalhando na parte um de hoje", "u0"),
+            e_user(10, "ok", "u1"),
+            e_user(20, "sim", "u2"),
+            e_user(30, "vai", "u3"),
+            e_user(2000, "voltando pra outra frente agora", "u4"),
+            e_user(2010, "bora", "u5"),
+            e_user(2020, "isso", "u6"),
+            e_user(2030, "segue", "u7"),
+        ])
+        reg, proj = pipeline(work, "hostX", agora_ts=BASE + 86400)
+        self.assertEqual(
+            proj["segmentacao"]["por_sessao"][0]["n_trechos"], 2)
+        p = next(x for x in proj["padroes"]
+                 if x["forma"] == "rajada-de-turnos-curtos")
+        self.assertEqual(p["n"], 2)
+        self.assertEqual(p["diversidade"]["sessoes"], 1)
+        self.assertEqual(p["estado"], "mesma-cena")
+
+    def test_d3_nao_conta_em_dobro_atraves_do_corte(self):
+        work = self.tmp / "w8"
+        entradas = [e_user(0, "monitorando o processo em duas levas", "u1")]
+        for i in range(3):
+            entradas.append(e_tool(10 + i * 60, "Bash",
+                                   {"command": "pgrep -f beat"},
+                                   f"ta{i}", f"aa{i}"))
+        for i in range(3):
+            entradas.append(e_tool(1200 + i * 60, "Bash",
+                                   {"command": "pgrep -f beat"},
+                                   f"tb{i}", f"ab{i}"))
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        reg, proj = pipeline(work, "hostX")
+        self.assertEqual(
+            proj["segmentacao"]["por_sessao"][0]["n_trechos"], 2)
+        d3 = [r for r in reg.nivel(2)
+              if r["forma"] == "leituras-repetidas-de-estado-externo"]
+        self.assertEqual(len(d3), 2)  # um grupo por trecho, nunca fundidos
+        self.assertEqual({r["params"]["n_repeticoes"] for r in d3}, {3})
+        for r in d3:
+            self.assertEqual(len(r["trechos"]), 1)
+
+    def test_trechos_da_mesma_sessao_clusterizam_por_cwd(self):
+        """Paper-shape: latex + outro cwd na MESMA sessão → 2 Atividades."""
+        work = self.tmp / "w9"
+        entradas = [e_user(0, "escrevendo o artigo no latex agora", "u1")]
+        for i in range(5):
+            entradas.append(dict(
+                e_tool(10 + i * 10, "Bash", {"command": "ls"},
+                       f"ta{i}", f"aa{i}"), cwd="/home/x/latex"))
+        entradas.append(dict(
+            e_user(100, "agora vamos rodar os experimentos", "u2"),
+            cwd="/home/x/exp"))
+        for i in range(5):
+            entradas.append(dict(
+                e_tool(110 + i * 10, "Bash", {"command": "ls"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/exp"))
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        reg, proj = pipeline(work, "hostX")
+        self.assertEqual(len(proj["atividades"]), 2)
+        cwds = {a["cwd"] for a in proj["atividades"]}
+        self.assertEqual(cwds, {"/home/x/latex", "/home/x/exp"})
+        for a in proj["atividades"]:
+            self.assertEqual(a["session_ids"], [SID])
+
+
 class TestCwdModal(Base):
     def test_cwd_e_o_modal_nao_o_ultimo(self):
         """Finding R1 #18: sessão que muda de diretório fica com o cwd MODAL."""

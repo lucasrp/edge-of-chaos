@@ -70,6 +70,38 @@ PADRAO_DORMENTE_DIAS = 14
 # ou com tool calls no meio não é adjacência DAMSL
 ANTECEDENTE_EXPIRA_S = 300.0
 
+# ---------------------------------------------------------------------------
+# R5: TRECHO — o grão de afiliação ("a sessão pode ter várias atividades").
+# Sessão = contêiner físico; trecho = [ts_start, ts_end) de eventos dentro
+# dela; Atividade = cluster de TRECHOS cross-sessão/host. Cortes MECÂNICOS
+# primeiro, versionados; LLM só arbitra corte AMBÍGUO dentro do orçamento.
+# ---------------------------------------------------------------------------
+SEGMENT_VERSION = "seg-v1.0"
+# dig-5 B: 15 min é o corte de retomada consolidado em logs de desenvolvedor
+# (Parnin & Rugaber ICPC 2009/11 ≥15min; Sanchez/Cruz 15min, café ~12min;
+# Meyer TSE 2017 15min; Astromskis ~14min). Gaps <5min são "pensar" (Xia TSE
+# 2018, Minelli); a convenção web de 30min é o erro barato (Catledge&Pitkow).
+# Declarado na UI como o teto de 300s do min_ativos.
+GAP_CORTE_S = 900.0
+# dig-5 A: over-segmentation é o modo default de falha (TextTiling BOR≈1.9-2×
+# o gold; Coen 2025) → limiar conservador (estilo HC de Hearst): só corta em
+# mudança de cwd SUSTENTADA. N=5 ≈ metade do fragmento de atividade de
+# Kevic & Fritz (ICSME 2017, ~8.7 elementos) — digressão de 1-2 eventos não
+# corta.
+N_CWD_SUSTENTADO = 5
+N_CWD_AMBIGUO = 3  # [3,5) eventos no cwd novo = candidato AMBÍGUO (LLM arbitra)
+# marcadores explícitos de fronteira na VOZ — lexicon FECHADO e versionado;
+# inclui a forma literal do operador ("vamos continuar a atividade 1. a
+# atividade 2 ta superada", 03/08)
+_RX_MARCADOR_FRONTEIRA = re.compile(
+    r"(?i)(?:^(?:agora vamos\b|vamos (?:continuar|voltar|para|pra)\b|"
+    r"mudando (?:de|para|pra)\b|voltando (?:ao|à|a |para|pra)\b|"
+    r"pr[oó]ximo assunto\b|outra coisa[:,]|mudar de assunto\b|"
+    r"fechando (?:a|o)\b|encerrando\b|nova atividade\b)"
+    r"|\batividade \d+\b"
+    r"|\batividade \d+ (?:ta|tá|est[aá]) (?:superada|encerrada|fechada|"
+    r"conclu[ií]da)\b)")
+
 THRESHOLDS = {
     "resposta-curta-seguida-de-acao": {"max_chars_voz": 6, "janela_s": 120},
     "pergunta-explicacao-resposta-curta": {
@@ -650,6 +682,11 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
     pendentes = {}  # tool_use_id -> (n1, classe)
     cwd, uuids_vistos, linhas_puladas = "", set(), 0
     cwds = Counter()          # cwd MODAL, não o último (finding R1 #18)
+    fluxo = []                # R5: stream transiente (ts, linha, cwd) dos
+    #                           eventos main-chain — insumo da segmentação;
+    #                           nunca persistido
+    ts_linhas = []            # R5: (ts, linha) de TODA linha main com ts —
+    #                           detecção de gap ancorável em linha
     cabecas_brutas = {}       # R4 item 2: chave de agrupamento D3 vem do
     #                           comando NÃO-redigido; só a cabeça redigida
     #                           persiste (este dict é transiente, nunca sai
@@ -702,6 +739,7 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
             ts = _parse_ts(e.get("timestamp"))
             if ts is not None:
                 ts_todos.append(ts)
+                ts_linhas.append((ts, linha_n))
             cwd = e.get("cwd") or cwd
             if e.get("cwd"):
                 cwds[e["cwd"]] += 1
@@ -721,6 +759,7 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                     ev["conteudo_redigido"] = {"texto": texto_red,
                                                "chars": len(texto.strip())}
                     eventos.append(ev)
+                    fluxo.append((ts, linha_n, cwd))
                     tem_antecedente = (
                         assistant_texto_pendente is not None
                         and 0 <= ts - assistant_texto_pendente
@@ -802,6 +841,7 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                         ts, eh_side, [(t, x, a) for t, x, _, _, a in vozes])
                     eventos.append(ev)
                     if not eh_side:
+                        fluxo.append((ts, linha_n, cwd))
                         # R4 item 3: tool_call intermediário consome a
                         # adjacência proposta→aceite
                         assistant_texto_pendente = None
@@ -826,12 +866,175 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
             "assistant_turnos": assistant_turnos, "ts_todos": sorted(ts_todos),
             "abertura": abertura, "linhas_puladas": linhas_puladas,
             "turnos_protocolo": turnos_protocolo,
-            "cabecas_brutas": cabecas_brutas}
+            "cabecas_brutas": cabecas_brutas, "fluxo": fluxo,
+            "ts_linhas": ts_linhas}
 
 
 def tempo_ativo_s(ts_list, cap):
     ts = sorted(t for t in ts_list if t is not None)
     return sum(min(b - a, cap) for a, b in zip(ts, ts[1:]))
+
+
+def tempo_ativo_atribuido_s(ts_sessao, ts_ini, ts_fim, cap):
+    """R5 (conservação de tempo): cada gap pertence ao trecho onde COMEÇA
+    (t_i ∈ [ts_ini, ts_fim)), com o mesmo teto — a soma sobre os trechos de
+    uma sessão é EXATAMENTE o cômputo da sessão inteira."""
+    ts = sorted(t for t in ts_sessao if t is not None)
+    total = 0.0
+    for a, b in zip(ts, ts[1:]):
+        if a >= ts_ini and (ts_fim is None or a < ts_fim):
+            total += min(b - a, cap)
+    return total
+
+
+# ---------------------------------------------------------------------------
+# R5 — segmentação da sessão em TRECHOS (cortes mecânicos primeiro,
+# versionados; LLM só arbitra candidato AMBÍGUO). Sobre-segmentar é o modo
+# default de falha (dig-5 A) — na dúvida, NÃO corta; 1 trecho/sessão é
+# resultado honesto.
+# ---------------------------------------------------------------------------
+
+def _runs_de_cwd(fluxo):
+    """Compressão do fluxo em runs de cwd igual (cwd vazio herda o anterior)."""
+    runs = []
+    for i, (ts, linha, cwd) in enumerate(fluxo):
+        c = cwd or (runs[-1][0] if runs else "")
+        if runs and runs[-1][0] == c:
+            runs[-1][2] += 1
+        else:
+            runs.append([c, i, 1])
+    return runs  # [cwd, idx_inicial_no_fluxo, n_eventos]
+
+
+def segmentar(sessao, complete_fn=None, orcamento=None):
+    """Sessão → lista de trechos (dicts com a mesma forma de uma sessão,
+    para _touch/clusterizar). Sinais de corte, nesta ordem de varredura:
+
+    1. gap de inatividade > GAP_CORTE_S (dig-5 B: 15 min, Parnin/Sanchez/
+       Meyer), medido sobre TODOS os timestamps main-chain (assistant
+       trabalhando não é inatividade); âncora = linha onde a sessão retoma;
+    2. marcador explícito de fronteira na voz (lexicon fechado
+       _RX_MARCADOR_FRONTEIRA, versionado em SEGMENT_VERSION);
+    3. mudança de cwd SUSTENTADA (≥N_CWD_SUSTENTADO eventos — dig-5 A:
+       limiar conservador estilo HC); [N_CWD_AMBIGUO, N_CWD_SUSTENTADO) é
+       candidato AMBÍGUO: LLM arbitra dentro do orçamento; sem completer →
+       NÃO corta (declarado).
+
+    Reentrada em atividade anterior abre trecho NOVO que clusteriza de volta
+    à mesma Atividade (dig-5 C: XES concept:instance / ativações do Mylyn —
+    id estável na tarefa, não no intervalo; contiguidade define o segmento).
+    """
+    fluxo = sorted(sessao.get("fluxo") or [], key=lambda x: x[0])
+    ts_todos = sessao["ts_todos"]
+    cortes = []
+
+    # 1. gap — sobre ts_linhas (todas as linhas main com ts)
+    ts_linhas = sorted(sessao.get("ts_linhas") or [], key=lambda x: x[0])
+    for (t1, _l1), (t2, l2) in zip(ts_linhas, ts_linhas[1:]):
+        if t2 - t1 > GAP_CORTE_S:
+            cortes.append({"ts": t2, "linha": l2, "sinal": "gap",
+                           "detalhe": f"inatividade {t2 - t1:.0f}s > "
+                                      f"{GAP_CORTE_S:.0f}s"})
+
+    # 2. marcador de voz (nunca no primeiro turno da sessão)
+    for i, (ts, texto, _vid, linha, _a) in enumerate(sessao["vozes"]):
+        if i == 0 or ts is None:
+            continue
+        m = _RX_MARCADOR_FRONTEIRA.search(texto[:200])
+        if m:
+            cortes.append({"ts": ts, "linha": linha,
+                           "sinal": "marcador-de-voz",
+                           "detalhe": redigir(m.group(0), entropia=True)[:60]})
+
+    # 3. cwd sustentado (runs; digressão curta não corta)
+    runs = _runs_de_cwd(fluxo)
+    if runs:
+        base = runs[0][0]
+        for cwd, idx, n in runs[1:]:
+            if cwd == base or not cwd:
+                continue
+            ts_c, linha_c, _ = fluxo[idx]
+            if n >= N_CWD_SUSTENTADO:
+                cortes.append({"ts": ts_c, "linha": linha_c,
+                               "sinal": "cwd-sustentado",
+                               "detalhe": f"{n} eventos em {cwd}"})
+                base = cwd
+            elif n >= N_CWD_AMBIGUO and complete_fn and orcamento \
+                    and orcamento.permitir("segmentar-arbitrar"):
+                try:
+                    resp = complete_fn(
+                        "Num log de trabalho, o diretório mudou de "
+                        f"'{base}' para '{cwd}' por {n} eventos "
+                        "consecutivos. Isso é o início de uma atividade "
+                        "DISTINTA ou uma digressão da mesma atividade? "
+                        "Responda exatamente DISTINTA ou DIGRESSAO.")
+                except Exception:
+                    resp = ""
+                if "DISTINTA" in (resp or "").upper():
+                    cortes.append({"ts": ts_c, "linha": linha_c,
+                                   "sinal": "cwd-ambiguo-arbitrado-llm",
+                                   "detalhe": f"{n} eventos em {cwd}"})
+                    base = cwd
+            # senão: candidato ambíguo sem completer → NÃO corta (dig-5 A)
+
+    # consolidar: ordenar, dedupe por ts, descartar corte no início
+    t0 = ts_todos[0] if ts_todos else None
+    vistos, cortes_finais = set(), []
+    for c in sorted(cortes, key=lambda c: (c["ts"], c["linha"])):
+        if t0 is None or c["ts"] <= t0:
+            continue
+        if c["ts"] in vistos:
+            continue
+        vistos.add(c["ts"])
+        cortes_finais.append(dict(c, segment_version=SEGMENT_VERSION))
+
+    # montar trechos [b_i, b_{i+1})
+    bordas = [t0] + [c["ts"] for c in cortes_finais] + [None]
+    trechos = []
+    for k in range(len(bordas) - 1):
+        ini, fim = bordas[k], bordas[k + 1]
+        if ini is None:
+            continue
+
+        def _dentro(ts):
+            return ts is not None and ts >= ini and (fim is None or ts < fim)
+
+        evs = [e for e in sessao["eventos"] if _dentro(_parse_ts(e["ts"]))]
+        vzs = [v for v in sessao["vozes"] if _dentro(v[0])]
+        fl = [f for f in fluxo if _dentro(f[0])]
+        linha_start = (min(f[1] for f in fl) if fl
+                       else (cortes_finais[k - 1]["linha"] if k > 0 else 1))
+        abertura = next((redigir(t, entropia=True)[:200]
+                         for _, t, _, _, _ in vzs if len(t) >= 8), "")
+        if not abertura and vzs:
+            abertura = redigir(vzs[0][1], entropia=True)[:200]
+        if not abertura:
+            abertura = sessao["abertura"]
+        cwds_t = Counter(c for _, _, c in fl if c)
+        trechos.append({
+            "trecho_id": f"tre-{sessao['session_id'][:8]}-L{linha_start}",
+            "segment_version": SEGMENT_VERSION,
+            "session_id": sessao["session_id"], "host": sessao["host"],
+            "arquivo": sessao["arquivo"], "sha1": sessao["sha1"],
+            "sidechain": False,
+            "cwd": (cwds_t.most_common(1)[0][0] if cwds_t
+                    else sessao["cwd"]),
+            "corte": cortes_finais[k - 1] if k > 0 else None,
+            "eventos": evs, "vozes": vzs,
+            "assistant_turnos": [a for a in sessao["assistant_turnos"]
+                                 if _dentro(a["ts"])],
+            "ts_todos": [t for t in ts_todos if _dentro(t)],
+            "abertura": abertura,
+            "span": {"ts_start": _iso(ini),
+                     "ts_end": _iso(fim) if fim is not None else None,
+                     "linha_start": linha_start},
+            # segundos SEM arredondar — a conservação (Σ trechos == sessão)
+            # é exata; arredondamento só na renderização
+            "segundos_ativos_atribuidos": {
+                int(cap): tempo_ativo_atribuido_s(ts_todos, ini, fim, cap)
+                for cap in (MIN_ATIVOS_CAP_S,) + MIN_ATIVOS_SENSIBILIDADE_S},
+        })
+    return trechos, cortes_finais
 
 
 # ---------------------------------------------------------------------------
@@ -860,6 +1063,18 @@ def _eh_acao_escrita(ev):
         return False
     c = ev["conteudo_redigido"]
     return c.get("classe") in ("escrita", "commit")
+
+
+def _trecho_de(sessao, ts):
+    """trecho_id do timestamp dentro da sessão (None sem segmentação)."""
+    for tr in sessao.get("trechos") or []:
+        ini = _parse_ts(tr["span"]["ts_start"])
+        fim = (_parse_ts(tr["span"]["ts_end"])
+               if tr["span"]["ts_end"] else None)
+        if ts is not None and ini is not None and ts >= ini \
+                and (fim is None or ts < fim):
+            return tr["trecho_id"]
+    return None
 
 
 def detectar_sessao(sessao, reg):
@@ -915,9 +1130,12 @@ def detectar_sessao(sessao, reg):
         if c.get("tool") == "Bash" and c.get("classe") == "leitura" \
                 and c.get("comando_cabeca") and not c.get("sidechain"):
             # R4 item 2: agrupar pela cabeça BRUTA (transiente) — a redação
-            # (***) fundia cabeças distintas num grupo fabricado
-            por_cabeca[brutas.get(ac["id"], c["comando_cabeca"])].append(ac)
-    for cabeca, lst in por_cabeca.items():
+            # (***) fundia cabeças distintas num grupo fabricado.
+            # R5: a chave inclui o TRECHO — grupo nunca cruza um corte
+            # (não conta em dobro através da fronteira)
+            por_cabeca[(brutas.get(ac["id"], c["comando_cabeca"]),
+                        _trecho_de(sessao, _parse_ts(ac["ts"])))].append(ac)
+    for (cabeca, _trecho), lst in por_cabeca.items():
         i = 0
         while i < len(lst):
             j = i
@@ -949,19 +1167,23 @@ def detectar_sessao(sessao, reg):
                 {"de": _iso(vozes[-1][0]), "ate": _iso(ultimo["ts"])}))
 
     # D6 rajada-de-turnos-curtos — SEM turnos interrogativos (finding R1 #16:
-    # rajada de perguntas curtas sobrepunha D2 nos mesmos turnos)
+    # rajada de perguntas curtas sobrepunha D2 nos mesmos turnos); R5: a
+    # janela não cruza um corte de trecho
     p = th["rajada-de-turnos-curtos"]
-    curtos = [(ts, vid) for ts, t, vid, _, _ in vozes
+    curtos = [(ts, vid, _trecho_de(sessao, ts)) for ts, t, vid, _, _ in vozes
               if 0 < len(t) <= p["max_chars"]
               and not t.rstrip().endswith("?")]
     i = 0
     while i < len(curtos):
         j = i
-        while j + 1 < len(curtos) and curtos[j + 1][0] - curtos[i][0] <= p["janela_s"]:
+        while j + 1 < len(curtos) \
+                and curtos[j + 1][0] - curtos[i][0] <= p["janela_s"] \
+                and curtos[j + 1][2] == curtos[i][2]:
             j += 1
         if j - i + 1 >= p["min_turnos"]:
             out.append(_mk_n2(
-                reg, "rajada-de-turnos-curtos", [v for _, v in curtos[i:j + 1]],
+                reg, "rajada-de-turnos-curtos",
+                [v for _, v, _ in curtos[i:j + 1]],
                 {"n_turnos": j - i + 1},
                 {"de": _iso(curtos[i][0]), "ate": _iso(curtos[j][0])}))
         i = j + 1
@@ -1006,6 +1228,11 @@ def detectar_cross_sessao(sessoes, reg):
 # ---------------------------------------------------------------------------
 
 def _touch(sessao):
+    """Touch de um trecho (R5) ou de uma sessão inteira (fallback legado).
+
+    Trecho traz `segundos_ativos_atribuidos` (gap pertence ao trecho onde
+    começa — conservação exata); sessão sem segmentação cai no cômputo
+    clássico sobre ts_todos."""
     evs = sessao["eventos"]
     voz = [e for e in evs if e["kind"] == "voz-turno"]
     acao = [e for e in evs if e["kind"] != "voz-turno"]
@@ -1016,23 +1243,37 @@ def _touch(sessao):
     arquivos = Counter(a for e in acao
                        for a in e["conteudo_redigido"].get("arquivos", []))
     commits = [e["conteudo_redigido"]["hash"] for e in evs if e["kind"] == "commit"]
-    sens = {f"cap_{int(c)}s": round(tempo_ativo_s(ts, c) / 60, 1)
-            for c in MIN_ATIVOS_SENSIBILIDADE_S}
-    return {
+    seg = sessao.get("segundos_ativos_atribuidos")
+    if seg:
+        minutos = round(seg[int(MIN_ATIVOS_CAP_S)] / 60, 1)
+        sens = {f"cap_{int(c)}s": round(seg[int(c)] / 60, 1)
+                for c in MIN_ATIVOS_SENSIBILIDADE_S}
+        base = ("gaps atribuídos ao trecho onde começam (conservação: soma "
+                "dos trechos == sessão), teto idem")
+    else:
+        minutos = round(tempo_ativo_s(ts, MIN_ATIVOS_CAP_S) / 60, 1)
+        sens = {f"cap_{int(c)}s": round(tempo_ativo_s(ts, c) / 60, 1)
+                for c in MIN_ATIVOS_SENSIBILIDADE_S}
+        base = "gaps entre timestamps consecutivos do transcript principal"
+    t = {
         "session_id": sessao["session_id"], "host": sessao["host"],
         "arquivo": sessao["arquivo"],
         "ts_start": _iso(ts[0]) if ts else None,
         "ts_end": _iso(ts[-1]) if ts else None,
         "min_ativos": {
-            "cap_s": int(MIN_ATIVOS_CAP_S),
-            "minutos": round(tempo_ativo_s(ts, MIN_ATIVOS_CAP_S) / 60, 1),
-            "sensibilidade": sens,
-            "base": "gaps entre timestamps consecutivos do transcript principal"},
+            "cap_s": int(MIN_ATIVOS_CAP_S), "minutos": minutos,
+            "sensibilidade": sens, "base": base},
         "n_eventos_voz": len(voz), "n_eventos_acao": len(acao),
         "n_eventos_acao_sidechain": len(side),
         "top_ferramentas": ferramentas.most_common(5),
         "top_arquivos": [(redigir(a), n) for a, n in arquivos.most_common(5)],
         "commits": commits}
+    if sessao.get("trecho_id"):
+        t["trecho_id"] = sessao["trecho_id"]
+        t["segment_version"] = sessao.get("segment_version")
+        t["span"] = sessao.get("span")
+        t["corte"] = sessao.get("corte")
+    return t
 
 
 # NEW-7: adjetivos de juízo/caráter proibidos em nome de Atividade — nome
@@ -1128,7 +1369,11 @@ def clusterizar(sessoes, complete_fn=None, orcamento=None):
             "hosts": sorted({s["host"] for s in ss}),
             "cwd": chave, "cluster_version": CLUSTER_VERSION,
             "sessions": touches,
-            "session_ids": [s["session_id"] for s in ss]})
+            # R5: afiliação por TRECHO; sessões DISTINTAS continuam sendo o
+            # grão de diversidade (anti-inflação)
+            "session_ids": sorted({s["session_id"] for s in ss}),
+            "trecho_ids": [s.get("trecho_id") for s in ss
+                           if s.get("trecho_id")]})
     return atividades, log
 
 
@@ -1854,10 +2099,40 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
     for s in sessoes:
         for ev in s["eventos"]:
             reg.add(ev)
+
+    # R5: segmentar ANTES da detecção (D3/D6 respeitam fronteiras de trecho)
+    todos_trechos, seg_recibos = [], []
+    for s in sessoes:
+        trechos, cortes = segmentar(s, complete_fn, orc)
+        s["trechos"] = trechos
+        todos_trechos.extend(trechos)
+        soma_s = sum(t["segundos_ativos_atribuidos"][int(MIN_ATIVOS_CAP_S)]
+                     for t in trechos)
+        sessao_s = tempo_ativo_s(s["ts_todos"], MIN_ATIVOS_CAP_S)
+        seg_recibos.append({
+            "session_id": s["session_id"], "arquivo": s["arquivo"],
+            "n_trechos": len(trechos),
+            "cortes": cortes,
+            "conservacao_s": {"soma_trechos": round(soma_s, 3),
+                              "sessao": round(sessao_s, 3),
+                              "delta": round(soma_s - sessao_s, 6)}})
+
     n2s = []
     for s in sessoes:
         n2s.extend(detectar_sessao(s, reg))
     n2s.extend(detectar_cross_sessao(sessoes, reg))
+    # R5: N2 ganha refs de trecho (âncoras N1 intactas; ids N2 idem)
+    spans_por_sessao = {s["session_id"]: s for s in sessoes}
+    for n2 in reg.nivel(2):
+        trs = set()
+        for iid in n2["instancias"]:
+            n1 = reg.by_id[iid]
+            s = spans_por_sessao.get(n1["session_id"])
+            if s:
+                tid = _trecho_de(s, _parse_ts(n1["ts"]))
+                if tid:
+                    trs.add(tid)
+        n2["trechos"] = sorted(trs)
 
     degradacoes = []
     if complete_fn is None:
@@ -1878,7 +2153,7 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
             degradacoes.append(
                 "formas sem selo `confiavel` no estágio 0 — N3/N4 NÃO "
                 f"gerados para: {', '.join(reprovadas)}")
-    atividades, cluster_log = clusterizar(sessoes, complete_fn, orc)
+    atividades, cluster_log = clusterizar(todos_trechos, complete_fn, orc)
     if complete_fn is not None and formas_confiaveis:
         inferir_n3(reg, complete_fn, orc, model=model,
                    formas_permitidas=formas_confiaveis,
@@ -1898,14 +2173,23 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
     cobertura = montar_cobertura([host], len(sessoes), puladas, janela)
     padroes, formas_sem_instancias = fold_padroes(reg, agora_ts, cobertura)
 
-    # índice N2 por sessão → atividade
+    # índice N2 por TRECHO → atividade (R5); fallback por sessão para N2
+    # sem refs de trecho
+    n2_por_trecho = defaultdict(list)
     n2_por_sessao = defaultdict(list)
     for n2 in reg.nivel(2):
-        for sid in n2["sessoes"]:
-            n2_por_sessao[sid].append(n2["id"])
+        if n2.get("trechos"):
+            for tid in n2["trechos"]:
+                n2_por_trecho[tid].append(n2["id"])
+        else:
+            for sid in n2["sessoes"]:
+                n2_por_sessao[sid].append(n2["id"])
     for atv in atividades:
-        atv["n2_ids"] = sorted({i for sid in atv["session_ids"]
-                                for i in n2_por_sessao.get(sid, [])})
+        ids = {i for tid in atv.get("trecho_ids", [])
+               for i in n2_por_trecho.get(tid, [])}
+        ids |= {i for sid in atv["session_ids"]
+                for i in n2_por_sessao.get(sid, [])}
+        atv["n2_ids"] = sorted(ids)
         voz = sum(t["n_eventos_voz"] for t in atv["sessions"])
         aca_total = sum(t["n_eventos_acao"] for t in atv["sessions"])
         aca_side = sum(t["n_eventos_acao_sidechain"] for t in atv["sessions"])
@@ -1922,6 +2206,17 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
         "gerado_em": datetime.now(tz=timezone.utc).isoformat(),
         "cluster_version": CLUSTER_VERSION,
         "detector_version": DETECTOR_VERSION,
+        "segmentacao": {
+            "segment_version": SEGMENT_VERSION,
+            "gap_corte_s": GAP_CORTE_S,
+            "n_cwd_sustentado": N_CWD_SUSTENTADO,
+            "n_cwd_ambiguo": N_CWD_AMBIGUO,
+            "marcadores_lexicon": _RX_MARCADOR_FRONTEIRA.pattern,
+            "por_sessao": seg_recibos,
+            "nota": "cortes mecânicos primeiro (gap 900s=15min dig-5 B; cwd "
+                    "sustentado ≥5 eventos dig-5 A; marcador de voz de "
+                    "lexicon fechado); LLM só arbitra candidato ambíguo; "
+                    "1 trecho/sessão sem sinal é resultado honesto"},
         "thresholds": THRESHOLDS,
         "cobertura": cobertura,
         "degradacoes": degradacoes,
@@ -2046,6 +2341,31 @@ def render_report(reg, projecao, eval_estagio0=None):
         H.append(f"<p>Redaction: {r['marcas_no_estado']} marcas "
                  f"<code>***</code> no estado persistido — {_esc(r['nota'])}."
                  f"</p>")
+    # R5: recibos de segmentação — cada corte ancorado (arquivo+linha) para
+    # conferência contra o jsonl cru; conservação de tempo declarada
+    seg = projecao.get("segmentacao")
+    if seg:
+        H.append(f"<p>Segmentação <code>{_esc(seg['segment_version'])}</code>"
+                 f": gap &gt; {seg['gap_corte_s']:.0f}s (15 min, prática de "
+                 f"logs de desenvolvedor) · cwd sustentado ≥ "
+                 f"{seg['n_cwd_sustentado']} eventos · marcadores de voz de "
+                 f"lexicon fechado · sem sinal → 1 trecho (honesto).</p>")
+        H.append("<ul>")
+        for r in seg.get("por_sessao", []):
+            cons = r["conservacao_s"]
+            H.append(f"<li><code>{_esc(r['session_id'][:8])}</code>: "
+                     f"{r['n_trechos']} trecho(s); conservação "
+                     f"Σtrechos {cons['soma_trechos']}s = sessão "
+                     f"{cons['sessao']}s (Δ {cons['delta']}s)")
+            if r["cortes"]:
+                H.append("<ul>" + "".join(
+                    f"<li>corte <b>{_esc(c['sinal'])}</b> em "
+                    f"<span class='anc'>{_esc(r['arquivo'])}:{c['linha']}"
+                    f"</span> ({_esc(str(c.get('detalhe', ''))[:80])})</li>"
+                    for c in r["cortes"]) + "</ul>")
+            H.append("</li>")
+        H.append("</ul>")
+
     # finding R1 #11: "rodou, 0 hits" ≠ "não rodou" — distinção explícita
     fsi = projecao.get("formas_sem_instancias") or []
     if fsi:
@@ -2068,14 +2388,20 @@ def render_report(reg, projecao, eval_estagio0=None):
                  f"(+{va.get('acao_delegada_sidechain', 0)} ações delegadas a "
                  f"subagentes, fora da manchete) "
                  f"(unidade: {va['unidade']}; {_esc(va['nota'])})</p>")
-        H.append("<table><tr><th>sessão</th><th>início</th><th>fim</th>"
+        H.append("<table><tr><th>sessão</th><th>trecho</th><th>início</th>"
+                 "<th>fim</th>"
                  "<th>min ativos (teto 300s)</th><th>sens. 120/600s</th>"
                  "<th>voz</th><th>ação</th><th>commits</th></tr>")
         for t in atv["sessions"]:
             ma = t["min_ativos"]
             sens = ma["sensibilidade"]
+            corte = t.get("corte")
+            tr_lbl = (t.get("trecho_id", "—") or "—")
+            if corte:
+                tr_lbl += f" ({corte['sinal']})"
             H.append(
                 f"<tr><td><code>{_esc(t['session_id'][:8])}</code></td>"
+                f"<td><code>{_esc(tr_lbl)}</code></td>"
                 f"<td>{_esc((t['ts_start'] or '')[:16])}</td>"
                 f"<td>{_esc((t['ts_end'] or '')[:16])}</td>"
                 f"<td>{ma['minutos']}</td>"
