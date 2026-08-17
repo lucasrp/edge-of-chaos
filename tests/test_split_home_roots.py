@@ -50,6 +50,86 @@ class SplitHomeConfigRoots(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout.strip(), str(Path(tmp) / "blog" / "entries"))
 
+    def test_runtime_override_moves_outputs_but_not_install_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install = root / "install"
+            runtime = root / "runtime"
+            install.mkdir()
+            runtime.mkdir()
+            (install / "agent.yaml").write_text(
+                "name: split\nedge_home: " + str(install) + "\n", encoding="utf-8"
+            )
+            code = (
+                "import sys; sys.path.insert(0, 'tools'); "
+                "import _identity, eventlog, publisher; "
+                "print(_identity.state_root()); print(_identity.runtime_root()); "
+                "print(eventlog.LOG); print(publisher.BLOG_DIR)"
+            )
+            r = _run(code, {
+                "EDGE_HOME": str(install),
+                "EDGE_RUNTIME_ROOT": str(runtime),
+            })
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout.splitlines(), [
+                str(install),
+                str(runtime),
+                str(runtime / "state" / "events" / "log.jsonl"),
+                str(runtime / "blog" / "entries"),
+            ])
+
+    def test_mutable_module_defaults_follow_runtime_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            install = root / "install"
+            runtime = root / "runtime"
+            install.mkdir()
+            runtime.mkdir()
+            (install / "agent.yaml").write_text(
+                "name: split\nedge_home: " + str(install) + "\n", encoding="utf-8"
+            )
+            code = (
+                "import sys; sys.path.insert(0, 'tools'); "
+                "import briefing, harvest, md_to_mem, sources, sweep; "
+                "print(briefing.STATE); print(harvest.CURSORS); print(md_to_mem.DOCS_DIR); "
+                "print(sources.ROADMAP); print(sweep.CURSORS)"
+            )
+            r = _run(code, {
+                "EDGE_HOME": str(install),
+                "EDGE_RUNTIME_ROOT": str(runtime),
+            })
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout.splitlines(), [
+                str(runtime / "state"),
+                str(runtime / "state" / "harvest-cursors.json"),
+                str(runtime / "state" / "docs"),
+                str(runtime / "state" / "source-roadmap.md"),
+                str(runtime / "state" / "cursors.json"),
+            ])
+
+    def test_unset_runtime_override_is_legacy_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            install = Path(tmp)
+            (install / "agent.yaml").write_text(
+                "name: legacy\nedge_home: " + str(install) + "\n", encoding="utf-8"
+            )
+            r = _run(
+                "import sys; sys.path.insert(0, 'tools'); import _identity; "
+                "print(_identity.state_root()); print(_identity.runtime_root())",
+                {"EDGE_HOME": str(install), "EDGE_RUNTIME_ROOT": ""},
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout.splitlines(), [str(install), str(install)])
+
+    def test_relative_runtime_override_fails_loud(self):
+        r = _run(
+            "import sys; sys.path.insert(0, 'tools'); import _identity; "
+            "print(_identity.runtime_root())",
+            {"EDGE_RUNTIME_ROOT": "relative/runtime"},
+        )
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("must be an absolute path", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

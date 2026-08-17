@@ -43,7 +43,7 @@ def render_model():
 
 def idiom():
     import _identity as _id_state
-    p = _id_state.state_root() / "state" / "idiom.md"
+    p = _id_state.runtime_root() / "state" / "idiom.md"
     return p.read_text() if p.exists() else "(no Idiom standing page yet)"
 
 
@@ -260,5 +260,5 @@ def main(group, out_dir, style):
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else _identity.require_group(),
-         sys.argv[2] if len(sys.argv) > 2 else str(__import__("_identity").state_root() / "state" / "wiki"),
+         sys.argv[2] if len(sys.argv) > 2 else str(__import__("_identity").runtime_root() / "state" / "wiki"),
          sys.argv[3] if len(sys.argv) > 3 else "threads")

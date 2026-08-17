@@ -117,6 +117,12 @@ def cmd_finish(args) -> int:
             heartbeat_interval=args.heartbeat_interval,
             sources=sources,
             language=args.language,
+            project_dir=args.project_dir,
+            surface_homes={k: v for k, v in {
+                "codex": args.codex_home,
+                "grok": args.grok_home,
+                "hermes": args.hermes_home,
+            }.items() if v},
         )
     except (ValueError, RuntimeError) as e:
         print(f"edge-bootstrap finish: {e}", file=sys.stderr)
@@ -172,6 +178,14 @@ def main(argv=None) -> int:
     f.add_argument("--language", default=None,
                    help="operator's session language (e.g. pt-BR) — mirrored during the "
                         "rite, landed in the phenotype; default en")
+    f.add_argument("--project-dir", default=None,
+                   help="confirmed Claude projects store (notably the Windows path under WSL)")
+    f.add_argument("--codex-home", default=None,
+                   help="confirmed Codex harness home (notably the Windows path under WSL)")
+    f.add_argument("--grok-home", default=None,
+                   help="confirmed Grok harness home (notably the Windows path under WSL)")
+    f.add_argument("--hermes-home", default=None,
+                   help="confirmed Hermes harness home when its sessions live outside Linux HOME")
 
     args = ap.parse_args(argv)
     if args.cmd == "finish":

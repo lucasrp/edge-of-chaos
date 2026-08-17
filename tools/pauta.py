@@ -31,9 +31,12 @@ CLI (a porta do beat)::
     tools/edge-python tools/pauta.py status [--seq N]
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import random
 import sys
+import time
 from pathlib import Path
 
 import eventlog
@@ -387,7 +390,7 @@ def _batch_cut(completer, items, instrucao, context):
 
 
 def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text="",
-              n=N_SHORTLIST):
+              n=N_SHORTLIST, parallel_checks=False):
     """O passo 4 do funil: das ~12 sugestões (função do wake — entram como argumento,
     NUNCA pool do repo) para a shortlist A (~6 = mérito dentro do pólo + 1 slot
     estrutural de serendipidade), com os checks assinados (§3.4): substrato ·
@@ -484,29 +487,55 @@ def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text=
     # Substrato: ADVISORY (operador 2026-07-25: "o wake é insumo, não coleira" —
     # nenhuma âncora é eliminatória; a agência leu o wake; afastar-se dele é
     # julgamento, não defeito). Roda e REGISTRA no trace; nunca corta.
-    _sub_adv = _batch_cut(completer, A, _SUBSTRATO_INSTRUCAO, "shortlist/substrato")
-    trace["substrato"] = ("advisory: " + "; ".join(str(v) for v in _sub_adv.values())
-                          if _sub_adv else "advisory: sem ressalvas")
-
-    # Filtro direction/wayfind-aberto: Direction/Wayfind não CRIAM pauta — sustentam.
+    # Depois de forma_fit, substrato (advisory) e wayfind (piso) leem exatamente o
+    # mesmo A e não dependem um do veredito do outro. Na porta CLI eles podem rodar
+    # juntos sem fundir critérios/chamadas; o fold abaixo continua na ordem assinada.
+    _wayfind_args = None
     if str(direction_text or "").strip():
-        _apply_cut(_batch_cut(
+        _wayfind_args = (
             completer, A,
             "Check direction/wayfind-aberto: estar aberto/proposto/no frontier organiza "
             "continuidade, não prova valor editorial. Reprove candidatos que SÓ "
             "re-declaram um fio aberto abaixo (sem pauta própria que a Voz sustente).\n"
             f"Fios abertos (Direction/Wayfind):\n{direction_text}",
-            "shortlist/wayfind"), "wayfind")
+            "shortlist/wayfind")
+    if parallel_checks and _wayfind_args is not None:
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="pauta-batch") as pool:
+            sub_f = pool.submit(_batch_cut, completer, A, _SUBSTRATO_INSTRUCAO,
+                                "shortlist/substrato")
+            way_f = pool.submit(_batch_cut, *_wayfind_args)
+            _sub_adv, _wayfind_cuts = sub_f.result(), way_f.result()
+    else:
+        _sub_adv = _batch_cut(completer, A, _SUBSTRATO_INSTRUCAO,
+                              "shortlist/substrato")
+        _wayfind_cuts = (_batch_cut(*_wayfind_args)
+                         if _wayfind_args is not None else None)
+    trace["substrato"] = ("advisory: " + "; ".join(str(v) for v in _sub_adv.values())
+                          if _sub_adv else "advisory: sem ressalvas")
+
+    # Filtro direction/wayfind-aberto: Direction/Wayfind não CRIAM pauta — sustentam.
+    if _wayfind_cuts is not None:
+        _apply_cut(_wayfind_cuts, "wayfind")
         trace["wayfind"] = "rodado"
     else:
         trace["wayfind"] = "nao-rodado (sem direction_text — declarado, nunca fingido)"
 
     # delta_voz roda SÓ na shortlist A (§7 custo); noop corta (pousar sem delta novo).
     if voz_recall_fn is not None:
+        if parallel_checks and len(A) > 1:
+            # Cada candidato tem recall e juiz próprios. `map` devolve na ordem de A,
+            # portanto só o tempo muda: aplicação, cortes e recibos seguem deterministas.
+            with ThreadPoolExecutor(max_workers=min(len(A), N_SHORTLIST),
+                                    thread_name_prefix="pauta-delta") as pool:
+                dvs = list(pool.map(
+                    lambda cand: delta_voz_check(cand["tema"],
+                                                 voz_recall_fn=voz_recall_fn,
+                                                 completer=completer), A))
+        else:
+            dvs = [delta_voz_check(cand["tema"], voz_recall_fn=voz_recall_fn,
+                                   completer=completer) for cand in A]
         kept = []
-        for cand in A:
-            dv = delta_voz_check(cand["tema"], voz_recall_fn=voz_recall_fn,
-                                 completer=completer)
+        for cand, dv in zip(A, dvs):
             cand["delta_voz"] = dv
             if dv.get("recall_status") == "unavailable":
                 kept.append(cand)  # rail escuro: declarado, nunca corta nem finge
@@ -531,6 +560,30 @@ def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text=
                              "é lastro (§3.5)")}
                for c in A[:N_ATERRAR]]
     return {"A": A, "cortados": cortados, "aterrar": aterrar, "trace": trace}
+
+
+def _append_dispatch_decision(event_type, payload, *, dispatch_id, log):
+    """Atomically reject pauta decisions after dispatch failure or publication."""
+    def _dispatch_is_live():
+        own = [
+            e for e in eventlog.read(
+                types=["dispatch.failed", "dispatch.resumed", "artefato.published"],
+                log=log,
+            )
+            if isinstance(e.get("payload"), dict)
+            and e["payload"].get("dispatch_id") == dispatch_id
+        ]
+        if any(e.get("type") == "artefato.published" for e in own):
+            raise RuntimeError(f"dispatch {dispatch_id!r} is already published")
+        authority = [
+            e for e in own if e.get("type") in ("dispatch.failed", "dispatch.resumed")
+        ]
+        if authority and authority[-1].get("type") == "dispatch.failed":
+            raise RuntimeError(f"dispatch {dispatch_id!r} is terminally failed")
+
+    return eventlog.append_batch(
+        [(event_type, "pauta", payload)], log=log, precondition=_dispatch_is_live
+    )[0]
 
 
 def propose(cell, candidates, *, dispatch_id, constraints=None,
@@ -591,11 +644,12 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
     if not _cell_ok(cell):
         if voz:
             raise ValueError(f"célula fora da matriz num caminho comandado: {cell!r}")
-        return eventlog.append("pauta.silencio", "pauta", {
+        return _append_dispatch_decision("pauta.silencio", {
             "objeto": (cell or {}).get("objeto") if isinstance(cell, dict) else None,
             "abordagem": (cell or {}).get("abordagem") if isinstance(cell, dict) else None,
             "dispatch_id": dispatch_id, "origem": "autonomo", "reason_kind": "processo",
-            "reason": f"célula fora da matriz: {cell!r}"}, log=log)
+            "reason": f"célula fora da matriz: {cell!r}"},
+            dispatch_id=dispatch_id, log=log)
 
     # O INGRESSO da fronteira de confiança: só material bruto entra — carimbos de
     # veredito (checks/delta_voz/...) que viajaram pelo agente morrem aqui (adv r1 #1).
@@ -623,7 +677,9 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
         }
         if "propensity" in (cell or {}):
             payload["propensity"] = cell["propensity"]  # dig round1 #4
-        return eventlog.append("pauta.proposta", "pauta", payload, log=log)
+        return _append_dispatch_decision(
+            "pauta.proposta", payload, dispatch_id=dispatch_id, log=log
+        )
 
     if voz:
         # Autoridade: nenhum juízo LLM — a palavra é PROPOSTA-ok. Winner: com tema
@@ -692,10 +748,11 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
         reason = ("sem candidatos" if not cands else
                   f"nenhum dos {len(cands)} candidatos passou o piso mecânico "
                   "(tema + forma no roster + lastro por forma; seca declarada é lastro)")
-        return eventlog.append("pauta.silencio", "pauta", {
+        return _append_dispatch_decision("pauta.silencio", {
             "objeto": cell["objeto"], "abordagem": cell["abordagem"],
             "dispatch_id": dispatch_id, "origem": "autonomo",
-            "reason_kind": "processo", "reason": reason}, log=log)
+            "reason_kind": "processo", "reason": reason},
+            dispatch_id=dispatch_id, log=log)
 
     judge = completer if completer is not None else default_completer()
     por_candidato = []
@@ -742,13 +799,13 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
         por_candidato.append({"tema": cand.get("tema"), "morreu": "gate da abordagem",
                               "criterios": gate["criterios"]})
 
-    return eventlog.append("pauta.silencio", "pauta", {
+    return _append_dispatch_decision("pauta.silencio", {
         "objeto": cell["objeto"], "abordagem": cell["abordagem"],
         "dispatch_id": dispatch_id, "origem": "autonomo",
         "reason_kind": "editorial",
         "reason": (f"nenhum dos {len(viaveis)} candidatos aterrados passou "
-                   "pisos+gate (AND — nunca rebaixa critério)"),
-        "por_candidato": por_candidato}, log=log)
+                    "pisos+gate (AND — nunca rebaixa critério)"),
+        "por_candidato": por_candidato}, dispatch_id=dispatch_id, log=log)
 
 
 def veto(dispatch_id, reason, log=eventlog.LOG):
@@ -880,6 +937,24 @@ def _cli_direction_text(arg, base=None):
     return default.read_text() if default.exists() else ""
 
 
+def _record_cli_phase(command, started, *, status, dispatch_id=None, log=eventlog.LOG,
+                      detail=None):
+    """Timing determinístico das quatro portas do Ato-1; inerte fora de dispatch."""
+    dispatch_id = dispatch_id or os.environ.get("EDGE_DISPATCH_PLAN_ID")
+    if not dispatch_id or command not in {"sortear", "catalogo", "shortlist", "propose"}:
+        return None
+    payload = {
+        "dispatch_id": dispatch_id,
+        "phase": command,
+        "status": status,
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+        "schema": "edge.pauta-phase-timing/v1",
+    }
+    if detail:
+        payload["detail"] = str(detail)[:300]
+    return eventlog.append("pauta.phase_receipt", "pauta", payload, log=log)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Pauta (Ato-1) — sorteio, proposta, dente, fold")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -907,28 +982,36 @@ def main(argv=None):
     st = sub.add_parser("status")
     st.add_argument("--seq", type=int, default=None)
     args = ap.parse_args(argv)
+    started = time.monotonic()
 
-    if args.cmd == "sortear":
-        locks = dict(kv.split("=", 1) for kv in args.lock)
-        out = sortear(locks or None)
-    elif args.cmd == "catalogo":
-        out = catalogo(json.loads(args.cell))
-    elif args.cmd == "shortlist":
-        out = shortlist(json.loads(args.cell), json.loads(args.sugestoes),
-                        completer=default_completer(),
-                        voz_recall_fn=default_voz_recall(),
-                        direction_text=_cli_direction_text(args.direction))
-    elif args.cmd == "propose":
-        out = propose(json.loads(args.cell), json.loads(args.candidates),
-                      dispatch_id=args.dispatch_id,
-                      constraints=json.loads(args.constraints),
-                      voz_recall_fn=default_voz_recall())
-    elif args.cmd == "proposta":
-        out = proposta_for(args.dispatch_id)
-    elif args.cmd == "veto":
-        out = veto(args.dispatch_id, args.reason)
-    else:
-        out = pauta_at(seq=args.seq)
+    try:
+        if args.cmd == "sortear":
+            locks = dict(kv.split("=", 1) for kv in args.lock)
+            out = sortear(locks or None)
+        elif args.cmd == "catalogo":
+            out = catalogo(json.loads(args.cell))
+        elif args.cmd == "shortlist":
+            out = shortlist(json.loads(args.cell), json.loads(args.sugestoes),
+                            completer=default_completer(),
+                            voz_recall_fn=default_voz_recall(),
+                            direction_text=_cli_direction_text(args.direction),
+                            parallel_checks=True)
+        elif args.cmd == "propose":
+            out = propose(json.loads(args.cell), json.loads(args.candidates),
+                          dispatch_id=args.dispatch_id,
+                          constraints=json.loads(args.constraints),
+                          voz_recall_fn=default_voz_recall())
+        elif args.cmd == "proposta":
+            out = proposta_for(args.dispatch_id)
+        elif args.cmd == "veto":
+            out = veto(args.dispatch_id, args.reason)
+        else:
+            out = pauta_at(seq=args.seq)
+    except BaseException as exc:
+        _record_cli_phase(args.cmd, started, status="failed", detail=exc)
+        raise
+    _record_cli_phase(args.cmd, started, status="completed",
+                      dispatch_id=getattr(args, "dispatch_id", None))
     json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
     return out

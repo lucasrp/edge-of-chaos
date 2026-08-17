@@ -148,6 +148,9 @@ def _floored_spec():
         ),
         {"type": "next-steps-grid", "items": ["step one", "step two"]},
         {"type": "callout", "text": "framing context"},
+        {"type": "comparison-table", "headers": ["dimension", "before", "after"],
+         "rows": [{"cells": ["closure", "implicit", "proof-bound"]}]},
+        {"type": "gap-marker", "text": "Open gap: behavior under concurrent publication."},
     ]}]}
 
 
@@ -561,11 +564,11 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             seen = {}
 
             def project_fn(s, i, *, skill, distills, proposes, cites, spec=None,
-                           lineage=None, log=None, gate=None, origin=None,
+                           lineage=None, log=None, gate=None, origin=None, embed_fn=None,
                            **kw):  # ticket A: +bears_on/para
                 seen.update(slug=s, intent=i, skill=skill, distills=distills,
                             proposes=proposes, cites=cites, spec=spec,
-                            lineage=lineage, log=log, gate=gate)
+                            lineage=lineage, log=log, gate=gate, embed_fn=embed_fn)
 
             publisher.publish(
                 slug, _spec(), intent=intent, skill=_LEGACY_SKILL, cites=cites,
@@ -585,6 +588,7 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
             #   sanitized list the proof binds and the event persists (Codex: no proof/event-invisible junk
             #   may reach projection), equal-by-value to this already-clean input.
             self.assertEqual(seen["log"], log)         # the projection reads the SAME log (Codex P2)
+            self.assertIs(seen["embed_fn"], _fake_embed)
             # B.1 (ticket B): a projeção recebe o MESMO gate que o evento persistiu — lido do
             # proof (nunca de um arg do caller), então o nó e o log nunca divergem.
             self.assertEqual(seen["gate"],
@@ -919,18 +923,38 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
                            "the final marker SET must follow the edge writes (last)")
         self.assertLess(clear_idx, set_idx, "clear-false precedes the final SET")
 
-    def test_projection_loads_the_openai_key_before_embedding(self):
-        # Codex P1: the embed key lives in the install/dev secrets and is not necessarily exported —
-        # project_artefato must load it (via _load_openai_key) before constructing OpenAI(), or every
-        # publish would fail the embed, never complete, and be filtered from recall forever.
+    def test_projection_obeys_the_configured_embedding_route(self):
+        # Projection must use the phenotype adapter (Ollama/OpenAI/Azure/custom as configured),
+        # never silently instantiate OpenAI and bypass routers.embedding.
         import inspect
         src = inspect.getsource(_REAL_PROJECT)
-        self.assertIn("_load_openai_key()", src,
-                      "project_artefato must load the OpenAI key before the embed (Codex P1)")
-        # the loader reads the install secret + the ~/.edge-sandbox-kit dev fallback
-        loader = inspect.getsource(publisher._load_openai_key)
-        self.assertIn("openai.env", loader)
-        self.assertIn("edge-sandbox-kit", loader)
+        self.assertIn("_resolve_embedder(embed_fn)", src)
+        self.assertNotIn("OpenAI()", src)
+        self.assertIn("embed_fn=None", inspect.signature(_REAL_PROJECT).__str__())
+
+        helper = inspect.getsource(publisher._configured_embedder)
+        self.assertIn("llm_routes.embed_fn()", helper)
+
+    def test_provider_model_and_base_url_each_change_route_identity(self):
+        base = {"provider": "openai", "model": "text-embedding-3-small",
+                "base_url": "https://api.openai.com/v1"}
+        base_hash = publisher._embedding_route_hash(base)
+        for changed in (
+            {**base, "provider": "ollama"},
+            {**base, "model": "nomic-embed-text"},
+            {**base, "base_url": "http://localhost:11434/v1"},
+        ):
+            with self.subTest(changed=changed):
+                self.assertNotEqual(base_hash, publisher._embedding_route_hash(changed))
+
+    def test_graph_presence_filters_a_changed_route_and_observed_dimension(self):
+        # The per-node validity check is not enough: steady-state recovery skips present nodes.
+        # The graph inventory must exclude another route/dimension so reproject_graph calls the
+        # projector even when projected_at and content are otherwise fresh.
+        import inspect
+        src = inspect.getsource(publisher._graph_present_slugs)
+        self.assertIn("a.embedding_route_hash = $route_hash", src)
+        self.assertIn("a.embedding_dimensions = coalesce(size(a.embedding),0)", src)
 
     def test_failed_embed_leaves_projection_incomplete(self):
         # Codex P2: a FAILED embed (key/service down) must NOT mark the projection complete — the
@@ -939,26 +963,27 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         import inspect
         src = inspect.getsource(_REAL_PROJECT)
         self.assertIn("embed_current", src, "project_artefato must track embed success")
-        # the completion marker is gated on embed_current AND no unresolved distills
-        self.assertIn("embed_current and not unresolved_distills", src,
+        # the completion marker is gated on embed_current; unresolved distills are deliberately
+        # soft-pending in the current contract and do not hide an otherwise recallable artefact.
+        self.assertIn("done=(embed_current and", src,
                       "the completion marker must require a current embedding")
 
-    def test_unresolved_distill_leaves_projection_incomplete(self):
-        # Codex P2: a distill ref whose cluster is not in the graph yet must leave the projection
-        # INCOMPLETE (so recovery revisits once the grill attaches the cluster), not mark it done.
+    def test_unresolved_distill_is_soft_pending_without_hiding_from_recall(self):
+        # Current contract: unresolved distills are recorded for recovery, but do not make an
+        # otherwise recallable artefact incomplete forever.
         import inspect
         src = inspect.getsource(_REAL_PROJECT)
-        self.assertIn("unresolved_distills", src,
-                      "project_artefato must track unresolved distills")
-        # the completion marker is conditional on no unresolved distills
-        self.assertIn("not unresolved_distills", src,
-                      "the completion marker must be gated on resolved distills")
+        self.assertIn("pending_distills", src,
+                      "project_artefato must retain unresolved authored distills")
+        completion = src[src.find("done=(embed_current and"):]
+        self.assertNotIn("pending_distills", completion,
+                         "soft-pending distills must not hide an embedded artefact from recall")
 
     def test_distill_resolution_uses_active_clusters_only(self):
         # Codex P2: archived/merged entities are hidden by graph_clusters, so the projection must
         # resolve distills against ACTIVE clusters only (never link/push a retired cluster).
         import inspect
-        src = inspect.getsource(_REAL_PROJECT)
+        src = inspect.getsource(publisher._distill_catalog) + inspect.getsource(publisher._link_distill)
         self.assertIn("coalesce(e.archived,false)=false", src)
         self.assertIn("e.merged_into IS NULL", src)
 
@@ -1022,9 +1047,13 @@ class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
         self.assertIn("embedding_input_hash", src,
                       "project_artefato must store an embed-input hash to detect content change")
         self.assertIn("emb_hash", src)
-        # the re-embed condition compares the stored hash, not only embedding presence
-        self.assertIn('row["h"] == emb_hash', src,
-                      "re-embed must be gated on the embed-input hash, not just IS NOT NULL")
+        # the shared validity predicate compares input + route + observed dimensions, rather than
+        # trusting bare embedding presence.
+        self.assertIn("_embedding_is_current(row, emb_hash, route_hash)", src)
+        validity = inspect.getsource(publisher._embedding_is_current)
+        self.assertIn('row.get("h") == input_hash', validity)
+        self.assertIn('row.get("r") == route_hash', validity)
+        self.assertIn("dimensions == stored_dimensions", validity)
 
     def test_backbone_ensures_every_artefato_serves_the_objective(self):
         # Codex P2: an Artefato published BEFORE the Objective existed had SERVES no-op; the backbone

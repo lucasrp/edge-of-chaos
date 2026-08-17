@@ -22,7 +22,7 @@ import eventlog
 
 REPO = Path(__file__).resolve().parent.parent
 import _identity as _id_state
-DOCS_DIR = _id_state.state_root() / "state" / "docs"
+DOCS_DIR = _id_state.runtime_root() / "state" / "docs"
 CAP_BYTES = 64 * 1024  # cap do body no evento (replay/prune-safe)
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 

@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Repository-only one-shot installer/rollback entrypoint; never installed as a service."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tools.source_snapshot_admin_install import main
+
+raise SystemExit(main())

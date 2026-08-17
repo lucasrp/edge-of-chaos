@@ -181,6 +181,42 @@ class ProvisionNeo4jLocal(unittest.TestCase):
             self.assertTrue(any("set-initial-password" in c for c in cmds), "must set initial password")
             self.assertTrue(any(c.rstrip().endswith(" start") for c in cmds), "must start neo4j")
 
+    def test_existing_store_reuses_secret_without_resetting_initial_password(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            env = home / "secrets"
+            env.mkdir()
+            secret = env / "neo4j.env"
+            secret.write_text("EDGE_NEO4J_PASSWORD=existing-pw\n")
+            database = home / "runtime" / "neo4j" / "data" / "databases" / "neo4j"
+            database.mkdir(parents=True)
+            (database / "store-marker").write_text("existing")
+            ready_passwords = []
+            rec = _Recorder()
+
+            out = _provision.provision_neo4j_local(
+                home, env, run=rec, _download=lambda url, dest: None,
+                _ready=lambda pw: ready_passwords.append(pw) or True, _sleep=lambda s: None)
+
+            self.assertEqual(out, secret)
+            self.assertEqual(secret.read_text(), "EDGE_NEO4J_PASSWORD=existing-pw\n")
+            self.assertEqual(ready_passwords, ["existing-pw"])
+            cmds = [" ".join(map(str, c)) for c in rec.calls]
+            self.assertFalse(any("set-initial-password" in c for c in cmds))
+            self.assertTrue(any(c.rstrip().endswith(" start") for c in cmds))
+
+    def test_existing_store_without_secret_fails_loud(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            database = home / "runtime" / "neo4j" / "data" / "databases" / "neo4j"
+            database.mkdir(parents=True)
+            (database / "store-marker").write_text("existing")
+
+            with self.assertRaisesRegex(RuntimeError, "já possui dados"):
+                _provision.provision_neo4j_local(
+                    home, home / "secrets", run=_Recorder(),
+                    _download=lambda url, dest: None, _ready=lambda pw: True)
+
 
 class EnsureNeo4jReadsMode(unittest.TestCase):
     """Neo4j does not decide the mode — it READS it. Docker absent → the install is 'local' → Neo4j

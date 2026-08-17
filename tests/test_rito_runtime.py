@@ -273,6 +273,145 @@ class FullRiteTest(unittest.TestCase):
 
 
 class NegativePathsTest(unittest.TestCase):
+    def test_malformed_final_review_is_terminal_and_repairable(self):
+        malformed = dict(CANNED)
+        malformed["final_review"] = (
+            "ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 2 (comentário inválido)\n"
+            "TREATMENT_LEAK: NO\n\nCorrija duas claims.")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
+            did = _stamp_wake(log)
+            kwargs = dict(
+                run_dir=run_dir, grounding1_fn=lambda: "# Dossier\n\nFato.",
+                prompts=_prompts(), intent=INTENT, skill="report", dispatch_id=did,
+                log=log, blog_dir=blog,
+            )
+            with self.assertRaises(rito.StageFailure):
+                rito.run_rito(
+                    SLUG, complete_fn=_complete_fn(malformed, LLM_ORDER), **kwargs)
+            failed = json.loads((run_dir / rito.MANIFEST_NAME).read_text())
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual(failed["failed_stage"], "final_review_acceptance")
+            repaired = rito.run_rito(
+                SLUG,
+                complete_fn=_complete_fn(
+                    CANNED, ["author_correction", "final_review"]),
+                resume=True, repair_final_review=True, **kwargs)
+            self.assertEqual(repaired["status"], "completed")
+
+    def test_final_review_repair_reuses_stages_one_through_six(self):
+        rejected = dict(CANNED)
+        rejected["final_review"] = (
+            "ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 1\nTREATMENT_LEAK: NO\n\n"
+            "Glosse o referente central e remova a claim sem fonte.")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
+            did = _stamp_wake(log)
+            kwargs = dict(
+                run_dir=run_dir,
+                grounding1_fn=lambda: "# Dossier factual\n\nFatos selados.",
+                prompts=_prompts(), intent=INTENT, skill="report", dispatch_id=did,
+                log=log, blog_dir=blog,
+            )
+            with self.assertRaises(rito.StageFailure):
+                rito.run_rito(
+                    SLUG, complete_fn=_complete_fn(rejected, LLM_ORDER), **kwargs)
+            before = json.loads((run_dir / rito.MANIFEST_NAME).read_text())
+            sealed = {
+                s["name"]: s["output"]["sha256"] for s in before["stages"][:6]
+            }
+            repaired = dict(CANNED)
+            repaired["author_correction"] = "# Relatorio\n\nReferente glosado; claim removida."
+            prompts_seen = []
+            queue = [repaired["author_correction"], CANNED["final_review"]]
+
+            def complete(route, prompt, max_tokens):
+                prompts_seen.append(prompt)
+                return queue.pop(0)
+
+            manifest = rito.run_rito(
+                SLUG, complete_fn=complete, resume=True, repair_final_review=True, **kwargs)
+            self.assertEqual(manifest["status"], "completed")
+            self.assertEqual(manifest["final_review_repair_count"], 1)
+            self.assertIn("Glosse o referente central", prompts_seen[0])
+            self.assertEqual(
+                sealed,
+                {s["name"]: s["output"]["sha256"] for s in manifest["stages"][:6]},
+            )
+            self.assertEqual(len(prompts_seen), 2,
+                             "repair must call only author_correction and final_review")
+            self.assertTrue(rito.verify_rito(run_dir, log=log, blog_dir=blog)["pass"])
+
+    def test_repair_feedback_survives_failed_author_correction_and_plain_resume(self):
+        rejected = dict(CANNED)
+        rejected["final_review"] = (
+            "ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 1\nTREATMENT_LEAK: NO\n\n"
+            "Glosse o referente vinculante antes de publicar.")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
+            did = _stamp_wake(log)
+            kwargs = dict(
+                run_dir=run_dir, grounding1_fn=lambda: "# Dossier\n\nFato.",
+                prompts=_prompts(), intent=INTENT, skill="report", dispatch_id=did,
+                log=log, blog_dir=blog,
+            )
+            with self.assertRaises(rito.StageFailure):
+                rito.run_rito(SLUG, complete_fn=_complete_fn(rejected, LLM_ORDER), **kwargs)
+
+            def transport_breaks_at_repair(route, prompt, max_tokens):
+                raise RuntimeError("transient transport failure")
+
+            with self.assertRaises(RuntimeError):
+                rito.run_rito(
+                    SLUG, complete_fn=transport_breaks_at_repair,
+                    resume=True, repair_final_review=True, **kwargs)
+
+            prompts_seen = []
+            queue = [CANNED["author_correction"], CANNED["final_review"]]
+
+            def complete(route, prompt, max_tokens):
+                prompts_seen.append(prompt)
+                return queue.pop(0)
+
+            manifest = rito.run_rito(
+                SLUG, complete_fn=complete, resume=True, **kwargs)
+            self.assertEqual(manifest["status"], "completed")
+            self.assertEqual(manifest["final_review_repair_count"], 1)
+            self.assertIn("Glosse o referente vinculante", prompts_seen[0])
+            feedback = manifest["final_review_repair_feedback"]
+            self.assertTrue(feedback["exists"])
+            self.assertTrue((run_dir / rito.FINAL_REVIEW_REPAIR_FEEDBACK_NAME).is_file())
+
+    def test_final_review_repair_budget_is_one(self):
+        rejected = dict(CANNED)
+        rejected["final_review"] = (
+            "ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 1\nTREATMENT_LEAK: NO\n\nNo.")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
+            did = _stamp_wake(log)
+            kwargs = dict(
+                run_dir=run_dir, grounding1_fn=lambda: "# Dossier\n\nFato.",
+                prompts=_prompts(), intent=INTENT, skill="report", dispatch_id=did,
+                log=log, blog_dir=blog,
+            )
+            with self.assertRaises(rito.StageFailure):
+                rito.run_rito(SLUG, complete_fn=_complete_fn(rejected, LLM_ORDER), **kwargs)
+            with self.assertRaises(rito.StageFailure):
+                rito.run_rito(
+                    SLUG,
+                    complete_fn=_complete_fn(
+                        rejected, ["author_correction", "final_review"]),
+                    resume=True, repair_final_review=True, **kwargs,
+                )
+            with self.assertRaisesRegex(rito.StageFailure, "budget exhausted"):
+                rito.run_rito(
+                    SLUG, complete_fn=lambda *_: "unused", resume=True,
+                    repair_final_review=True, **kwargs)
+
     def test_partial_rite_fails_the_detector(self):
         """A run that stops before render/publish (transport dies at fact_audit) leaves a
         failed manifest the detector refuses."""

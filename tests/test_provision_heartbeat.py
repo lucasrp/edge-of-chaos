@@ -6,6 +6,8 @@ edge-apply provisions the beat schedule: render edge-heartbeat.{service,timer} f
 `loginctl enable-linger`, and verify `claude -p` authenticates headless (no TTY). All tested pure —
 systemctl is mocked, nothing is installed/enabled on this host.
 """
+import importlib.machinery
+import re
 import sys
 import tempfile
 import unittest
@@ -39,7 +41,23 @@ class RenderUnits(unittest.TestCase):
         self.assertIn("edge-heartbeat", svc)
         self.assertIn("--home", svc)
         self.assertIn("/home/x/edge", svc)
+        self.assertIn("TimeoutStartSec=35min", svc)
+        self.assertIn("KillMode=control-group", svc)
         self.assertNotIn("{{", svc)
+
+    def test_service_timeout_exceeds_launcher_global_cap(self):
+        svc = _provision.render_heartbeat_service(CFG, home=Path("/home/x/edge"))
+        match = re.search(r"^TimeoutStartSec=(\d+)min$", svc, re.MULTILINE)
+        self.assertIsNotNone(match)
+        heartbeat = importlib.machinery.SourceFileLoader(
+            "edge_heartbeat_service_budget_test", str(REPO / "tools" / "edge-heartbeat")
+        ).load_module()
+
+        self.assertLess(
+            heartbeat.MAX_TIMEOUT_SECONDS,
+            int(match.group(1)) * 60,
+            "systemd must leave cleanup time after the launcher's global hard limit",
+        )
 
     def test_rationalizer_is_a_bounded_static_oneshot_in_the_install_venv(self):
         svc = _provision.render_rationalize_service(CFG, home=Path("/home/x/edge"))
@@ -66,6 +84,8 @@ class InstallUnits(unittest.TestCase):
             self.assertTrue((unit_dir / "edge-heartbeat.service").exists())
             self.assertTrue((unit_dir / "edge-heartbeat.timer").exists())
             self.assertTrue((unit_dir / "edge-rationalize.service").exists())
+            self.assertTrue((home / "tools").is_symlink())
+            self.assertEqual((home / "tools").resolve(), (REPO / "tools").resolve())
             self.assertFalse((unit_dir / "edge-rationalize.timer").exists())
             self.assertIn("OnUnitActiveSec=3h", (unit_dir / "edge-heartbeat.timer").read_text())
 

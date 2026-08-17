@@ -6,6 +6,7 @@ behind the injected `_codex_exec` seam, so no CLI nor API is touched. The live `
 call is exercised in the deploy/verify step, not here.
 """
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -64,6 +65,52 @@ class CompleteViaCodex(unittest.TestCase):
         client = _llm.CodexClient(exec_fn=broken_exec)
         with self.assertRaises(_llm.LLMTransportError):
             _llm.complete(client, "gpt-5.2-codex", "p")
+
+
+class CodexExecCommand(unittest.TestCase):
+    """The nested completer gets a disposable writable CODEX_HOME and keeps its
+    model-generated commands in the read-only sandbox."""
+
+    def test_uses_disposable_auth_only_home_and_cleans_it(self):
+        from unittest import mock
+
+        seen = {}
+        with tempfile.TemporaryDirectory() as source:
+            auth = Path(source) / "auth.json"
+            auth.write_text('{"token":"not-a-real-secret"}')
+
+            def fake_run(cmd, **kw):
+                seen["cmd"] = cmd
+                seen["env"] = kw["env"]
+                seen["input"] = kw["input"]
+                tmp_home = Path(kw["env"]["CODEX_HOME"])
+                seen["tmp_home"] = tmp_home
+                seen["auth_mode"] = (tmp_home / "auth.json").stat().st_mode & 0o777
+                self.assertEqual(
+                    sorted(p.name for p in tmp_home.iterdir()), ["auth.json"]
+                )
+                Path(cmd[cmd.index("-o") + 1]).write_text("NESTED_OK")
+                return _Result(0, "", "")
+
+            with mock.patch.dict(_llm.os.environ, {"CODEX_HOME": source}), \
+                 mock.patch("_llm.subprocess.run", fake_run):
+                self.assertEqual(_llm._codex_exec("one word", "gpt-test", 8), "NESTED_OK")
+
+        self.assertEqual(seen["input"], "one word")
+        self.assertEqual(seen["auth_mode"], 0o600)
+        self.assertFalse(seen["tmp_home"].exists())
+        self.assertIn("read-only", seen["cmd"])
+        self.assertIn("--ignore-user-config", seen["cmd"])
+        self.assertIn("--ephemeral", seen["cmd"])
+
+    def test_missing_auth_is_typed_transport_failure(self):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as source, \
+             mock.patch.dict(_llm.os.environ, {"CODEX_HOME": source}):
+            with self.assertRaises(_llm.LLMTransportError) as ctx:
+                _llm._codex_exec("p", None, 8)
+        self.assertIn("autenticação", str(ctx.exception))
 
 
 class TransportClassification(unittest.TestCase):

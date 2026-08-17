@@ -20,6 +20,7 @@ import io
 import os
 import sys
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -354,6 +355,62 @@ class ConcurrentDispatchesKeepTheirOwnIds(unittest.TestCase):
                              "is identity, never inference (E1)")
 
 
+class DispatchOpenIdentityIsIdempotent(unittest.TestCase):
+    def test_identical_retry_returns_original_without_appending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            payload = {"dispatch_id": "d-same", "origin": "beat", "theme": "one"}
+            first = eventlog.dispatch_open(payload, log=log)
+            retried = eventlog.dispatch_open(dict(payload), log=log)
+            opens = eventlog.read(types=["dispatch.open"], log=log)
+
+            self.assertEqual(retried, first)
+            self.assertEqual(len(opens), 1)
+
+    def test_same_identity_with_different_payload_fails_without_append(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(
+                {"dispatch_id": "d-conflict", "origin": "beat", "theme": "one"},
+                log=log,
+            )
+            with self.assertRaisesRegex(RuntimeError, "identity conflict"):
+                eventlog.dispatch_open(
+                    {"dispatch_id": "d-conflict", "origin": "beat", "theme": "two"},
+                    log=log,
+                )
+            self.assertEqual(len(eventlog.read(types=["dispatch.open"], log=log)), 1)
+
+    def test_idless_legacy_opens_remain_distinct_stamps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open(log=log)
+            eventlog.dispatch_open(log=log)
+            self.assertEqual(len(eventlog.read(types=["dispatch.open"], log=log)), 2)
+
+    def test_concurrent_identical_opens_commit_one_event(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            payload = {"dispatch_id": "d-race", "origin": "beat", "theme": "one"}
+            barrier = threading.Barrier(2)
+            returned = []
+
+            def open_once():
+                barrier.wait()
+                returned.append(eventlog.dispatch_open(dict(payload), log=log))
+
+            workers = [threading.Thread(target=open_once) for _ in range(2)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join(timeout=3)
+
+            self.assertTrue(all(not worker.is_alive() for worker in workers))
+            self.assertEqual(len(returned), 2)
+            self.assertEqual(returned[0], returned[1])
+            self.assertEqual(len(eventlog.read(types=["dispatch.open"], log=log)), 1)
+
+
 class IdentityHeldWakeGate(unittest.TestCase):
     """codex S2 gate D1 — the wake gate is IDENTITY-HELD, not global (E1: "consumed under the
     same lock"): `wake_fresh_for(dispatch_id)` requires a dispatch.open that MINTED this id and
@@ -423,6 +480,33 @@ class IdentityHeldWakeGate(unittest.TestCase):
             for hollow in (None, "", "   ", 7):
                 self.assertFalse(eventlog.wake_fresh_for(hollow, log=log),
                                  f"a hollow id ({hollow!r}) can never be fresh")
+
+    def test_failed_dispatch_can_only_resume_from_its_latest_failure_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open({"dispatch_id": "d-resume"}, log=log)
+            failed = eventlog.append("dispatch.failed", "dispatch", {
+                "dispatch_id": "d-resume", "reason": "post_gate"}, log=log)
+            self.assertFalse(eventlog.wake_fresh_for("d-resume", log=log))
+            resumed = eventlog.dispatch_resume(
+                "d-resume", failed["seq"], "localized rite continuation", log=log)
+            self.assertEqual(resumed["payload"]["failed_seq"], failed["seq"])
+            self.assertTrue(eventlog.wake_fresh_for("d-resume", log=log))
+            with self.assertRaisesRegex(RuntimeError, "latest authority"):
+                eventlog.dispatch_resume(
+                    "d-resume", failed["seq"], "duplicate resume", log=log)
+
+    def test_published_dispatch_cannot_be_resurrected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog.dispatch_open({"dispatch_id": "d-done"}, log=log)
+            eventlog.publish_artefato_atomic(
+                "done", "open: x; bet: y", log=log, dispatch_id="d-done")
+            fake_failure = eventlog.append("dispatch.failed", "dispatch", {
+                "dispatch_id": "d-done", "reason": "late"}, log=log)
+            with self.assertRaisesRegex(RuntimeError, "already published"):
+                eventlog.dispatch_resume(
+                    "d-done", fake_failure["seq"], "must refuse", log=log)
 
 
 class PublisherCarriesTheProofBoundDispatchId(unittest.TestCase):

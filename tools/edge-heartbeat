@@ -14,19 +14,491 @@ No cognition here, no envelope, no retry — cognition lives in the skill.
 Interactive dispatch does not use this: the live session runs /ed-beat in-place.
 """
 import argparse
+import ctypes
+import datetime as dt
 import json
 import os
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _beat
+import _identity
+from neo4j_capability_runtime import (
+    codex_capability_command, supervised_broker_lease,
+)
 
 
 # CLI tokens that run on the Anthropic claude binary (optional --model).
 _CLAUDE_FAMILY = frozenset({"claude", "opus", "fable"})
 _ALL_CLIS = tuple(sorted(_beat.FIXED_HEARTBEAT_CLIS | {"random"}))
+DEFAULT_TIMEOUT_SECONDS = 30 * 60
+MAX_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
+MAX_LOCAL_CONTINUATIONS = 1
+PROCESS_GROUP_TERM_GRACE_SECONDS = 2.0
+PROCESS_GROUP_KILL_GRACE_SECONDS = 5.0
+RUNTIME_POLL_SECONDS = 0.25
+
+
+class RuntimeRiteTerminal(RuntimeError):
+    """The agent's matching rite reached an unrecoverable terminal failure."""
+
+
+class RuntimeDetachedChildren(RuntimeError):
+    """The runtime returned while processes it spawned were still alive."""
+
+
+class _HeartbeatBudget:
+    """One monotonic timeout budget shared by every act and local continuation."""
+
+    def __init__(self, timeout_seconds, *, clock=None):
+        self.timeout_seconds = timeout_seconds
+        self._clock = clock or time.monotonic
+        self.started = self._clock()
+
+    def remaining(self):
+        return self.timeout_seconds - (self._clock() - self.started)
+
+
+PR_SET_CHILD_SUBREAPER = 36
+PR_GET_CHILD_SUBREAPER = 37
+
+
+def _set_child_subreaper(enabled):
+    """Set Linux child-subreaper state and return its previous value."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    previous = ctypes.c_int()
+    if libc.prctl(PR_GET_CHILD_SUBREAPER, ctypes.byref(previous), 0, 0, 0) != 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+    if libc.prctl(PR_SET_CHILD_SUBREAPER, int(bool(enabled)), 0, 0, 0) != 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err))
+    return bool(previous.value)
+
+
+def _direct_children(parent_pid):
+    """Read direct Linux children from /proc without invoking a mutable external tool."""
+    children = set()
+    for stat_path in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            raw = stat_path.read_text(encoding="utf-8")
+            tail = raw.rsplit(") ", 1)[1].split()
+            if int(tail[1]) == parent_pid:  # tail: state, ppid, pgrp, session, ...
+                children.add(int(stat_path.parent.name))
+        except (FileNotFoundError, IndexError, ValueError, OSError):
+            continue
+    return children
+
+
+def _descendant_tree(roots):
+    found = set(roots)
+    frontier = set(roots)
+    while frontier:
+        new = set()
+        for pid in frontier:
+            new.update(_direct_children(pid))
+        new -= found
+        found.update(new)
+        frontier = new
+    return found
+
+
+def _signal_pids(pids, sig):
+    for pid in sorted(set(pids), reverse=True):
+        try:
+            os.kill(pid, sig)
+        except ProcessLookupError:
+            pass
+
+
+def _reap_known_children(pids):
+    for pid in set(pids):
+        try:
+            os.waitpid(pid, os.WNOHANG)
+        except (ChildProcessError, ProcessLookupError):
+            pass
+
+
+def _process_state(pid):
+    """Return the Linux /proc state letter, or None when the process vanished."""
+    try:
+        raw = (Path("/proc") / str(pid) / "stat").read_text(encoding="utf-8")
+        return raw.rsplit(") ", 1)[1].split()[0]
+    except (FileNotFoundError, IndexError, OSError):
+        return None
+
+
+def _reap_exited_adopted_children(baseline_children):
+    """Collect adopted zombies without treating an already-dead helper as an escape.
+
+    A live adopted process is still handled fail-closed by
+    ``_cleanup_adopted_runtime_children``.  Codex legitimately leaves short-lived helper
+    processes already exited (state Z) for its temporary subreaper to collect.
+    """
+    owner = os.getpid()
+    roots = _direct_children(owner) - set(baseline_children)
+    exited = {pid for pid in roots if _process_state(pid) == "Z"}
+    _reap_known_children(exited)
+    return sorted(exited)
+
+
+def _cleanup_adopted_runtime_children(baseline_children):
+    """Kill only new direct children adopted by this temporary subreaper."""
+    owner = os.getpid()
+    roots = _direct_children(owner) - set(baseline_children)
+    if not roots:
+        return []
+    observed = _descendant_tree(roots)
+    _signal_pids(observed, signal.SIGTERM)
+    deadline = time.monotonic() + PROCESS_GROUP_TERM_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        _reap_known_children(observed)
+        roots = _direct_children(owner) - set(baseline_children)
+        if not roots:
+            return sorted(observed)
+        observed.update(_descendant_tree(roots))
+        time.sleep(0.02)
+    _signal_pids(observed, signal.SIGKILL)
+    deadline = time.monotonic() + PROCESS_GROUP_KILL_GRACE_SECONDS
+    while time.monotonic() < deadline:
+        _reap_known_children(observed)
+        roots = _direct_children(owner) - set(baseline_children)
+        if not roots:
+            return sorted(observed)
+        observed.update(_descendant_tree(roots))
+        _signal_pids(roots, signal.SIGKILL)
+        time.sleep(0.02)
+    raise RuntimeError(
+        f"heartbeat could not reap adopted runtime children: {sorted(roots)}"
+    )
+
+
+def _process_group_exists(pgid):
+    """True while any process still belongs to the launcher's isolated POSIX group."""
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_process_group_gone(pgid, timeout_seconds):
+    deadline = time.monotonic() + timeout_seconds
+    while _process_group_exists(pgid) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return not _process_group_exists(pgid)
+
+
+def _terminate_process_group(process, baseline_children=None):
+    """Terminate and prove the complete runtime tree dead before terminalizing its dispatch."""
+    pgid = process.pid  # start_new_session=True makes the child PID its process-group ID.
+    adopted = []
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=PROCESS_GROUP_TERM_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+    if baseline_children is not None:
+        adopted.extend(_cleanup_adopted_runtime_children(baseline_children))
+    if _wait_process_group_gone(pgid, 0.1):
+        return sorted(set(adopted))
+
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        process.wait(timeout=PROCESS_GROUP_KILL_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+    if baseline_children is not None:
+        adopted.extend(_cleanup_adopted_runtime_children(baseline_children))
+    if not _wait_process_group_gone(pgid, PROCESS_GROUP_KILL_GRACE_SECONDS):
+        raise RuntimeError(
+            f"heartbeat runtime process group {pgid} survived SIGTERM and SIGKILL"
+        )
+    return sorted(set(adopted))
+
+
+def _run_runtime(cmd, *, cwd, runtime_env, prompt, use_stdin, timeout_seconds,
+                 terminal_failure_check=None):
+    """Run one CLI in its own process group; a timeout cannot leave agent children alive."""
+    previous_subreaper = _set_child_subreaper(True)
+    baseline_children = _direct_children(os.getpid())
+    process = None
+    runtime_closed = False
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(cwd),
+            stdin=subprocess.PIPE if use_stdin else None,
+            text=True,
+            env=runtime_env,
+            start_new_session=True,
+        )
+        started = time.monotonic()
+        input_value = prompt if use_stdin else None
+        while True:
+            remaining = timeout_seconds - (time.monotonic() - started)
+            if remaining <= 0:
+                adopted = _terminate_process_group(process, baseline_children)
+                runtime_closed = True
+                raise subprocess.TimeoutExpired(
+                    cmd, timeout_seconds,
+                    stderr=f"reaped detached runtime children: {adopted}" if adopted else None,
+                )
+            try:
+                process.communicate(
+                    input=input_value,
+                    timeout=min(RUNTIME_POLL_SECONDS, remaining),
+                )
+                _reap_exited_adopted_children(baseline_children)
+                adopted = _cleanup_adopted_runtime_children(baseline_children)
+                runtime_closed = True
+                if adopted:
+                    raise RuntimeDetachedChildren(
+                        f"runtime exited with detached children; reaped pids={adopted}"
+                    )
+                return process.returncode
+            except subprocess.TimeoutExpired:
+                # communicate() retains the original input after its first timed wait.
+                input_value = None
+                terminal = terminal_failure_check() if terminal_failure_check else None
+                if terminal:
+                    _terminate_process_group(process, baseline_children)
+                    runtime_closed = True
+                    raise RuntimeRiteTerminal(str(terminal))
+    finally:
+        try:
+            # subprocess.run() used to kill+wait on every exceptional exit. Preserve that
+            # fail-closed contract for KeyboardInterrupt, polling failures, and any future
+            # exception path: no privileged runtime may outlive the launcher that owns it.
+            if process is not None and not runtime_closed:
+                _terminate_process_group(process, baseline_children)
+        finally:
+            _set_child_subreaper(previous_subreaper)
+
+
+def _terminal_rite_failure(home, dispatch_id, *, runtime_root=None):
+    """Describe a matching rite failure only when no protocol repair remains."""
+    failed = _rite_manifests(
+        home, dispatch_id, statuses=("failed",), runtime_root=runtime_root
+    )
+    terminal = []
+    for path, manifest in failed:
+        stage = manifest.get("failed_stage") or "unknown"
+        if stage == "final_review_acceptance" \
+                and int(manifest.get("final_review_repair_count") or 0) < 1:
+            continue
+        terminal.append(f"{path.parent.name}:{stage}")
+    if not terminal:
+        return None
+    return "terminal rite failure: " + ", ".join(terminal)
+
+
+def _runtime_root(home):
+    """Mutable output root; absent override preserves the historical install layout."""
+    return _identity.runtime_root(Path(home) / "agent.yaml", fallback_root=home)
+
+
+def _install_event_log(home, runtime_root=None):
+    """Tier-0 log owned by the explicit runtime root (legacy: ``--home``)."""
+    output = Path(runtime_root) if runtime_root is not None else _runtime_root(home)
+    return output / "state" / "events" / "log.jsonl"
+
+
+def _rite_manifests(home, dispatch_id, statuses=("running",), *, runtime_root=None):
+    """Manifestos deste dispatch nos estados pedidos, em ordem estável."""
+    found = []
+    output = Path(runtime_root) if runtime_root is not None else _runtime_root(home)
+    for path in sorted((output / "state" / "rito").glob("*/00_MANIFEST.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("dispatch_id") == dispatch_id and data.get("status") in statuses:
+            found.append((path, data))
+    return found
+
+
+def _continuation_prompt(dispatch_id, manifests):
+    runs = []
+    for path, data in manifests:
+        stage = next((s.get("name") for s in data.get("stages", [])
+                      if s.get("status") in ("running", "failed", "pending")), "unknown")
+        runs.append(f"- {path.parent}: status={data.get('status')}; next={stage}")
+    return f"""LOCALIZED HEARTBEAT CONTINUATION — binding runtime instruction
+
+The same dispatch {dispatch_id} returned while its rite was non-terminal.
+Do NOT rerun Ato 1, shortlist, proposal, grounding, or mint another slug/run directory.
+Resume the SAME run with rito.run_rito(..., resume=True); completed sealed stages are reused.
+If the manifest failed only because the heartbeat launcher terminalized its active stage,
+generic resume is correct. Use repair_final_review=True ONLY for final_review_acceptance.
+Run every slow command in FOREGROUND. Do not answer "progressing", "still watching", or wait
+for background work: this turn ends only after publication, explicit rite failure, or honest
+pauta.silencio. Never enlarge a repair/retry budget.
+
+Runs to resume:
+{chr(10).join(runs)}
+"""
+
+
+def _ato1_is_incomplete(eventlog_module, log, dispatch_id):
+    """Return true only for a live Ato-1 that has not reached a pauta outcome.
+
+    Claude Code may move a long foreground command to its own background queue and
+    end the headless turn.  A dispatch.open proves that Ato-1 actually started; a
+    proposta, silencio, or dispatch.failed is terminal for this narrow continuation
+    seam and must never be replayed.
+    """
+    own_types = {
+        event.get("type")
+        for event in eventlog_module.read(log=log)
+        if (event.get("payload") or {}).get("dispatch_id") == dispatch_id
+    }
+    if "dispatch.open" not in own_types:
+        return False
+    return not own_types.intersection({
+        "pauta.proposta", "pauta.silencio", "dispatch.failed",
+    })
+
+
+def _ato1_continuation_prompt(dispatch_id):
+    return f"""LOCALIZED HEARTBEAT ATO-1 CONTINUATION — binding runtime instruction
+
+The same dispatch {dispatch_id} returned before pauta.proposta or pauta.silencio.
+Do NOT mint or open another dispatch. Do NOT rerun predispatch, catalogo, shortlist, or
+another phase that already has a completed phase receipt for this dispatch. Read the
+durable event log, continue only the first missing Ato-1 phase, then re-derive the
+authoritative dispatch plan and STOP when a proposta survives. Do not open Ato-2; the
+launcher verifies the checkpoint and grants Ato-2 its own budget.
+
+Run every slow command in FOREGROUND. If Claude Code automatically moves a foreground
+command to a background task, wait for that exact task with TaskOutput/Monitor until it
+is terminal; never end the turn with "I'll resume", "progressing", or "still watching".
+This continuation ends only after publication, explicit terminal failure, or honest
+pauta.silencio. Never enlarge a repair/retry budget.
+"""
+
+
+def _ato1_checkpoint_prompt(skill_prompt, dispatch_id):
+    return f"""HEARTBEAT ATO-1 CHECKPOINT — binding runtime instruction
+
+This invocation owns ONLY Ato-1 for dispatch {dispatch_id}. Run the signed pauta funnel through
+pauta.proposta or pauta.silencio and write its durable receipts. If proposta survives, re-derive
+the authoritative dispatch plan to prove the dente, then STOP successfully. Do not open Ato-2,
+do not dispatch a producer, and do not create a rito manifest in this invocation. The launcher
+will verify the durable outcome and grant Ato-2 a separate budget. Silence is terminal.
+
+{skill_prompt}
+"""
+
+
+def _dispatch_event_types(eventlog_module, log, dispatch_id):
+    return {
+        event.get("type")
+        for event in eventlog_module.read(log=log)
+        if (event.get("payload") or {}).get("dispatch_id") == dispatch_id
+    }
+
+
+def _ato2_start_prompt(dispatch_id):
+    return f"""HEARTBEAT ATO-2 START — binding runtime instruction
+
+A durable pauta.proposta already survived for dispatch {dispatch_id}. Do NOT rerun Ato-1,
+predispatch, catalogo, shortlist, pauta grounding, or propose. Read that exact proposta from the
+event log, re-derive the authoritative dispatch plan with tools/_beat.py dispatch-plan, and run
+only its declared producer through the shared rite to publication. Keep the same dispatch_id and
+required slug_prefix. Run every command and branch in foreground. If Claude Code moves work to
+background automatically, block on TaskOutput/Monitor; never end on a progress message.
+The turn ends only after publication or explicit terminal rite failure.
+"""
+
+
+def _seconds_between(a, b):
+    try:
+        return round((dt.datetime.fromisoformat(b) - dt.datetime.fromisoformat(a)).total_seconds(), 3)
+    except (TypeError, ValueError):
+        return None
+
+
+def _record_ato1_receipt(eventlog, log, dispatch_id):
+    """Coarse Ato-1 timings from immutable events; one receipt per dispatch."""
+    events = list(eventlog.read(log=log))
+    if any(e.get("type") == "dispatch.phase_receipt"
+           and (e.get("payload") or {}).get("dispatch_id") == dispatch_id for e in events):
+        return None
+    own = [e for e in events if (e.get("payload") or {}).get("dispatch_id") == dispatch_id]
+    by_type = {}
+    for e in own:
+        by_type.setdefault(e.get("type"), e)
+    opened = by_type.get("dispatch.open")
+    grounded = by_type.get("dispatch.grounding")
+    pauta_event = by_type.get("pauta.proposta") or by_type.get("pauta.silencio")
+    if not opened:
+        return None
+    payload = {"dispatch_id": dispatch_id, "schema": "edge.ato1-timing/v1",
+               "status": "pauta_terminal" if pauta_event else "incomplete"}
+    if grounded:
+        payload["open_to_grounding_seconds"] = _seconds_between(opened.get("ts"), grounded.get("ts"))
+    if grounded and pauta_event:
+        payload["grounding_to_pauta_seconds"] = _seconds_between(grounded.get("ts"), pauta_event.get("ts"))
+    if pauta_event:
+        payload["ato1_total_seconds"] = _seconds_between(opened.get("ts"), pauta_event.get("ts"))
+        payload["pauta_outcome"] = pauta_event.get("type")
+    return eventlog.append("dispatch.phase_receipt", "dispatch", payload, log=log)
+
+
+def _mark_running_rites_failed(home, dispatch_id, reason, *, runtime_root=None):
+    """Make interrupted branch manifests terminal; never touch another dispatch."""
+    changed = []
+    output = Path(runtime_root) if runtime_root is not None else _runtime_root(home)
+    for manifest in (output / "state" / "rito").glob("*/00_MANIFEST.json"):
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("dispatch_id") != dispatch_id or data.get("status") != "running":
+            continue
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        for stage in data.get("stages") or []:
+            if stage.get("status") == "running":
+                stage["status"] = "failed"
+                stage["error"] = reason
+                stage["finished_at"] = now
+                data["failed_stage"] = stage.get("name")
+        data["status"] = "failed"
+        data["finished_at"] = now
+        data["updated_at"] = now
+        tmp = manifest.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, manifest)
+        changed.append(str(manifest))
+    return changed
+
+
+def _record_failure(eventlog, log, dispatch_id, *, reason, cli, detail=None,
+                    elapsed_seconds=None):
+    """Close an unsuccessful invocation in Tier-0 without pretending it published."""
+    payload = {
+        "dispatch_id": dispatch_id,
+        "reason": reason,
+        "cli": cli,
+    }
+    if detail:
+        payload["detail"] = str(detail)[:500]
+    if elapsed_seconds is not None:
+        payload["elapsed_seconds"] = round(float(elapsed_seconds), 3)
+    return eventlog.append("dispatch.failed", "dispatch", payload, log=log)
 
 
 def main() -> None:
@@ -39,16 +511,26 @@ def main() -> None:
     ap.add_argument("--cli", default=None, choices=_ALL_CLIS,
                     help="Headless runtime override (default: agent.yaml heartbeat.cli or claude)")
     ap.add_argument("--dry-run", action="store_true", help="Print the command and prompt; do not invoke")
+    ap.add_argument(
+        "--timeout-seconds", type=int, default=None,
+        help="Global hard limit for the complete headless beat (maximum: 1800 seconds)",
+    )
+    ap.add_argument(
+        "--supervised-cortex-broker", action="store_true",
+        help="One-shot Codex pilot: use the static read-only Cortex broker; never enables a timer",
+    )
     args = ap.parse_args()
 
     home = Path(os.path.expanduser(args.home)).resolve()
+    runtime_root = _runtime_root(home)
     # Onboarding gate (bootstrap path only): refuse until phenotype + grill complete.
     # Legacy installs (agent.yaml, no state/bootstrap.json) are unchanged.
     try:
         import onboarding
         boot = home / "state" / "bootstrap.json"
-        if boot.is_file() and not onboarding.is_onboarding_complete(home):
-            onboarding.assert_production_allowed(home)
+        install_log = _install_event_log(home, runtime_root)
+        if boot.is_file() and not onboarding.is_onboarding_complete(home, log=install_log):
+            onboarding.assert_production_allowed(home, log=install_log)
     except RuntimeError as e:
         print(f"edge-heartbeat: {e}", file=sys.stderr)
         sys.exit(2)
@@ -64,6 +546,10 @@ def main() -> None:
         cli = _beat.heartbeat_cli(home)
     if cli not in _beat.FIXED_HEARTBEAT_CLIS:
         cli = "claude"
+    if args.supervised_cortex_broker and cli != "codex":
+        print("edge-heartbeat: --supervised-cortex-broker requires --cli codex",
+              file=sys.stderr)
+        sys.exit(2)
 
     print(f"edge-heartbeat: cli={cli}", file=sys.stderr)
 
@@ -108,33 +594,82 @@ def main() -> None:
             if not args.dry_run:
                 raise
             grok_bin = "grok"
-        prompt_dir = home / "state" / "beat"
+        prompt_dir = runtime_root / "state" / "beat"
         prompt_dir.mkdir(parents=True, exist_ok=True)
         prompt_file = prompt_dir / "last-heartbeat-prompt.md"
         use_stdin = False
         cmd = _beat.build_grok_beat_command(grok_bin, prompt_file, home)
 
-    if args.dry_run and use_stdin:
+    if args.dry_run and use_stdin and not args.supervised_cortex_broker:
         print(" ".join(cmd))
         print("--- prompt ---")
         print(prompt)
         return
 
     dispatch_id = args.dispatch_id or _beat.mint_plan_dispatch_id()
+    broker_socket = None
+    if args.supervised_cortex_broker:
+        xdg_runtime_root = os.environ.get("XDG_RUNTIME_DIR")
+        if not xdg_runtime_root or not Path(xdg_runtime_root).is_absolute():
+            print("edge-heartbeat: supervised broker requires an absolute XDG_RUNTIME_DIR",
+                  file=sys.stderr)
+            sys.exit(2)
+        broker_socket = (
+            Path(xdg_runtime_root) / "edge-neo4j-capability-broker" / "broker.sock"
+        )
+        cmd = codex_capability_command(
+            cmd, home=home, socket_path=broker_socket, dispatch_id=dispatch_id,
+        )
     # PRE-LAUNCH plan (ADR-0024): no proposta exists before the agent runs the Pauta
     # funnel — producer is explicitly pendente; the trunk re-derives the plan through
     # the same seam (dispatch-plan CLI, require_pauta) before opening Ato-2.
     plan = _beat.dispatch_plan(
         "lead", dispatch_id,
         runtime_command=cmd,
-        log=home / "state" / "events" / "log.jsonl",
+        log=runtime_root / "state" / "events" / "log.jsonl",
         require_pauta=False,
     )
     prompt = _beat.bind_dispatch_plan(prompt, plan)
+    prompt = _ato1_checkpoint_prompt(prompt, dispatch_id)
     child_env = _beat.build_beat_env(home)
     child_env["EDGE_DISPATCH_PLAN"] = json.dumps(plan, ensure_ascii=False, sort_keys=True)
     child_env["EDGE_DISPATCH_PLAN_ID"] = dispatch_id
     child_env["EDGE_BEAT_CLI"] = cli
+
+    if args.dry_run and args.supervised_cortex_broker:
+        print(" ".join(cmd))
+        print("--- supervised broker ---")
+        print("manual static broker; one-shot bootstrap; stop in finally; timer unchanged")
+        print("--- child environment names ---")
+        print("capability added only after broker start; value never rendered")
+        print("--- prompt ---")
+        print(prompt)
+        return
+
+    configured_timeout = None
+    try:
+        import yaml
+        cfg = yaml.safe_load((home / "agent.yaml").read_text()) or {}
+        configured_timeout = (cfg.get("heartbeat") or {}).get("timeout_seconds")
+    except (OSError, TypeError, ValueError):
+        pass
+    try:
+        timeout_seconds = args.timeout_seconds if args.timeout_seconds is not None \
+            else int(configured_timeout or DEFAULT_TIMEOUT_SECONDS)
+    except (TypeError, ValueError):
+        print("edge-heartbeat: heartbeat.timeout_seconds must be a positive integer",
+              file=sys.stderr)
+        sys.exit(2)
+    if timeout_seconds <= 0:
+        print("edge-heartbeat: --timeout-seconds must be positive", file=sys.stderr)
+        sys.exit(2)
+    if timeout_seconds > MAX_TIMEOUT_SECONDS:
+        print(
+            f"edge-heartbeat: --timeout-seconds must be <= {MAX_TIMEOUT_SECONDS} "
+            "so the launcher terminalizes before the 35-minute systemd service limit",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     if cli == "grok":
         # Rebuild command after plan is bound; write full prompt to disk for --prompt-file.
@@ -149,22 +684,142 @@ def main() -> None:
             return
 
     import eventlog
-    log = home / "state" / "events" / "log.jsonl"
-    with _beat.heartbeat_lock(home):
-        before_count = len(eventlog.corpus_at(log=log))
+    log = runtime_root / "state" / "events" / "log.jsonl"
+    with _beat.heartbeat_lock(home, runtime_root=runtime_root):
+        from contextlib import nullcontext
+        broker_context = supervised_broker_lease(
+            home=home, dispatch_id=dispatch_id, base_env=child_env,
+        ) if args.supervised_cortex_broker else nullcontext((child_env, None))
+        try:
+            with broker_context as (runtime_env, _broker_limits):
+                before_count = len(eventlog.corpus_at(log=log))
+                budget = _HeartbeatBudget(timeout_seconds)
+                started = budget.started
+                try:
+                    current_prompt = prompt
+                    act = "ato1"
+                    continuations = {"ato1": 0, "ato2": 0}
+                    while True:
+                        remaining = budget.remaining()
+                        if remaining <= 0:
+                            raise subprocess.TimeoutExpired(cmd, timeout_seconds)
+                        rc = _run_runtime(
+                            cmd,
+                            cwd=home,
+                            runtime_env=runtime_env,
+                            prompt=current_prompt,
+                            use_stdin=use_stdin,
+                            timeout_seconds=remaining,
+                            terminal_failure_check=lambda: _terminal_rite_failure(
+                                home, dispatch_id, runtime_root=runtime_root
+                            ),
+                        )
+                        running = _rite_manifests(
+                            home, dispatch_id, runtime_root=runtime_root
+                        )
+                        ato1_incomplete = _ato1_is_incomplete(eventlog, log, dispatch_id)
+                        own_types = _dispatch_event_types(eventlog, log, dispatch_id)
+                        if rc != 0:
+                            break
+                        if act == "ato1" and "pauta.proposta" in own_types:
+                            eventlog.append("dispatch.checkpointed", "dispatch", {
+                                "dispatch_id": dispatch_id,
+                                "checkpoint": "ato1_completed",
+                                "next": "ato2",
+                            }, log=log)
+                            act = "ato2"
+                            current_prompt = _ato2_start_prompt(dispatch_id)
+                            continue
+                        if act == "ato1" and "pauta.silencio" in own_types:
+                            break
+                        needs_continuation = bool(running) if act == "ato2" else ato1_incomplete
+                        if (not needs_continuation
+                                or continuations[act] >= MAX_LOCAL_CONTINUATIONS):
+                            break
+                        continuations[act] += 1
+                        reason = "rite_nonterminal_on_runtime_exit" if act == "ato2" \
+                            else "ato1_nonterminal_on_runtime_exit"
+                        eventlog.append("dispatch.continued", "dispatch", {
+                            "dispatch_id": dispatch_id,
+                            "reason": reason,
+                            "act": act,
+                            "continuation": continuations[act],
+                            "run_dirs": [str(path.parent) for path, _ in running],
+                        }, log=log)
+                        current_prompt = _continuation_prompt(dispatch_id, running) \
+                            if act == "ato2" else _ato1_continuation_prompt(dispatch_id)
+                except subprocess.TimeoutExpired:
+                    _mark_running_rites_failed(
+                        home, dispatch_id, "heartbeat_timeout", runtime_root=runtime_root
+                    )
+                    _record_failure(eventlog, log, dispatch_id, reason="timeout", cli=cli,
+                                    detail=(f"global heartbeat limit {timeout_seconds}s "
+                                            f"exceeded during {act}"),
+                                    elapsed_seconds=time.monotonic() - started)
+                    print(f"edge-heartbeat: global timeout after {timeout_seconds}s "
+                          f"during {act}; "
+                          "dispatch.failed recorded", file=sys.stderr)
+                    sys.exit(124)
+                except RuntimeRiteTerminal as exc:
+                    _mark_running_rites_failed(
+                        home, dispatch_id, "heartbeat_rite_terminal",
+                        runtime_root=runtime_root,
+                    )
+                    _record_failure(
+                        eventlog, log, dispatch_id, reason="rite_terminal", cli=cli,
+                        detail=str(exc), elapsed_seconds=time.monotonic() - started,
+                    )
+                    print(
+                        f"edge-heartbeat: {exc}; dispatch.failed recorded",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                except RuntimeDetachedChildren as exc:
+                    _mark_running_rites_failed(
+                        home, dispatch_id, "heartbeat_detached_children",
+                        runtime_root=runtime_root,
+                    )
+                    _record_failure(
+                        eventlog, log, dispatch_id, reason="detached_children", cli=cli,
+                        detail=str(exc), elapsed_seconds=time.monotonic() - started,
+                    )
+                    print(
+                        f"edge-heartbeat: {exc}; dispatch.failed recorded",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                except KeyboardInterrupt:
+                    _mark_running_rites_failed(
+                        home, dispatch_id, "heartbeat_interrupted", runtime_root=runtime_root
+                    )
+                    _record_failure(eventlog, log, dispatch_id, reason="interrupted", cli=cli,
+                                    elapsed_seconds=time.monotonic() - started)
+                    print("edge-heartbeat: interrupted; dispatch.failed recorded", file=sys.stderr)
+                    sys.exit(130)
+                if rc != 0:
+                    _mark_running_rites_failed(
+                        home, dispatch_id, f"heartbeat_runtime_exit_{rc}",
+                        runtime_root=runtime_root,
+                    )
+                    _record_failure(eventlog, log, dispatch_id, reason="runtime_nonzero", cli=cli,
+                                    detail=f"exit code {rc}",
+                                    elapsed_seconds=time.monotonic() - started)
+                    sys.exit(rc)
+        except RuntimeError as exc:
+            _record_failure(eventlog, log, dispatch_id, reason="broker_preflight", cli=cli,
+                            detail=str(exc))
+            print(f"edge-heartbeat: supervised broker failed closed ({exc})", file=sys.stderr)
+            sys.exit(70)
 
-        if use_stdin:
-            rc = subprocess.run(cmd, cwd=str(home), input=prompt, text=True,
-                                env=child_env).returncode
-        else:
-            rc = subprocess.run(cmd, cwd=str(home), text=True, env=child_env).returncode
-        if rc != 0:
-            sys.exit(rc)
+        _record_ato1_receipt(eventlog, log, dispatch_id)
 
         # Post-gate carries the dente: artefatos require a live pauta.proposta whose
         # forma matches; a logged pauta.silencio is the honest no-produce (never punished).
         gaps = _beat.assert_beat_produced(log, before_count, dispatch_id=dispatch_id)
     if gaps:
+        _mark_running_rites_failed(home, dispatch_id, "heartbeat_post_gate_failed")
+        _record_failure(eventlog, log, dispatch_id, reason="post_gate", cli=cli,
+                        detail="; ".join(gaps))
         for gap in gaps:
             print(f"edge-heartbeat: beat exited 0 but produced no corpus progress: {gap}",
                   file=sys.stderr)

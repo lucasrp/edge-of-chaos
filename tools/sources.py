@@ -36,7 +36,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 import _identity as _id_state
 AGENT_YAML = _id_state.identity_path("agent.yaml")
-ROADMAP = _id_state.state_root() / "state" / "source-roadmap.md"
+ROADMAP = _id_state.runtime_root() / "state" / "source-roadmap.md"
 
 # The measured dry-semantics vocabulary (R2.5 / design-emissao B1). An unknown value is a WARNING
 # with the raw value kept visible — never silently normalized (the fold must see what was declared).

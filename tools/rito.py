@@ -45,6 +45,7 @@ import render  # noqa: E402
 SCHEMA = "edge.rito-manifest/v1"
 RITO_VERSION = "artefato-double-grounding/experiment-b"
 MANIFEST_NAME = "00_MANIFEST.json"
+FINAL_REVIEW_REPAIR_FEEDBACK_NAME = "00_FINAL_REVIEW_REPAIR_FEEDBACK.md"
 
 # (ordinal, name, output filename, route, max_tokens) — the experiment's causal order
 # (run.py STAGES 1–10) with `publication` promoted to the terminal stage in place of the
@@ -321,6 +322,63 @@ def _completed_output(run: _Run, manifest: dict[str, Any], name: str) -> str | N
     return read_text(path)
 
 
+def _prepare_final_review_repair(run: _Run, manifest: dict[str, Any]) -> str:
+    """Reopen only author-correction→publication after one rejected final review.
+
+    Stages 1–6 are sealed evidence and remain byte-identical. The rejecting review becomes
+    mandatory correction feedback. The one-repair cap lives in the runtime, never in an agent.
+    """
+    if manifest.get("failed_stage") != "final_review_acceptance":
+        raise StageFailure(
+            "final-review repair requires a run failed at final_review_acceptance")
+    count = int(manifest.get("final_review_repair_count") or 0)
+    if count >= 1:
+        raise StageFailure("final-review repair budget exhausted (maximum: 1)")
+    feedback = _completed_output(run, manifest, "final_review")
+    if feedback is None:
+        raise StageFailure("final-review repair has no sealed rejecting review")
+    feedback_path = run.dir / FINAL_REVIEW_REPAIR_FEEDBACK_NAME
+    write_text(feedback_path, feedback)
+    feedback_receipt = file_receipt(feedback_path)
+    manifest["final_review_repair_count"] = count + 1
+    manifest["final_review_repair_feedback"] = feedback_receipt
+    for _, name, _, _, _ in STAGES:
+        if name not in ("author_correction", "treatment_cleanup", "final_html",
+                        "final_review", "publication"):
+            continue
+        stage = _stage_record(manifest, name)
+        for key in ("started_at", "finished_at", "error", "output", "prompt",
+                    "acceptance", "execution", "treatment_scan", "renderer_id"):
+            stage.pop(key, None)
+        stage["status"] = "pending"
+    manifest.update({"status": "running", "failed_stage": None, "finished_at": None,
+                     "final_review_repaired_at": now()})
+    run.save(manifest)
+    return feedback
+
+
+def _pending_final_review_repair_feedback(run: _Run, manifest: dict[str, Any]) -> str | None:
+    """Reload binding rejection feedback after a repair transport failure.
+
+    The repair budget is consumed when the repair intent is opened, so an ordinary resume must
+    retain the exact rejected review instead of silently retrying author_correction without it.
+    """
+    if int(manifest.get("final_review_repair_count") or 0) < 1:
+        return None
+    author_stage = _stage_record(manifest, "author_correction")
+    if author_stage.get("status") == "completed":
+        return None
+    receipt = manifest.get("final_review_repair_feedback") or {}
+    path = run.dir / FINAL_REVIEW_REPAIR_FEEDBACK_NAME
+    if not path.is_file():
+        raise StageFailure("final-review repair feedback is missing on resume")
+    data = path.read_bytes()
+    expected = receipt.get("sha256")
+    if not expected or sha_bytes(data) != expected:
+        raise StageFailure("final-review repair feedback drifted on disk")
+    return read_text(path)
+
+
 def _llm_stage(run, manifest, name, prompt, complete_fn, outputs) -> str:
     prior = _completed_output(run, manifest, name)
     if prior is not None:
@@ -346,7 +404,8 @@ def _llm_stage(run, manifest, name, prompt, complete_fn, outputs) -> str:
 
 def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skill="report",
              dispatch_id=None, log=eventlog.LOG, blog_dir=None,
-             publish_fn=DEFAULT_PUBLISH, publish_meta=None, resume=False) -> dict[str, Any]:
+             publish_fn=DEFAULT_PUBLISH, publish_meta=None, resume=False,
+             repair_final_review=False) -> dict[str, Any]:
     """Execute the WHOLE rite for one artefato: stages 1–10 then publication. Returns the
     completed manifest; raises StageFailure (manifest sealed as failed) on any break.
 
@@ -358,15 +417,20 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
     dispatch_id, log, blog_dir)."""
     theme_review_contract = _ambient_theme_review_contract(dispatch_id, log)
     run = _Run(run_dir)
+    repair_feedback = None
     if run.manifest_path.is_file():
         if not resume:
             raise StageFailure(f"a rite run already exists at {run.dir}; pass resume=True")
         manifest = run.load()
         if manifest.get("slug") != slug:
             raise StageFailure(f"resume slug mismatch: manifest has {manifest.get('slug')!r}")
-        manifest.update({"status": "running", "failed_stage": None, "finished_at": None,
-                         "resumed_at": now()})
-        run.save(manifest)
+        if repair_final_review:
+            repair_feedback = _prepare_final_review_repair(run, manifest)
+        else:
+            repair_feedback = _pending_final_review_repair_feedback(run, manifest)
+            manifest.update({"status": "running", "failed_stage": None, "finished_at": None,
+                             "resumed_at": now()})
+            run.save(manifest)
     else:
         manifest = _new_manifest(slug, intent, skill, dispatch_id)
         run.save(manifest)
@@ -411,7 +475,13 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         # 3–7 — critique, targeted grounding, rewrite, audit, correction
         for name in ("gap_critique", "grounding2_targeted", "provisional_rewrite",
                      "fact_audit", "author_correction"):
-            _llm_stage(run, manifest, name, prompts[name](outputs), complete_fn, outputs)
+            prompt = prompts[name](outputs)
+            if name == "author_correction" and repair_feedback is not None:
+                prompt += (
+                    "\n\nFINAL REVIEW REPAIR (binding; correct only these rejected points, "
+                    "preserve sealed evidence and factual audit):\n" + repair_feedback
+                )
+            _llm_stage(run, manifest, name, prompt, complete_fn, outputs)
 
         # 8 — treatment cleanup: deterministic byte-copy when the scan is clean, else the
         # SAME AUTHOR route rewrites (run.py's conditional stage, promoted as-is)
@@ -472,7 +542,16 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             final_review_prompt = f"{final_review_prompt}\n\n{theme_review_contract}"
         final_review = _llm_stage(run, manifest, "final_review",
                                   final_review_prompt, complete_fn, outputs)
-        acceptance = parse_acceptance(final_review)
+        try:
+            acceptance = parse_acceptance(final_review)
+        except StageFailure:
+            # A malformed header is itself a fail-closed final-review rejection. Seal the
+            # category so the one localized repair seam can consume this review as feedback;
+            # never leave a completed review inside a manifest that still says `running`.
+            manifest.update({"status": "failed", "failed_stage": "final_review_acceptance",
+                             "finished_at": now()})
+            run.save(manifest)
+            raise
         local_leaks = treatment_leaks(blind_safe)
         acceptance["local_treatment_scan_passed"] = not local_leaks
         acceptance["package_allowed"] = acceptance["package_allowed"] and not local_leaks

@@ -80,6 +80,29 @@ def place_tree(src, dst):
     return True
 
 
+def place_tools_link(home, repo=REPO):
+    """Expose the checkout's canonical tools at <install>/tools.
+
+    A phenotype home owns state and skills; executable genotype remains in the checkout.
+    A symlink gives every skill the documented ``tools/...`` path without copying a stale
+    partial runtime into the install. Refuse to replace any pre-existing non-link directory.
+    """
+    home, repo = Path(home), Path(repo)
+    dst = home / "tools"
+    src = (repo / "tools").resolve()
+    if dst.is_symlink():
+        if dst.resolve() == src:
+            return False
+        raise RuntimeError(f"{dst} already links to {dst.resolve()}, expected {src}")
+    if dst.exists():
+        if dst.resolve() == src:
+            return False
+        raise RuntimeError(f"{dst} already exists; refusing to replace install-owned content")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.symlink_to(src, target_is_directory=True)
+    return True
+
+
 # --- Neo4j via Docker (#18) ---------------------------------------------------------------------
 NEO4J_IMAGE = "neo4j:5.26"            # pinned 5.x — required for the vector index (ADR-0011)
 NEO4J_CONTAINER = "edge-neo4j"
@@ -98,6 +121,17 @@ def write_neo4j_secret(env_dir, password):
     path.write_text(f"EDGE_NEO4J_PASSWORD={password}\n")
     path.chmod(0o600)
     return path
+
+
+def read_neo4j_secret(path):
+    """Read this install's Neo4j password without changing the secret file."""
+    path = Path(path)
+    for raw in path.read_text().splitlines():
+        if raw.startswith("EDGE_NEO4J_PASSWORD="):
+            password = raw.split("=", 1)[1]
+            if password:
+                return password
+    raise RuntimeError(f"{path} existe, mas não contém EDGE_NEO4J_PASSWORD")
 
 
 def docker_present(run=subprocess.run) -> bool:
@@ -301,8 +335,10 @@ def provision_neo4j_local(home, env_dir, run=subprocess.run, _download=None, _re
                           _sleep=None, _password=None):
     """Provision Neo4j user-space (install_mode='local') — no docker, no root. Fetch the neo4j tarball
     + a bundled JRE under <home>/runtime (idempotent — skip what's already extracted), write the
-    generated secret, set the initial password and start neo4j with JAVA_HOME pinned to the bundled
-    JRE. Waits until an authenticated bolt ping answers. Returns the secret path."""
+    generated secret only for a new store, set the initial password once and start neo4j with
+    JAVA_HOME pinned to the bundled JRE. Existing stores reuse their existing secret; a store with
+    no secret fails loud instead of silently rotating credentials. Waits until an authenticated
+    bolt ping answers. Returns the secret path."""
     home = Path(home)
     _download = _download or _fetch_and_extract
     nhome, jhome = neo4j_local_home(home), jre_local_home(home)
@@ -310,11 +346,26 @@ def provision_neo4j_local(home, env_dir, run=subprocess.run, _download=None, _re
         _download(jre_tarball_url(), jhome)
     if not (nhome / "bin" / "neo4j").exists():
         _download(neo4j_tarball_url(), nhome)
-    password = _password or generate_neo4j_password()
-    secret_path = write_neo4j_secret(env_dir, password)
+    secret_path = Path(env_dir) / "neo4j.env"
+    databases = nhome / "data" / "databases"
+    store_exists = databases.is_dir() and any(databases.iterdir())
+    is_new_store = not store_exists
+    if secret_path.is_file():
+        password = read_neo4j_secret(secret_path)
+        if _password is not None and _password != password:
+            raise RuntimeError(
+                f"{secret_path} já existe; recuso substituir a credencial de um Neo4j local existente")
+    elif store_exists:
+        raise RuntimeError(
+            f"Neo4j local já possui dados em {databases}, mas {secret_path} não existe — "
+            "recupere o segredo deste install; gerar outro quebraria a autenticação")
+    else:
+        password = _password or generate_neo4j_password()
+        secret_path = write_neo4j_secret(env_dir, password)
     env = {**os.environ, "JAVA_HOME": str(jhome)}
-    _run(run, [str(nhome / "bin" / "neo4j-admin"), "dbms", "set-initial-password", password],
-         "neo4j set-initial-password", env=env)
+    if is_new_store:
+        _run(run, [str(nhome / "bin" / "neo4j-admin"), "dbms", "set-initial-password", password],
+             "neo4j set-initial-password", env=env)
     _run(run, [str(nhome / "bin" / "neo4j"), "start"], "neo4j start", env=env)
     # ponytail: `neo4j start` daemonizes but has no restart-on-logout; upgrade to a systemd --user
     # unit with linger (like the heartbeat timer) if a launch user's graph must survive logout/reboot.
@@ -366,6 +417,7 @@ def install_heartbeat(cfg, home, unit_dir=None, run=subprocess.run, enable=True)
     bootstrap — production ignition is separate after mentor + phenotype).
     """
     home = Path(home)
+    place_tools_link(home)
     unit_dir = Path(unit_dir) if unit_dir is not None \
         else Path(os.path.expanduser("~/.config/systemd/user"))
     unit_dir.mkdir(parents=True, exist_ok=True)

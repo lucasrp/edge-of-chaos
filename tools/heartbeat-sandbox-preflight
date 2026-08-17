@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Deterministic negative preflight for the heartbeat OS sandbox.
+
+No LLM, no publication, no source content, and no secret value is read or printed.
+The caller supplies a disposable read-only fixture; real sources are inspected only for
+metadata-level readability.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import heartbeat_sandbox
+
+
+def _tcp_probe(host: str, port: int, timeout: float = 2.0) -> dict:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return {"answering": True, "error": None}
+    except OSError as exc:
+        return {"answering": False, "error": type(exc).__name__}
+
+
+def _write_probe(directory: Path, name: str) -> tuple[bool, str | None]:
+    target = directory / name
+    try:
+        target.write_text("sandbox-preflight\n", encoding="utf-8")
+    except OSError as exc:
+        return False, type(exc).__name__
+    else:
+        try:
+            target.unlink()
+        except OSError:
+            pass
+        return True, None
+
+
+def _source_metadata(path: str) -> dict:
+    source = Path(path)
+    try:
+        stat = source.stat()
+        return {
+            "path": path,
+            "exists": True,
+            "is_directory": source.is_dir(),
+            "readable": os.access(source, os.R_OK),
+            "device": stat.st_dev,
+            "error": None,
+        }
+    except OSError as exc:
+        return {
+            "path": path,
+            "exists": False,
+            "is_directory": False,
+            "readable": False,
+            "device": None,
+            "error": type(exc).__name__,
+        }
+
+
+def run(home: Path, fixture: Path, policy: dict) -> tuple[dict, bool]:
+    probe_dir = home / "state" / "beat" / "sandbox-preflight"
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    inside_ok, inside_error = _write_probe(probe_dir, "inside-write.tmp")
+    outside_ok, outside_error = _write_probe(fixture, "outside-write-must-fail.tmp")
+
+    escape_link = probe_dir / "fixture-link"
+    try:
+        if escape_link.exists() or escape_link.is_symlink():
+            escape_link.unlink()
+        escape_link.symlink_to(fixture, target_is_directory=True)
+        escape_ok, escape_error = _write_probe(escape_link, "escape-write-must-fail.tmp")
+    except OSError as exc:
+        escape_ok, escape_error = False, type(exc).__name__
+    finally:
+        try:
+            escape_link.unlink()
+        except OSError:
+            pass
+
+    env_absent = {
+        name: name not in os.environ for name in policy["unset_environment"]
+    }
+    inaccessible = []
+    for path in policy["inaccessible_paths"]:
+        candidate = Path(path)
+        try:
+            accessible = os.access(candidate, os.R_OK | os.W_OK)
+            error = None
+        except OSError as exc:
+            accessible, error = False, type(exc).__name__
+        inaccessible.append({"path": path, "accessible": accessible, "error": error})
+
+    sources = [_source_metadata(row["path"]) for row in policy["read_only_roots"]]
+    receipt = {
+        "schema": "edge.heartbeat-sandbox-preflight/v1",
+        "writable_root": str(home),
+        "inside_write": {"allowed": inside_ok, "error": inside_error},
+        "fixture_write": {"denied": not outside_ok, "error": outside_error},
+        "symlink_escape_write": {"denied": not escape_ok, "error": escape_error},
+        "environment_absent": env_absent,
+        "inaccessible_paths": inaccessible,
+        "sources": sources,
+        "services": {
+            "neo4j_loopback": _tcp_probe("127.0.0.1", 7687),
+            "ollama_loopback": _tcp_probe("127.0.0.1", 11434),
+        },
+        "timer_touched": False,
+        "llm_invoked": False,
+    }
+    passed = all([
+        inside_ok,
+        not outside_ok,
+        not escape_ok,
+        all(env_absent.values()),
+        not any(item["accessible"] for item in inaccessible),
+        all(item["exists"] and item["readable"] for item in sources),
+        receipt["services"]["neo4j_loopback"]["answering"],
+        receipt["services"]["ollama_loopback"]["answering"],
+    ])
+    receipt["passed"] = passed
+    return receipt, passed
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--home", required=True)
+    parser.add_argument("--fixture", required=True)
+    args = parser.parse_args()
+    home = Path(args.home).expanduser().resolve(strict=True)
+    fixture = Path(args.fixture).expanduser().resolve(strict=True)
+    policy = heartbeat_sandbox.load_policy(home / "agent.yaml")
+    receipt, passed = run(home, fixture, policy)
+    print(json.dumps(receipt, ensure_ascii=False, sort_keys=True))
+    return 0 if passed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -29,9 +29,9 @@ from lineage import (
 
 REPO = Path(__file__).resolve().parent.parent
 import _identity as _id_state
-LOG = _id_state.state_root() / "state" / "events" / "log.jsonl"
-DIRECTION = _id_state.state_root() / "state" / "direction.md"
-CORPUS = _id_state.state_root() / "state" / "corpus.md"
+LOG = _id_state.runtime_root() / "state" / "events" / "log.jsonl"
+DIRECTION = _id_state.runtime_root() / "state" / "direction.md"
+CORPUS = _id_state.runtime_root() / "state" / "corpus.md"
 
 
 def cosine(a, b):
@@ -593,7 +593,75 @@ def dispatch_open(payload=None, log=LOG):
     recall brief). The payload carries the sweep yield (the read-side metric the Direction wants
     instrumented). The publisher refuses to publish without a stamp newer than the last
     `artefato.published` — no wake, no publish."""
-    return append("dispatch.open", "dispatch", payload or {}, log=log)
+    payload = payload or {}
+    dispatch_id = payload.get("dispatch_id") if isinstance(payload, dict) else None
+    if not (isinstance(dispatch_id, str) and dispatch_id.strip()):
+        return append("dispatch.open", "dispatch", payload, log=log)
+    dispatch_id = dispatch_id.strip()
+    payload = {**payload, "dispatch_id": dispatch_id}
+
+    class _IdenticalOpenExists(Exception):
+        def __init__(self, event):
+            self.event = event
+
+    def _unique_or_identical():
+        existing = [
+            e for e in read(types=["dispatch.open"], log=log)
+            if isinstance(e.get("payload"), dict)
+            and e["payload"].get("dispatch_id") == dispatch_id
+        ]
+        if not existing:
+            return
+        conflicts = [e for e in existing if e.get("payload") != payload]
+        if conflicts:
+            raise RuntimeError(
+                f"dispatch.open identity conflict for {dispatch_id!r}: "
+                "the existing payload differs"
+            )
+        raise _IdenticalOpenExists(existing[0])
+
+    try:
+        return append_batch(
+            [("dispatch.open", "dispatch", payload)],
+            log=log,
+            precondition=_unique_or_identical,
+        )[0]
+    except _IdenticalOpenExists as exc:
+        return exc.event
+
+
+def dispatch_resume(dispatch_id, failed_seq, reason, log=LOG):
+    """Reopen one failed, unpublished dispatch with an explicit proof-bound receipt.
+
+    This is the localized continuation seam: history is never erased and a free-form
+    ``dispatch.resumed`` cannot resurrect arbitrary authority. The referenced failure must
+    be the latest authority event for this id and no publication may have consumed the wake.
+    """
+    if not (isinstance(dispatch_id, str) and dispatch_id.strip()):
+        raise ValueError("dispatch resume requires a non-empty dispatch_id")
+    if not isinstance(failed_seq, int) or isinstance(failed_seq, bool):
+        raise ValueError("dispatch resume requires the integer seq of dispatch.failed")
+    if not (isinstance(reason, str) and reason.strip()):
+        raise ValueError("dispatch resume requires a non-empty reason")
+
+    def precondition():
+        own = [e for e in read(types=["dispatch.open", "dispatch.failed",
+                                      "dispatch.resumed", "artefato.published"], log=log)
+               if isinstance(e.get("payload"), dict)
+               and e["payload"].get("dispatch_id") == dispatch_id]
+        if not any(e.get("type") == "dispatch.open" for e in own):
+            raise RuntimeError("cannot resume: dispatch.open not found")
+        if any(e.get("type") == "artefato.published" for e in own):
+            raise RuntimeError("cannot resume: dispatch already published")
+        authority = [e for e in own if e.get("type") in ("dispatch.failed", "dispatch.resumed")]
+        latest = authority[-1] if authority else None
+        if not (latest and latest.get("type") == "dispatch.failed"
+                and latest.get("seq") == failed_seq):
+            raise RuntimeError("cannot resume: referenced failure is not the latest authority event")
+
+    return append_batch([("dispatch.resumed", "dispatch", {
+        "dispatch_id": dispatch_id, "failed_seq": failed_seq, "reason": reason.strip(),
+    })], log=log, precondition=precondition)[0]
 
 
 def wake_fresh(log=LOG):
@@ -604,10 +672,13 @@ def wake_fresh(log=LOG):
     each other's stamps (the race ADR-0016's Consequences accepted, now hardened). The canonical
     id-carrying publish path gates on the IDENTITY-HELD `wake_fresh_for` instead; this stays for
     id-less callers (the pre-S2 shape) only."""
-    evs = read(types=["dispatch.open", "artefato.published"], log=log)
+    evs = read(types=["dispatch.open", "artefato.published", "dispatch.failed",
+                      "dispatch.resumed"], log=log)
     last_open = max((e["seq"] for e in evs if e["type"] == "dispatch.open"), default=None)
-    last_pub = max((e["seq"] for e in evs if e["type"] == "artefato.published"), default=None)
-    return last_open is not None and (last_pub is None or last_open > last_pub)
+    last_terminal = max((e["seq"] for e in evs
+                         if e["type"] in ("artefato.published", "dispatch.failed")),
+                        default=None)
+    return last_open is not None and (last_terminal is None or last_open > last_terminal)
 
 
 def wake_fresh_for(dispatch_id, log=LOG):
@@ -621,14 +692,18 @@ def wake_fresh_for(dispatch_id, log=LOG):
     payload simply never matches."""
     if not (isinstance(dispatch_id, str) and dispatch_id.strip()):
         return False
-    evs = read(types=["dispatch.open", "artefato.published"], log=log)
+    evs = read(types=["dispatch.open", "artefato.published", "dispatch.failed",
+                      "dispatch.resumed"], log=log)
 
     def _did(e):
         p = e.get("payload")
         return p.get("dispatch_id") if isinstance(p, dict) else None
     opened = any(e["type"] == "dispatch.open" and _did(e) == dispatch_id for e in evs)
     consumed = any(e["type"] == "artefato.published" and _did(e) == dispatch_id for e in evs)
-    return opened and not consumed
+    authority = [e for e in evs if _did(e) == dispatch_id
+                 and e["type"] in ("dispatch.failed", "dispatch.resumed")]
+    latest_authority = authority[-1]["type"] if authority else None
+    return opened and not consumed and latest_authority != "dispatch.failed"
 
 
 ORIGINS = ("user_requested", "beat")
@@ -4220,7 +4295,7 @@ def experiment_at(experiment_id, seq=None, ts=None, log=LOG):
 # --- §6 parceiro: a constelação social — PROMOTION, never minting. The extracted :Entity
 # (graphiti already found "Julio") GAINS the parceiro mark; the graph node is never created here.
 
-PARCEIRO_KINDS = ("empresa", "pesquisador", "equipe", "git-user")
+PARCEIRO_KINDS = ("empresa", "pesquisador", "equipe", "git-user", "operador")
 
 
 def promote_parceiro(name, kind, *, by, domain=None, contact_ref=None, log=LOG):

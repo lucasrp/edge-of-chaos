@@ -6,6 +6,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parent.parent
@@ -57,21 +58,37 @@ class _Session:
             return _Result()
         if "RETURN DISTINCT e.curated_cluster AS l" in query:
             return _Result([{"l": label} for label in state.clusters])
+        if "MATCH (c:Community" in query and "RETURN c.name AS n" in query:
+            return _Result()
         node = state.nodes[(params["g"], params["slug"])]
         if "RETURN d.embedding IS NOT NULL" in query:
             return _Result([{
                 "e": node.get("embedding") is not None,
                 "h": node.get("embedding_input_hash"),
+                "r": node.get("embedding_route_hash"),
+                "d": node.get("embedding_dimensions"),
+                "n": len(node.get("embedding") or []),
             }])
         if "SET d.embedding=$e" in query:
             node.update({"embedding": list(params["e"]),
-                         "embedding_input_hash": params["h"]})
+                         "embedding_input_hash": params["h"],
+                         "embedding_route_hash": params["r"],
+                         "embedding_provider": params["provider"],
+                         "embedding_model": params["model"],
+                         "embedding_base_url": params["base_url"],
+                         "embedding_dimensions": params["dimensions"]})
             return _Result()
         if "[r:DISTILLS]" in query and "DELETE r" in query:
             state.distills.clear()
             return _Result()
         if "MERGE (d)-[:DISTILLS]->(e)" in query:
             state.distills.add(params["label"])
+            return _Result()
+        if "REMOVE d.pending_distills" in query:
+            node.pop("pending_distills", None)
+            return _Result()
+        if "SET d.pending_distills=$pending" in query:
+            node["pending_distills"] = list(params["pending"])
             return _Result()
         if "SET d.projection_complete=true" in query:
             node["projection_complete"] = True
@@ -157,6 +174,92 @@ class ProjectDocContract(unittest.TestCase):
         self.assertEqual(state.distills, {"Alpha"})
         self.assertEqual(len(embed_calls), 1)
         self.assertTrue(all(driver.closed for driver in drivers))
+
+    def test_default_embedding_obeys_the_configured_router(self):
+        """No injected seam: publication resolves routers.embedding, never OpenAI directly."""
+        payload = self._payload()
+        state = _State(clusters=["Alpha"])
+        driver = _Driver(state)
+        calls = []
+
+        def configured(text):
+            calls.append(text)
+            return [0.3, 0.7]
+
+        identity = {"provider": "openai", "model": "text-embedding-3-small",
+                    "base_url": "https://api.openai.com/v1"}
+        with mock.patch.object(
+                publisher, "_configured_embedder", return_value=(configured, identity)) as route:
+            publisher.project_doc(
+                payload, driver_factory=lambda _uri, *, auth: driver,
+                identity=_Identity,
+            )
+
+        route.assert_called_once_with()
+        self.assertEqual(calls, ["doc-v10\n# Documento\n\nVoz curada"])
+        self.assertEqual(state.nodes[("edge-test", "doc-v10")]["embedding"], [0.3, 0.7])
+        self.assertEqual(state.nodes[("edge-test", "doc-v10")]["embedding_model"],
+                         "text-embedding-3-small")
+        self.assertEqual(state.nodes[("edge-test", "doc-v10")]["embedding_dimensions"], 2)
+        self.assertTrue(state.nodes[("edge-test", "doc-v10")]["projection_complete"])
+
+    def test_route_change_forces_reembedding_unchanged_content(self):
+        payload = self._payload()
+        state = _State(clusters=["Alpha"])
+        calls = []
+
+        def run(route, vector):
+            def embed(text):
+                calls.append((route["provider"], route["model"], route["base_url"], text))
+                return vector
+
+            driver = _Driver(state)
+            with mock.patch.object(
+                    publisher, "_configured_embedder", return_value=(embed, route)):
+                publisher.project_doc(
+                    payload, driver_factory=lambda _uri, *, auth: driver,
+                    identity=_Identity,
+                )
+
+        first = {"provider": "openai", "model": "text-embedding-3-small",
+                 "base_url": "https://api.openai.com/v1"}
+        second = {"provider": "ollama", "model": "nomic-embed-text",
+                  "base_url": "http://localhost:11434/v1"}
+        run(first, [0.1, 0.2])
+        run(first, [9.0, 9.0])       # same route+content: cached
+        run(second, [0.3, 0.4, 0.5])
+
+        self.assertEqual(len(calls), 2)
+        node = state.nodes[("edge-test", "doc-v10")]
+        self.assertEqual(node["embedding"], [0.3, 0.4, 0.5])
+        self.assertEqual(node["embedding_provider"], "ollama")
+        self.assertEqual(node["embedding_model"], "nomic-embed-text")
+        self.assertEqual(node["embedding_base_url"], "http://localhost:11434/v1")
+        self.assertEqual(node["embedding_dimensions"], 3)
+
+    def test_observed_dimension_mismatch_forces_reembedding(self):
+        payload = self._payload()
+        state = _State(clusters=["Alpha"])
+        calls = []
+
+        def embed(text):
+            calls.append(text)
+            return [0.2, 0.4]
+
+        publisher.project_doc(
+            payload, driver_factory=lambda _uri, *, auth: _Driver(state),
+            identity=_Identity, embed_fn=embed,
+        )
+        node = state.nodes[("edge-test", "doc-v10")]
+        node["embedding"] = [0.2]  # corrupt/truncated vector; recorded dimension remains 2
+        publisher.project_doc(
+            payload, driver_factory=lambda _uri, *, auth: _Driver(state),
+            identity=_Identity, embed_fn=embed,
+        )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(node["embedding"], [0.2, 0.4])
+        self.assertEqual(node["embedding_dimensions"], 2)
 
     def test_malformed_payloads_degrade_before_opening_a_driver(self):
         valid = self._payload()

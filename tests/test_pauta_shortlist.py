@@ -8,6 +8,8 @@ NUNCA pool fixo no repo. Todo check é semântico via completer injetado; offlin
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -113,6 +115,39 @@ class ShortlistJudgesSemantically(unittest.TestCase):
         self.assertNotIn("tema-0", temas)
         for c in out["A"]:
             self.assertEqual(c["delta_voz"]["outcome"], "delta")
+
+    def test_parallel_checks_preserve_order_and_overlap_independent_judges(self):
+        """A porta real reduz latência sem fundir checks nem reordenar o recibo."""
+        lock = threading.Lock()
+        active = 0
+        peak = 0
+
+        def comp(prompt):
+            nonlocal active, peak
+            if "Ranqueie os candidatos" in prompt:
+                return self._merit([0, 1, 2], ser=2)
+            if "forma_fit" in prompt:
+                return json.dumps({"reprova": []})
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.04)
+            with lock:
+                active -= 1
+            if "Responda SÓ JSON: {\"reprova\"" in prompt:
+                return json.dumps({"reprova": []})
+            tema = next(t for t in ("tema-0", "tema-1", "tema-2") if t in prompt)
+            outcome = "noop" if tema == "tema-0" else "delta"
+            return json.dumps({"outcome": outcome, "cita": f"recall {tema}",
+                               "dominio": False})
+
+        out = pauta.shortlist(
+            self.CELL, [sug(i) for i in range(3)], completer=comp,
+            voz_recall_fn=lambda tema: f"recall {tema}", direction_text="fio X",
+            parallel_checks=True)
+        self.assertGreaterEqual(peak, 2)  # prova sobreposição real, não só uma flag
+        self.assertEqual([c["tema"] for c in out["A"]], ["tema-1", "tema-2"])
+        self.assertEqual(out["cortados"][0]["tema"], "tema-0")
 
     def test_dark_recall_rail_keeps_the_candidate_and_declares(self):
         # adv r2 #8: órgão devolve None (rail escuro) — declara, nunca corta nem finge
@@ -230,6 +265,20 @@ class CliDirectionDefaultsToTheSignedFile(unittest.TestCase):
             f = Path(tmp) / "outros-fios.md"
             f.write_text("fio Y")
             self.assertEqual(pauta._cli_direction_text(str(f), base=Path(tmp)), "fio Y")
+
+
+class Ato1PhaseTimingReceipts(unittest.TestCase):
+    def test_receipt_is_dispatch_bound_and_inert_without_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "events.jsonl"
+            self.assertIsNone(pauta._record_cli_phase(
+                "shortlist", time.monotonic(), status="completed", log=log))
+            pauta._record_cli_phase("shortlist", time.monotonic(), status="completed",
+                                    dispatch_id="beat-timing", log=log)
+            events = pauta.eventlog.read(types=["pauta.phase_receipt"], log=log)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["payload"]["phase"], "shortlist")
+            self.assertEqual(events[0]["payload"]["dispatch_id"], "beat-timing")
 
 
 if __name__ == "__main__":

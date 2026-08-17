@@ -232,6 +232,17 @@ class SecretsDeltaAndInsumo(unittest.TestCase):
             self.assertEqual(cfg["lentes"]["backfill_days"], 3)
             self.assertIn("self", cfg.get("adversarials") or {})
 
+    def test_codex_primary_wires_claude_and_grok_review_routes(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = onboarding.bootstrap_cfg(
+                home=td, name="mentorzao", backfill_days=3,
+                adversarials={"mode": "external", "members": ["claude", "grok"],
+                              "primary": "codex"},
+                embedding=None, primary="codex",
+            )
+            self.assertEqual(cfg["routers"]["review"]["provider"], "claude")
+            self.assertEqual(cfg["routers"]["review_grok"]["provider"], "grok")
+
     def test_emit_phenotype_declares_secrets_folder_and_inventory(self):
         """Phenotype must name the secrets dir and list files/vars present (no values)."""
         with tempfile.TemporaryDirectory() as td:
@@ -520,6 +531,14 @@ class FinishOnboarding(unittest.TestCase):
             grill_writeback.leveling(
                 "diario", "sem update de persona; residual = x",
                 root=home / "lv", log=log,
+            )
+            eventlog.append(
+                "map.opened", "map:test",
+                {"ulid": "test-map", "num": "map-001", "operacao": "onboarding",
+                 "titulo": "Mapa inicial", "rationale": "Fechar o onboarding",
+                 "thread": None, "tier": "asserted", "author": "grill",
+                 "dispatch_id": "onboarding-test"},
+                log=log,
             )
             path = onboarding.finish_onboarding(
                 home, log=log, mission="learn", voice="direct", enable_heartbeat=False

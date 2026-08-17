@@ -7,6 +7,8 @@ Issue #55: provider `codex` (assinatura, sem chave de API) completa via `codex e
 não-interativo; e falha de TRANSPORTE (401/403/429/insufficient_quota/CLI ausente) sobe
 como LLMTransportError tipado — o close distingue infra de veredito de conteúdo.
 """
+import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -54,25 +56,42 @@ def _codex_exec(prompt: str, model, max_tokens: int) -> str:
     Sandbox read-only + --ephemeral (não persiste sessão) + -o <tmp> (só a mensagem final,
     sem log de agente no stdout). max_tokens não é exposto pelo CLI — fica a cargo do modelo.
     Qualquer falha (binário ausente, não-logado, exit != 0) é TRANSPORTE."""
-    with tempfile.NamedTemporaryFile(mode="r", suffix=".codex-out", delete=False) as out:
-        out_path = out.name
-    try:
+    source_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+    source_auth = source_home / "auth.json"
+    if not source_auth.is_file():
+        raise LLMTransportError(
+            f"codex CLI sem autenticação legível em {source_auth}"
+        )
+
+    # A completion pode ser chamada de dentro do sandbox de outro `codex exec`.  Reusar o
+    # CODEX_HOME real nesse caso falha porque o app-server precisa escrever estado efêmero ali.
+    # Damos ao filho um home descartável contendo somente auth (0600), sem config/MCP/rules do
+    # operador.  O TemporaryDirectory apaga auth + resposta inclusive em erro/timeout.
+    with tempfile.TemporaryDirectory(prefix="edge-codex-completer-") as tmp:
+        tmp_home = Path(tmp)
+        tmp_auth = tmp_home / "auth.json"
+        shutil.copyfile(source_auth, tmp_auth)
+        tmp_auth.chmod(0o600)
+        out_path = tmp_home / "last-message.txt"
         cmd = ["codex", "exec", "--skip-git-repo-check", "-s", "read-only",
-               "--ephemeral", "-o", out_path]
+               "--ephemeral", "--ignore-user-config", "-o", str(out_path)]
         if model:
             cmd += ["-m", str(model)]
         cmd.append("-")
-        r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=600)
+        env = os.environ.copy()
+        env["CODEX_HOME"] = str(tmp_home)
+        try:
+            r = subprocess.run(
+                cmd, input=prompt, capture_output=True, text=True, timeout=600, env=env
+            )
+        except FileNotFoundError:
+            raise LLMTransportError("codex CLI ausente no host (provider codex requer o binário)")
+        except subprocess.TimeoutExpired:
+            raise LLMTransportError("codex exec timeout (600s)")
         if r.returncode != 0:
             raise LLMTransportError(
                 f"codex exec exit {r.returncode}: {(r.stderr or r.stdout)[-300:]}")
-        return Path(out_path).read_text().strip()
-    except FileNotFoundError:
-        raise LLMTransportError("codex CLI ausente no host (provider codex requer o binário)")
-    except subprocess.TimeoutExpired:
-        raise LLMTransportError("codex exec timeout (600s)")
-    finally:
-        Path(out_path).unlink(missing_ok=True)
+        return out_path.read_text().strip()
 
 
 # Instrução de sistema que mantém o -p como completer PURO: o modelo não tem tools

@@ -48,6 +48,31 @@ class _LogCase(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
 
 
+class DispatchTerminalityGuardsThePen(_LogCase):
+    def test_failed_dispatch_rejects_late_decision_until_proof_bound_resume(self):
+        dispatch_id = "beat-timeout-race"
+        eventlog.dispatch_open({"dispatch_id": dispatch_id}, log=self.log)
+        failed = eventlog.append("dispatch.failed", "dispatch", {
+            "dispatch_id": dispatch_id,
+            "reason": "timeout",
+            "cli": "claude",
+        }, log=self.log)
+        payload = {"dispatch_id": dispatch_id, "reason": "late worker"}
+
+        with self.assertRaisesRegex(RuntimeError, "terminally failed"):
+            pauta._append_dispatch_decision(
+                "pauta.proposta", payload, dispatch_id=dispatch_id, log=self.log
+            )
+
+        eventlog.dispatch_resume(
+            dispatch_id, failed["seq"], "operator-approved retry", log=self.log
+        )
+        written = pauta._append_dispatch_decision(
+            "pauta.proposta", payload, dispatch_id=dispatch_id, log=self.log
+        )
+        self.assertEqual(written["type"], "pauta.proposta")
+
+
 class ProposalPensTheLog(_LogCase):
     def test_grounded_candidate_becomes_proposta_with_the_signed_fields(self):
         ev = pauta.propose(CELL, [CAND], dispatch_id="d1",

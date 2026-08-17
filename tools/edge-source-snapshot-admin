@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Repository wrapper for the fixed source-snapshot administration interface; not installed."""
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tools.admin_receipt_mediator import main
+
+raise SystemExit(main())

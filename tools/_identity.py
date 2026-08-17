@@ -137,6 +137,25 @@ def state_root(agent_yaml=AGENT_YAML):
     return REPO
 
 
+def runtime_root(agent_yaml=AGENT_YAML, *, fallback_root=None):
+    """Raiz dos ARTEFATOS MUTÁVEIS do runtime, sem mudar o legado por padrão.
+
+    ``EDGE_RUNTIME_ROOT`` is an explicit service/output seam.  When absent, every caller lands on
+    ``state_root()`` exactly as before.  Keeping identity/config reads on ``state_root`` and moving
+    only mutable outputs to this function lets a future service receive narrow write authority
+    without granting it the whole phenotype install.
+    """
+    override = os.environ.get("EDGE_RUNTIME_ROOT")
+    if override:
+        path = Path(os.path.expanduser(override))
+        if not path.is_absolute():
+            raise RuntimeError("EDGE_RUNTIME_ROOT must be an absolute path")
+        return path.resolve(strict=False)
+    if fallback_root is not None:
+        return Path(os.path.expanduser(str(fallback_root))).resolve(strict=False)
+    return state_root(agent_yaml)
+
+
 def _env_dir(agent_yaml=AGENT_YAML):
     """Where this install's secrets live: EDGE_SECRETS_DIR (override explícito, espelha
     onboarding.secrets_dir) → agent.yaml `env_dir` → <edge_home>/secrets → EDGE_HOME/secrets

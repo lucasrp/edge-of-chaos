@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import eventlog
+import _identity
 
 # Open-compare arms (re-runs). Production HTML is baseline B — not listed as a re-run arm.
 GATE_ARMS = (
@@ -198,12 +199,14 @@ def run_id_for(slug: str, ts: str | None = None) -> str:
 
 
 def _rito_dir(home: Path, slug: str) -> Path | None:
-    p = Path(home) / "state" / "rito" / slug
+    output = _identity.runtime_root(Path(home) / "agent.yaml", fallback_root=home)
+    p = output / "state" / "rito" / slug
     return p if p.is_dir() else None
 
 
 def _entry_html(home: Path, slug: str) -> Path | None:
-    p = Path(home) / "blog" / "entries" / f"{slug}.html"
+    output = _identity.runtime_root(Path(home) / "agent.yaml", fallback_root=home)
+    p = output / "blog" / "entries" / f"{slug}.html"
     return p if p.is_file() else None
 
 
@@ -728,7 +731,8 @@ def sweep(home, exp_dir: Path, cfg: dict, *, log=None) -> dict:
     origins = cfg.get("origins")
     if origins is not None:
         origins = {str(o).strip() for o in origins}
-    log_path = Path(log) if log else home / "state" / "events" / "log.jsonl"
+    output = _identity.runtime_root(home / "agent.yaml", fallback_root=home)
+    log_path = Path(log) if log else output / "state" / "events" / "log.jsonl"
     corpus = eventlog.corpus_at(log=log_path)
     index = load_index(exp_dir)
 

@@ -796,6 +796,19 @@ class PromoteParceiroPen(unittest.TestCase):
             self.assertEqual(got["by"], "operator")
             self.assertEqual(got["domain"], "juridico")
 
+    def test_promotes_the_agent_operator_without_misclassifying_as_team(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _log(tmp)
+            ev = eventlog.promote_parceiro(
+                "Example Operator", "operador", by="Example Operator",
+                log=log,
+            )
+            self.assertEqual(ev["payload"]["kind"], "operador")
+            self.assertEqual(
+                eventlog.parceiros_at(log=log)["Example Operator"]["kind"],
+                "operador",
+            )
+
     def test_refuses_missing_authority_blank_name_or_unknown_kind(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = _log(tmp)

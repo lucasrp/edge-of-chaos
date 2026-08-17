@@ -7,7 +7,7 @@
 
 version: cortex-v2@1
 schema_version: 1
-content_hash: "803609eaa9947a3d695c00e611c874ff1107b5315a51c94672a8e73dc60ea684"
+content_hash: "e1f70c5716c330735d4da05918e1e8bf1c0ca8cbf6ee2804dc1e39f17b38fdf3"
 
 provenance_class:
   # The plane per edge/annotation. Decides ONE thing: rollup eligibility (CX-1).
@@ -96,7 +96,7 @@ nodes:
     # (parceiro.promoted, asserted/HITL); same node, keeping the edges/communities it already has.
     truth: parceiro.promoted
     promotion_of: entity
-    kinds: [empresa, pesquisador, equipe, git-user]
+    kinds: [empresa, pesquisador, equipe, git-user, operador]
 
 edges:
   structural:   # provenance_class=asserted (authored/proof-bound IS their provenance)

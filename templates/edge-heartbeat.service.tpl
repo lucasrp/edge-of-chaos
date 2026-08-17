@@ -6,3 +6,5 @@ After=network-online.target
 Type=oneshot
 ExecStart={{heartbeat_bin}} --home {{edge_home}}
 WorkingDirectory={{edge_home}}
+TimeoutStartSec=35min
+KillMode=control-group

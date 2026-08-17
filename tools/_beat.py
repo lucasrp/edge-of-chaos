@@ -44,7 +44,7 @@ DEFAULT_HEARTBEAT_CLI_MIX = (
 
 
 @contextmanager
-def heartbeat_lock(home):
+def heartbeat_lock(home, *, runtime_root=None):
     """Serialize the WHOLE heartbeat critical section {capture before_count -> run claude -p ->
     assert_beat_produced} across concurrent heartbeats (Codex gate round-4 [medium]).
 
@@ -57,7 +57,8 @@ def heartbeat_lock(home):
     cannot begin its own before/after window until the first's gate completes: no overlap, so any
     increase is attributable to the invocation that produced it. Blocking flock is simplest + correct.
     """
-    lock_path = Path(home) / "state" / "beat" / "heartbeat.lock"
+    output = Path(runtime_root) if runtime_root is not None else Path(home)
+    lock_path = output / "state" / "beat" / "heartbeat.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -362,11 +363,15 @@ def build_grok_beat_command(grok_bin: str, prompt_file: Path, cwd: Path) -> list
 def build_codex_beat_command(codex_bin: str, cwd: Path) -> list:
     """One beat = one single-shot ``codex exec``; prompt on stdin (``-``), approvals bypassed.
 
-    Heartbeat runs non-interactively on a trusted install (same posture as claude
-    ``--dangerously-skip-permissions`` / grok ``--always-approve``).
+    Heartbeat runs non-interactively on a trusted phenotype directory (same posture as claude
+    ``--dangerously-skip-permissions`` / grok ``--always-approve``). Phenotypes deliberately are
+    not git checkouts, so the repo check is skipped explicitly. The run is ephemeral: the Tier-0
+    event log is its durable receipt, never a Codex rollout that the next wake could re-ingest.
     """
     return [
         codex_bin, "exec",
+        "--ephemeral",
+        "--skip-git-repo-check",
         "--dangerously-bypass-approvals-and-sandbox",
         "-C", str(cwd),
         "-",
@@ -384,7 +389,9 @@ def ensure_cortex_config(home, group=None):
     # be re-resolved UNDER home again (home/home/state/...) and the server could not be found. Absolute
     # home makes the config path and its contents cwd-independent.
     home = str(Path(os.path.expanduser(str(home))).resolve())
-    path = Path(home) / "state" / "cortex" / "lead.mcp.json"
+    import _identity
+    output = _identity.runtime_root(Path(home) / "agent.yaml", fallback_root=home)
+    path = output / "state" / "cortex" / "lead.mcp.json"
     cortex_config.write_config(path, subject="lead", group=group, home=home)
     return path
 
@@ -396,12 +403,21 @@ def build_beat_env(home) -> dict:
     python tools that touch `_identity` self-load secrets; the agent's own `via`-spec calls do not.
     ADR-0011: never block — a missing secrets dir just returns the base env (the leg darkens, the
     beat still runs)."""
+    import _identity
     import _secrets
+    home = Path(home).expanduser().resolve()
     try:
-        _secrets.load_env(Path(home) / "secrets")
+        _secrets.load_env(home / "secrets")
     except Exception:
         pass
-    return dict(os.environ)
+    env = dict(os.environ)
+    # A symlinked tools/ tree resolves __file__ back to the genotype checkout.  Bind the
+    # phenotype explicitly so every nested tool reads this install's identity and doctrine.
+    env["EDGE_HOME"] = str(home)
+    group = _identity.group(agent_yaml=home / "agent.yaml")
+    if group:
+        env["EDGE_GROUP"] = str(group)
+    return env
 
 
 def load_beat_prompt(home) -> str:
@@ -439,7 +455,10 @@ def main(argv=None, stdin=None, stdout=None):
     result = dispatch_plan(
         args.subject, args.dispatch_id,
         runtime_command=command,
-        log=home / "state" / "events" / "log.jsonl",
+        log=__import__("_identity").runtime_root(
+            home / "agent.yaml", fallback_root=home
+        )
+            / "state" / "events" / "log.jsonl",
     )
     json.dump(result, stdout, ensure_ascii=False, sort_keys=True)
     stdout.write("\n")

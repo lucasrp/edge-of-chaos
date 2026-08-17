@@ -120,6 +120,12 @@ The bounce-bound (`BOUNCE_MAX`) and the loop-2 brake (`LOOP2_MAX_REOPENS`) live 
 constants, never in the producer's discretion — that is what separates a gate from the
 retry-envelope ADR-0003 killed.
 
+When the rite's **final review** rejects an otherwise completed run, never create a new
+`retry-N` directory and replay grounding. Resume the SAME sealed run with
+`resume=True, repair_final_review=True`: the runtime preserves stages 1–6, injects the sealed
+rejecting review into `author_correction`, reopens only stages 7–11, and permits this repair
+exactly once. A second rejection hard-fails; agents cannot enlarge the budget.
+
 ## The improve-gates and cross-model help (codex)
 
 The close is not only a gate — it **refines**. When the producer wires an `improve_fn`,

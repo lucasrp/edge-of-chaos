@@ -30,7 +30,7 @@ import eventlog
 import sessions
 import _identity
 
-CURSORS = _identity.state_root() / "state" / "cursors.json"
+CURSORS = _identity.runtime_root() / "state" / "cursors.json"
 CODEX_BASELINE_KEY = "_codex_baselined"
 GROK_BASELINE_KEY = "_grok_baselined"
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
@@ -1127,7 +1127,7 @@ def reproject():
     group = _identity.require_group()
     try:
         import wiki_render
-        wiki_render.main(group, str(_identity.state_root() / "state" / "wiki"), "threads")
+        wiki_render.main(group, str(_identity.runtime_root() / "state" / "wiki"), "threads")
     except Exception as e:
         print(f"sweep: wiki render skipped ({type(e).__name__}: {e}) — "
               f"Direction projected from the log; the wiki needs Neo4j")

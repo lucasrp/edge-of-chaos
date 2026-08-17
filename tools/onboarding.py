@@ -407,7 +407,9 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
         routers["review"] = dict(routers["chat"])
     else:
         for m in cast.get("members") or []:
-            if m == "codex":
+            if m == "claude":
+                routers["review"] = {"provider": "claude", "model": "opus"}
+            elif m == "codex":
                 routers["review"] = {"provider": "codex", "model": "gpt-5.5"}
             elif m == "grok":
                 routers["review_grok"] = {"provider": "grok", "model": "grok-4.5"}
@@ -781,6 +783,7 @@ def emit_phenotype(
     heartbeat_interval: Optional[str] = None,
     install_mode: Optional[str] = None,
     project_dir: Optional[str] = None,
+    surface_homes: Optional[dict[str, str]] = None,
     sources: Optional[list] = None,
     language: Optional[str] = None,
 ) -> Path:
@@ -832,6 +835,15 @@ def emit_phenotype(
     pd = project_dir or boot.get("project_dir")
     if pd:
         cfg["project_dir"] = str(pd)
+    # WSL-native harnesses keep their transcripts on the Windows side. The onboarding
+    # detects and confirms those homes; persist the pointers instead of silently falling
+    # back to the sparse Linux harness directories after restart.
+    for surface, surface_home in (surface_homes or boot.get("surface_homes") or {}).items():
+        if surface not in ("codex", "grok", "hermes") or not surface_home:
+            continue
+        cfg.setdefault("surfaces", {}).setdefault(surface, {"enabled": True})
+        cfg["surfaces"][surface]["enabled"] = True
+        cfg["surfaces"][surface]["home"] = str(surface_home)
     # strip any non-yaml internal markers
     cfg.pop("_secrets_inventory", None)
     # re-assert secrets block from live inventory at emit time
@@ -931,6 +943,8 @@ def finish_onboarding(
     heartbeat_interval: Optional[str] = None,
     sources: Optional[list] = None,
     language: Optional[str] = None,
+    project_dir: Optional[str] = None,
+    surface_homes: Optional[dict[str, str]] = None,
     run=None,
 ) -> Path:
     """Mentor close seam: grill_gate must pass, then emit phenotype; optional heartbeat enable.
@@ -946,6 +960,7 @@ def finish_onboarding(
     path = emit_phenotype(
         home, mission=mission, voice=voice, mentee=mentee,
         heartbeat_interval=heartbeat_interval, sources=sources, language=language,
+        project_dir=project_dir, surface_homes=surface_homes,
     )
     if enable_heartbeat:
         import yaml

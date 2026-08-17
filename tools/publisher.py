@@ -131,7 +131,7 @@ def _adoption_event(slug, skill, spec, visual_flags):
 
 REPO = Path(__file__).resolve().parent.parent
 import _identity as _id_state
-BLOG_DIR = _id_state.state_root() / "blog" / "entries"   # fenotipo: home do install, nunca o genotipo
+BLOG_DIR = _id_state.runtime_root() / "blog" / "entries"  # saída mutável; legado cai no home
 BASE_CSS = Path(__file__).resolve().parent / "assets" / "base.css"
 BASE_JS = Path(__file__).resolve().parent / "assets" / "page.js"
 
@@ -780,22 +780,110 @@ def _link_distill(s, g, slug, kind, label):
 
 
 
-def _load_openai_key():
-    """Load OPENAI_API_KEY into the env if absent (Codex P1): the embedding key lives in the install
-    secrets (or the ~/.edge-sandbox-kit dev fallback) and is NOT necessarily exported when a producer
-    invokes the projection. Without this, the embed fails, the projection never completes, and recall
-    filters the Artefato out forever. Mirrors sweep._load_openai_key (the runtime's loader)."""
-    if os.environ.get("OPENAI_API_KEY"):
-        return
-    for f in (REPO / "secrets" / "openai.env", Path.home() / ".edge-sandbox-kit" / "openai.env"):
-        try:
-            if f.exists():
-                for line in f.read_text().splitlines():
-                    if "OPENAI_API_KEY" in line:
-                        os.environ["OPENAI_API_KEY"] = line.split("=", 1)[1].strip().strip('"')
-                        return
-        except Exception:  # noqa: BLE001 — best-effort; embed degrades if the key cannot be loaded
-            pass
+def _normalize_embedding_route(route):
+    """Canonical, secret-free identity of an embedding route.
+
+    Provider, model and base URL define the vector space.  Credentials deliberately do not:
+    rotating a key must not trigger a corpus-wide re-embed, while changing an endpoint/model must.
+    """
+    route = route if isinstance(route, dict) else {}
+    return {
+        "provider": str(route.get("provider") or "").strip() or None,
+        "model": str(route.get("model") or "").strip() or None,
+        "base_url": str(route.get("base_url") or "").strip().rstrip("/") or None,
+    }
+
+
+def _embedding_route_hash(route):
+    canonical = json.dumps(_normalize_embedding_route(route), ensure_ascii=False,
+                           sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _injected_embedding_route(embed_fn):
+    """Stable identity for an injected embedder, overridable by test/runtime adapters."""
+    declared = getattr(embed_fn, "embedding_route_identity", None)
+    if isinstance(declared, dict):
+        return _normalize_embedding_route(declared)
+    return _normalize_embedding_route({
+        "provider": "injected",
+        "model": f"{getattr(embed_fn, '__module__', '')}."
+                 f"{getattr(embed_fn, '__qualname__', type(embed_fn).__qualname__)}",
+        "base_url": None,
+    })
+
+
+def _configured_embedding_route():
+    """Read the phenotype's secret-free route identity without requiring live credentials."""
+    import llm_routes
+    import _llm
+
+    route = (llm_routes._load_routers(llm_routes.REPO).get(llm_routes.EMBEDDING_ROUTE) or {})
+    if not route:
+        return None
+    # Hash the EFFECTIVE vector space, including defaults used by llm_routes.embed_fn, so omitting
+    # an explicit model/base_url cannot make the recorded identity ambiguous.
+    return _normalize_embedding_route({
+        "provider": route.get("provider"),
+        "model": route.get("model") or "text-embedding-3-small",
+        "base_url": _llm.resolve_base_url(route),
+    })
+
+
+def _configured_embedder():
+    """Resolve the phenotype embedder plus its secret-free route identity.
+
+    Publication must obey ``routers.embedding`` just like recall and sweep.  Keeping
+    the callable and identity together prevents an existing vector from being treated as current
+    after the phenotype changes provider, model, or base URL.
+    """
+    import llm_routes
+
+    fn = llm_routes.embed_fn()
+    if fn is None:
+        raise RuntimeError(
+            "embedding route unavailable: check routers.embedding and its secret_ref"
+        )
+    # llm_routes owns the parsing/root semantics. Never duplicate secret resolution and never
+    # include secret_ref in the persisted identity.
+    route = _configured_embedding_route()
+    if route is None:
+        raise RuntimeError("embedding route unavailable: routers.embedding is not configured")
+    return fn, route
+
+
+def _configured_embed_fn():
+    """Compatibility seam for callers/tests that only need the configured callable."""
+    return _configured_embedder()[0]
+
+
+def _resolve_embedder(embed_fn):
+    if embed_fn is not None:
+        return embed_fn, _injected_embedding_route(embed_fn)
+    return _configured_embedder()
+
+
+def _embedding_is_current(row, input_hash, route_hash):
+    """True only for the same content, vector space, and observed stored dimension."""
+    if not row:
+        return False
+    dimensions = row.get("d")
+    stored_dimensions = row.get("n")
+    return (bool(row.get("e"))
+            and row.get("h") == input_hash
+            and row.get("r") == route_hash
+            and isinstance(dimensions, int) and not isinstance(dimensions, bool)
+            and dimensions > 0 and dimensions == stored_dimensions)
+
+
+def _observed_embedding_dimensions(embedding):
+    try:
+        dimensions = len(embedding)
+    except TypeError as exc:
+        raise ValueError("embedding result has no observable dimension") from exc
+    if dimensions <= 0:
+        raise ValueError("embedding result must contain at least one dimension")
+    return dimensions
 
 
 def _spec_text(spec):
@@ -1267,27 +1355,32 @@ def project_doc(payload, log=eventlog.LOG, *, driver_factory=None, identity=None
                   pat=_dt.now(_tz.utc).isoformat())
             # embed the CONTENT (mesma infra dos artefatos, best-effort — sem key → pula).
             emb_hash = hashlib.sha256(f"{slug}\n{body}".encode("utf-8")).hexdigest()
-            row = s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) "
-                        "RETURN d.embedding IS NOT NULL AS e, d.embedding_input_hash AS h",
-                        g=g, slug=slug).single()
-            embed_current = bool(row["e"]) and row["h"] == emb_hash
-            if not embed_current:
-                try:
+            embed_current = False
+            try:
+                active_embed_fn, embed_route = _resolve_embedder(embed_fn)
+                route_hash = _embedding_route_hash(embed_route)
+                row = s.run(
+                    "MATCH (d:Doc {group_id:$g, slug:$slug}) "
+                    "RETURN d.embedding IS NOT NULL AS e, d.embedding_input_hash AS h, "
+                    "d.embedding_route_hash AS r, d.embedding_dimensions AS d, "
+                    "coalesce(size(d.embedding),0) AS n",
+                    g=g, slug=slug).single()
+                embed_current = _embedding_is_current(row, emb_hash, route_hash)
+                if not embed_current:
                     embedding_input = f"{slug}\n{body}"
-                    if embed_fn is None:
-                        from openai import OpenAI
-                        _load_openai_key()
-                        emb = OpenAI().embeddings.create(
-                            model="text-embedding-3-small", input=embedding_input,
-                        ).data[0].embedding
-                    else:
-                        emb = embed_fn(embedding_input)
+                    emb = active_embed_fn(embedding_input)
+                    dimensions = _observed_embedding_dimensions(emb)
                     s.run("MATCH (d:Doc {group_id:$g, slug:$slug}) "
-                          "SET d.embedding=$e, d.embedding_input_hash=$h",
-                          g=g, slug=slug, e=emb, h=emb_hash)
+                          "SET d.embedding=$e, d.embedding_input_hash=$h, "
+                          "d.embedding_route_hash=$r, d.embedding_provider=$provider, "
+                          "d.embedding_model=$model, d.embedding_base_url=$base_url, "
+                          "d.embedding_dimensions=$dimensions",
+                          g=g, slug=slug, e=emb, h=emb_hash, r=route_hash,
+                          provider=embed_route["provider"], model=embed_route["model"],
+                          base_url=embed_route["base_url"], dimensions=dimensions)
                     embed_current = True
-                except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
-                    print("doc embed skipped (best-effort, will retry on recovery):", ex)
+            except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
+                print("doc embed skipped (best-effort, will retry on recovery):", ex)
             # DISTILLS to curated Entity clusters and/or automatic Communities (never fabricate).
             s.run("MATCH (d:Doc {group_id:$g, slug:$slug})-[r:DISTILLS]->() DELETE r", g=g, slug=slug)
             catalog = _distill_catalog(s, g)
@@ -1553,15 +1646,17 @@ def _gate_props(gate):
 
 def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites=None,
                      spec=None, lineage=None, log=eventlog.LOG, gate=None, origin=None,
-                     bears_on=None, para=None, para_default=None, reports_on=None):
+                     bears_on=None, para=None, para_default=None, reports_on=None,
+                     embed_fn=None):
     """Project a just-published Artefato into the edge's graph — the deterministic spine write
     that was prose in `skills/_shared/memory.md` (the "Project — AFTER you publish" block) and so
     got SKIPPED by the producer. Ported here as a GUARANTEED side-effect of every publish so the
     graph grows model-independently (#30).
 
     Best-effort / degrade-safe (ADR-0011/0006): the LOG is canonical; this projection is a
-    re-derivable view. ANY failure (no group, no neo4j driver, graph unreachable, no OpenAI key
-    for the embed) PRINTS and returns — it NEVER raises into the publish (`publish` also wraps the
+    re-derivable view. ANY failure (no group, no neo4j driver, graph unreachable, unavailable
+    configured embedding route) PRINTS and returns — it NEVER raises into the publish (`publish`
+    also wraps the
     call). The next beat reprojects from the log.
 
     What it writes (idempotent MERGEs), exactly as memory.md specifies:
@@ -1569,7 +1664,7 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
           from the canonical fold each sync (drop retired steers; the Artefato->PROPOSES->Direction
           provenance is left intact);
       (1) :Artefato MERGE + SERVES the Objective (the hub that keeps it reachable from space-0) +
-          a content `embedding` (text-embedding-3-small, best-effort — skipped if no key);
+          a content `embedding` from `routers.embedding` (best-effort — skipped if unavailable);
       (2) edges — DISTILLS (slug-resolved to existing clusters only, never fabricated), PROPOSES,
           CITES.
     `skill` is passed through so the projection records WHICH producer minted the Artefato."""
@@ -1631,25 +1726,34 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
             # e.g. an unresolved distill that resolved) skips the costly re-embed (hash unchanged).
             emb_input = f"{slug}\n{intent}\n{_spec_text(spec)}".strip()
             emb_hash = hashlib.sha256(emb_input.encode("utf-8")).hexdigest()
-            row = s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-                        "RETURN a.embedding IS NOT NULL AS e, a.embedding_input_hash AS h",
-                        g=g, slug=slug).single()
-            embed_current = bool(row["e"]) and row["h"] == emb_hash
-            if not embed_current:
-                try:
-                    from openai import OpenAI
-                    _load_openai_key()   # source the install/dev OpenAI key if not exported (Codex P1)
-                    emb = OpenAI().embeddings.create(model="text-embedding-3-small",
-                                                     input=emb_input).data[0].embedding
+            embed_current = False
+            try:
+                active_embed_fn, embed_route = _resolve_embedder(embed_fn)
+                route_hash = _embedding_route_hash(embed_route)
+                row = s.run(
+                    "MATCH (a:Artefato {group_id:$g, slug:$slug}) "
+                    "RETURN a.embedding IS NOT NULL AS e, a.embedding_input_hash AS h, "
+                    "a.embedding_route_hash AS r, a.embedding_dimensions AS d, "
+                    "coalesce(size(a.embedding),0) AS n",
+                    g=g, slug=slug).single()
+                embed_current = _embedding_is_current(row, emb_hash, route_hash)
+                if not embed_current:
+                    emb = active_embed_fn(emb_input)
+                    dimensions = _observed_embedding_dimensions(emb)
                     s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) "
-                          "SET a.embedding=$e, a.embedding_input_hash=$h",
-                          g=g, slug=slug, e=emb, h=emb_hash)
+                          "SET a.embedding=$e, a.embedding_input_hash=$h, "
+                          "a.embedding_route_hash=$r, a.embedding_provider=$provider, "
+                          "a.embedding_model=$model, a.embedding_base_url=$base_url, "
+                          "a.embedding_dimensions=$dimensions",
+                          g=g, slug=slug, e=emb, h=emb_hash, r=route_hash,
+                          provider=embed_route["provider"], model=embed_route["model"],
+                          base_url=embed_route["base_url"], dimensions=dimensions)
                     embed_current = True
-                except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
-                    # a FAILED embed (key/service down) must NOT mark the projection complete (Codex
-                    # P2): leave embed_current False so recovery RETRIES the embed once creds recover,
-                    # instead of skipping the slug forever with no/stale embedding.
-                    print("embed skipped (best-effort, will retry on recovery):", ex)
+            except Exception as ex:  # noqa: BLE001 — embed is best-effort (no key → skip)
+                # a FAILED embed (key/service down) must NOT mark the projection complete (Codex
+                # P2): leave embed_current False so recovery RETRIES the embed once creds recover,
+                # instead of skipping the slug forever with no/stale embedding.
+                print("embed skipped (best-effort, will retry on recovery):", ex)
             # (2) edges — distills (slug-resolved), proposes, cites. REBUILD this slug's edge set
             # each (re)project (Codex P2): clear the slug's OLD DISTILLS/PROPOSES/CITES first, so a
             # republish/replay with corrected provenance does not leave stale clusters/directions/
@@ -1961,7 +2065,8 @@ def _post_publish_sideeffects(slug, intent, *, spec, skill, body, cites, embed_f
             project_fn(slug, intent, skill=skill, distills=distills, proposes=proposes,
                        cites=cites, spec=spec, lineage=lineage, log=log, gate=gate,
                        origin=origin, bears_on=bears_on, para=para,
-                       para_default=para_default, reports_on=reports_on)
+                       para_default=para_default, reports_on=reports_on,
+                       embed_fn=embed_fn)
         except Exception as ex:  # noqa: BLE001 — projection is best-effort, never fatal
             print(f"project skipped for {slug!r} (best-effort, reproject next beat):", ex)
 
@@ -2507,6 +2612,13 @@ def _graph_present_slugs():
     `{slug: projected_at}`, or None on a degrade (no group / no driver / unreachable) — the caller then
     skips the replay entirely (there is nothing to recover into a graph it cannot read)."""
     try:
+        # Route identity is config-only (no credential/network probe). When a route is declared,
+        # nodes from another vector space — or with a truncated vector — are deliberately absent
+        # from this "present" set, causing reproject_graph to refresh them even when content and
+        # projected_at did not change. With no declared route, preserve the legacy availability
+        # behavior; projection itself remains honestly dark until an embedder is configured.
+        embed_route = _configured_embedding_route()
+        route_hash = _embedding_route_hash(embed_route) if embed_route is not None else None
         import _identity
         from neo4j import GraphDatabase
         uri, user, pw = _identity.neo4j_conn()
@@ -2516,9 +2628,16 @@ def _graph_present_slugs():
         return None
     try:
         with drv.session() as s:
+            route_filter = (
+                "AND a.embedding_route_hash = $route_hash "
+                "AND a.embedding_dimensions = coalesce(size(a.embedding),0) "
+                if route_hash is not None else ""
+            )
             return {r["slug"]: r["pat"] for r in s.run(
                 "MATCH (a:Artefato {group_id:$g}) WHERE a.projection_complete = true "
-                "RETURN a.slug AS slug, a.projected_at AS pat", g=g)}
+                + route_filter
+                + "RETURN a.slug AS slug, a.projected_at AS pat",
+                g=g, route_hash=route_hash)}
     except Exception:  # noqa: BLE001
         return None
     finally:

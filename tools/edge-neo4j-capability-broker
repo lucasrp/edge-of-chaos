@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Static local broker entrypoint. Not installed or started by creating this file."""
+import argparse
+import json
+import os
+from pathlib import Path
+import signal
+import sys
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from neo4j_capability_auth import AuthorizedBroker, CapabilityAuthority
+from neo4j_capability_backend import build_existing_cortex_backend
+from neo4j_capability_broker import CapabilityBroker
+from neo4j_capability_deploy import OneShotBootstrap
+from neo4j_capability_transport import UnixBrokerServer
+
+
+def _runtime_dir(value):
+    path = Path(value)
+    if not path.is_absolute() or path.is_symlink() or not path.is_dir():
+        raise RuntimeError("runtime directory must be an existing real absolute directory")
+    if path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077:
+        raise RuntimeError("runtime directory must be private and owned by this user")
+    return path
+
+
+def _group_from_home(home):
+    """Resolve identity from the target phenotype only; never inherit a launcher group."""
+    agent_yaml = home / "agent.yaml"
+    try:
+        cfg = yaml.safe_load(agent_yaml.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise RuntimeError("cannot resolve broker identity from target agent.yaml") from exc
+    group = cfg.get("graph_group") or cfg.get("name") or cfg.get("codename")
+    if not isinstance(group, str) or not group.strip():
+        raise RuntimeError("target agent.yaml has no graph group identity")
+    return group.strip()
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--home", required=True)
+    parser.add_argument("--runtime-dir", required=True)
+    parser.add_argument("--check-config", action="store_true")
+    args = parser.parse_args(argv)
+    home = Path(args.home).resolve()
+    owning_tools = Path(__file__).resolve().parent
+    # Phenotypes may expose the genotype tools directory through a symlink. Bind identity to the
+    # exact resolved tools directory rather than requiring the phenotype root to equal the genotype
+    # checkout root. A different install whose tools do not resolve here still fails closed.
+    if (home / "tools").resolve() != owning_tools:
+        raise RuntimeError("--home tools must resolve to the directory that owns this broker")
+    runtime = _runtime_dir(args.runtime_dir)
+    if args.check_config:
+        print(json.dumps({"ok": True, "home": str(home), "runtime": str(runtime),
+                          "bootstrap_socket": str(runtime / "bootstrap.sock"),
+                          "broker_socket": str(runtime / "broker.sock"),
+                          "timer": False}, sort_keys=True))
+        return 0
+
+    # Live-only boundary: secrets and graph dependencies are loaded only in the broker process.
+    import _secrets
+    _secrets.load_env(home / "secrets")
+    group = _group_from_home(home)
+    authority = CapabilityAuthority()
+    core = CapabilityBroker(group=group, backend=build_existing_cortex_backend())
+    authorized = AuthorizedBroker(core, authority)
+
+    bootstrap = OneShotBootstrap(authority)
+    bootstrap_path = runtime / "bootstrap.sock"
+    # A human-approved manual preflight can spend time in the tool approval queue before its client
+    # connects. Match the capability TTL ceiling: one bootstrap waits at most ten minutes, emits at
+    # most once, and then disappears before the read socket opens.
+    with UnixBrokerServer(bootstrap_path, bootstrap.handle, timeout=600.0) as server:
+        server.serve_once()
+    if not bootstrap.closed:
+        raise RuntimeError("bootstrap did not issue a grant")
+
+    stopping = False
+
+    def stop(_signum, _frame):
+        nonlocal stopping
+        stopping = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    broker_path = runtime / "broker.sock"
+    with UnixBrokerServer(broker_path, authorized.handle, timeout=1.0) as server:
+        while not stopping:
+            try:
+                server.serve_once()
+            except TimeoutError:
+                continue
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -39,6 +39,24 @@ class EmitPersistsProjectDir(unittest.TestCase):
             cfg = yaml.safe_load(Path(path).read_text())
             self.assertEqual(cfg["project_dir"], "/mnt/c/Users/bob/.claude/projects")
 
+    def test_emit_writes_confirmed_windows_surface_homes(self):
+        import yaml
+        with tempfile.TemporaryDirectory() as tmp:
+            onboarding.run_bootstrap(home=tmp, name="t", backfill_days=3,
+                                     provision_skills=False)
+            path = onboarding.emit_phenotype(
+                tmp,
+                surface_homes={
+                    "codex": "/mnt/c/Users/bob/.codex",
+                    "grok": "/mnt/c/Users/bob/.grok",
+                },
+            )
+            cfg = yaml.safe_load(Path(path).read_text())
+            self.assertEqual(cfg["surfaces"]["codex"]["home"], "/mnt/c/Users/bob/.codex")
+            self.assertEqual(cfg["surfaces"]["grok"]["home"], "/mnt/c/Users/bob/.grok")
+            self.assertTrue(cfg["surfaces"]["codex"]["enabled"])
+            self.assertTrue(cfg["surfaces"]["grok"]["enabled"])
+
 
 if __name__ == "__main__":
     unittest.main()

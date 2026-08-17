@@ -62,6 +62,13 @@ propose, dente) roda em FOREGROUND, por mais minutos que leve; subagentes (explo
 artefato-agents) são chamadas paralelas NO MESMO turno — o paralelismo vem das chamadas
 simultâneas, nunca de background + espera.
 
+**Saída terminal obrigatória:** nunca responda “progredindo”, “acompanhando” ou equivalente
+enquanto houver `state/rito/*/00_MANIFEST.json` deste dispatch com `status: running`. A saída do
+runtime não é uma pausa. Termine o rito em foreground. Se o launcher abrir uma continuação
+localizada, retome o MESMO run com `resume=True`, reutilizando estágios selados; não repita Ato-1,
+não crie `retry-N` e não cunhe outro slug. A continuação é limitada pelo launcher e uma segunda
+saída não-terminal falha fechada.
+
 **Caminho comandado (Voz fast-path, §1 da tabela):** quando o dispatch nasce de uma ordem do
 operador (wake `--origin user_requested`, um `/ed-report sobre X`, um pedido direto na sessão),
 a ordem TRAVA os campos que nomeia e o funil roda só nos graus de liberdade restantes:
@@ -131,6 +138,9 @@ the SAME turn — blocking; the lei do turno above rules here too):
   AND, B.4 — already in `tools/close.py`) and a **loop LOCALIZADO** that ends **por fora** (the
   protocol's bounce/reopen caps — never "até o juiz gostar"). Feedback de vários eixos disjuntos
   ao mesmo tempo é tune ruim: one branch, one axis.
+- If `final_review_acceptance` rejects the rite, the only localized repair is the runtime seam
+  on the SAME run: `resume=True, repair_final_review=True`. Never mint `retry-N` or replay
+  grounding; stages 1–6 stay sealed, stages 7–11 reopen once, and a second rejection ends failed.
 - A **JS-interativo é OUTRO artefato** (04-C), concomitant with the prose one — never a phase of
   it. Fan-out-gather + single-writer per artefato is the validated SOTA; a multi-writer inside
   one artefato is the anti-pattern.
