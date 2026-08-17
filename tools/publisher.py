@@ -694,7 +694,8 @@ def _render_page(slug, spec, *, skill, date):
     pinned renderer's output — no legacy `_page` shell, no base.css — so a reprojection from
     the logged spec re-derives the EXACT bytes `publish_rito` wrote and sealed."""
     if isinstance(spec, dict) and spec.get("format") == "edge-markdown/v1":
-        page = render.markdown_spec_to_page(spec)
+        import yaml_rite
+        page = yaml_rite.page_text(spec.get("markdown") or "")
         return page, page
     body_html = render.spec_to_html(spec)
     css = BASE_CSS.read_text()
@@ -2230,18 +2231,21 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
 
     # THE PIN: recompute the approved renderer's bytes; refuse any mismatch with the sealed
     # final_html receipt (pinning the pipeline, not scoring the artifact).
-    page_bytes = render.markdown_page_bytes(markdown)
+    # YAML sealed drafts use yaml_rite.page_bytes / edge-yaml-spec/v1; markdown stays pinned.
+    import yaml_rite
+    page_bytes = yaml_rite.page_bytes(markdown)
     page_sha = hashlib.sha256(page_bytes).hexdigest()
     sealed_html_sha = (stages.get("final_html") or {}).get("output", {}).get("sha256")
+    renderer_id = yaml_rite.renderer_id_for(markdown)
     if page_sha != sealed_html_sha:
         raise ValueError(
             f"pinned renderer mismatch: recomputed page sha {page_sha} != sealed final_html "
-            f"receipt {sealed_html_sha} ({render.RENDERER_ID}) — refusing to publish")
+            f"receipt {sealed_html_sha} ({renderer_id}) — refusing to publish")
 
     out = _safe_target(slug, blog_dir)
     core = rito.manifest_core_hash(manifest)
     spec = {"format": "edge-markdown/v1", "markdown": markdown,
-            "renderer_id": render.RENDERER_ID, "rito_manifest_sha256": core,
+            "renderer_id": renderer_id, "rito_manifest_sha256": core,
             "page_sha256": page_sha}
 
     # IDEMPOTENT RESUME (codex [high]): the event is the commit point (ADR-0006), the page a
@@ -2292,7 +2296,7 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
             reports_on=reports_on)
     return {"event_seq": published_ev["seq"], "event_ts": published_ev["ts"],
             "page_path": str(out), "page_sha256": page_sha,
-            "rito_manifest_sha256": core, "renderer_id": render.RENDERER_ID}
+            "rito_manifest_sha256": core, "renderer_id": renderer_id}
 
 
 def promote_artefato_to_source(slug, reviewer, note="", log=eventlog.LOG):

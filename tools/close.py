@@ -32,6 +32,7 @@ import render
 import visible  # Modulo 5 (Publicacao) visible-text adapter — reader-visible HTML/CSS/glyph machinery
 import producer_descriptor
 import blocks as block_validation
+import yaml_rite
 
 # ---------------------------------------------------------------------------
 # Genus contract constants — the pinned field shapes + the visual palette
@@ -150,6 +151,7 @@ def check_genus(artefato: dict, attest=None) -> list[str]:
     violations += _check_visual_coverage(artefato.get("content", {}))
     violations += _check_evidence_anchors(artefato.get("content", {}))
     violations += _check_rich_rite(artefato)
+    violations += yaml_rite.check_yaml_rite(artefato, skill=artefato.get("skill"))
     r0_violations = _check_storytelling_floor(artefato.get("content", {}))  # R0 (S2): explain, don't label
     r0_violations += _check_structured_visual_values(artefato.get("content", {}))  # R0-for-values (S7): no
     #   number hides ONLY in a structured visual — same family as R0, so it likewise suppresses the floor.
@@ -1245,10 +1247,18 @@ def _dimension_text() -> str:
 
 def _build_prompt(focus: str, artefato: dict) -> str:
     view = _published_view(artefato)
+    rendered = yaml_rite.reader_facing_from_artefato(artefato)
+    if rendered:
+        cites = view.get("cites") or []
+        body = rendered
+        if cites:
+            body = f"{rendered}\n\nCites:\n{json.dumps(cites, ensure_ascii=False)}"
+    else:
+        body = json.dumps(view, ensure_ascii=False)
     return (
         f"{_BLIND_PREAMBLE}\n\n{focus}\n\n"
         f"Dimensions:\n{_dimension_text()}\n\n"
-        f"Artefato (content + cites only):\n{json.dumps(view, ensure_ascii=False)}"
+        f"Artefato (content + cites only):\n{body}"
     )
 
 

@@ -72,17 +72,21 @@ def _diff_block_substantive(block: dict) -> bool:
     return any(isinstance(ln, dict) and _nonblank(ln.get("text")) for ln in lines)
 
 
+def _side_has_payload(side) -> bool:
+    if not isinstance(side, dict):
+        return False
+    return (
+        _nonblank(side.get("bullets")) or _nonblank(side.get("items"))
+        or _nonblank(side.get("text")) or _nonblank(side.get("content"))
+        or _nonblank(side.get("description")) or _nonblank(side.get("pre"))
+    )
+
+
 def _comparison_substantive(block: dict) -> bool:
-    """>= 1 side with non-empty bullets/items/text (titles alone never qualify)."""
-    sides = [block.get("before") or block.get("left"), block.get("after") or block.get("right")]
-    for side in sides:
-        if isinstance(side, dict) and (
-            _nonblank(side.get("bullets")) or _nonblank(side.get("items"))
-            or _nonblank(side.get("text")) or _nonblank(side.get("content"))
-            or _nonblank(side.get("description")) or _nonblank(side.get("pre"))
-        ):
-            return True
-    return False
+    """BOTH sides must carry payload (titles alone never qualify)."""
+    left = block.get("before") or block.get("left")
+    right = block.get("after") or block.get("right")
+    return _side_has_payload(left) and _side_has_payload(right)
 
 
 def _next_steps_substantive(block: dict) -> bool:
@@ -174,6 +178,10 @@ _PAYLOAD_PREDICATES = {
     "comparison-table": _comparison_table_substantive,
     "diff-block": _diff_block_substantive,
     "comparison": _comparison_substantive,
+    "gap-marker": lambda b: _nonblank(b.get("text")),
+    "derivation": lambda b: (_nonblank(b.get("text")) or _nonblank(b.get("bullets"))
+                            or _nonblank(b.get("steps")) or _nonblank(b.get("conclusion"))
+                            or _nonblank(b.get("code"))),
     "next-steps-grid": _next_steps_substantive,
     "concept-grid": _concept_grid_substantive,
     "flow-example": _flow_example_substantive,

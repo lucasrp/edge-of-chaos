@@ -41,6 +41,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import eventlog  # noqa: E402
 import render  # noqa: E402
+import yaml_rite  # noqa: E402
 
 SCHEMA = "edge.rito-manifest/v1"
 RITO_VERSION = "artefato-double-grounding/experiment-b"
@@ -98,9 +99,54 @@ FORBIDDEN = {
 
 DEFAULT_PUBLISH = object()  # sentinel: use publisher.publish_rito (imported lazily)
 
+# Injected into the first authorial draft prompt so the producer cannot "forget"
+# the YAML contract even if the skill body is paraphrased away.
+YAML_DRAFT_CONTRACT = (
+    "## YAML authoring contract (runtime-injected)\n"
+    "The draft body is a YAML document with root fields `intent`, `cites`, "
+    "`lineage`, `blocks`. First block type is lineage. Must include a "
+    "substantive comparison OR derivation (BOTH sides of a comparison carry "
+    "payload), and a gap-marker / gap-table whose text is nonblank. "
+    "`cites` items are {ref, snippet} — both required; a bare ref is chrome. "
+    "No free markdown. No required H2 names. No word target.\n"
+    "The mentee never sees YAML. The reader probe and final reviewer "
+    "read the RENDERED HTML (`yaml_rite.page_bytes` / `render.spec_to_html`) "
+    "— the same page the publisher emits. Write payloads that teach; do not "
+    "gloss YAML keys for the probe. yaml-rite still checks this YAML source. "
+    "`intent` is one prose string (not a mapping). Block types use hyphens.\n"
+)
+
+YAML_KEEP_CONTRACT = (
+    "Keep the body a YAML document (`intent` as a prose string, `cites` as "
+    "[{ref, snippet}], `lineage`, `blocks` with hyphenated types). Do not "
+    "convert to free markdown. Do not turn intent into a mapping. The probe "
+    "and final review read the rendered HTML the mentee sees, not these keys.\n"
+)
+
 
 class StageFailure(RuntimeError):
     pass
+
+
+def _resolved_skill(skill) -> str:
+    return skill or "report"
+
+
+def _skill_owes_yaml(skill) -> bool:
+    return _resolved_skill(skill) in yaml_rite.REPORT_FORM_SKILLS
+
+
+def _require_yaml_draft(text, skill, run, manifest, *, failed_stage: str) -> None:
+    """Fail-closed: a report-form draft that is not YAML does not continue to close."""
+    if not _skill_owes_yaml(skill):
+        return
+    if yaml_rite.parse_authorial_draft(text) is not None:
+        return
+    exc = StageFailure("draft is not YAML")
+    manifest.update({"status": "failed", "failed_stage": failed_stage,
+                     "finished_at": now()})
+    run.save(manifest)
+    raise exc
 
 
 # --- sealing primitives (run.py pattern) ---------------------------------------------------
@@ -392,8 +438,11 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
 
         # 2 — first authorial draft, then the deterministic treatment scan (fail the run,
         # never silently clean: the FIRST draft must be treatment-blind by construction)
+        draft_prompt = prompts["first_authorial_draft"](outputs)
+        if _skill_owes_yaml(skill):
+            draft_prompt = f"{draft_prompt.rstrip()}\n\n{YAML_DRAFT_CONTRACT}"
         draft = _llm_stage(run, manifest, "first_authorial_draft",
-                           prompts["first_authorial_draft"](outputs), complete_fn, outputs)
+                           draft_prompt, complete_fn, outputs)
         first_leaks = treatment_leaks(draft)
         stage = _stage_record(manifest, "first_authorial_draft")
         stage["treatment_scan"] = {"checked_at": now(), "passed": not first_leaks,
@@ -407,11 +456,18 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             run.save(manifest)
             raise exc
         draft_sealed_sha = _stage_record(manifest, "first_authorial_draft")["output"]["sha256"]
+        _require_yaml_draft(draft, skill, run, manifest,
+                            failed_stage="first_authorial_draft")
 
         # 3–7 — critique, targeted grounding, rewrite, audit, correction
         for name in ("gap_critique", "grounding2_targeted", "provisional_rewrite",
                      "fact_audit", "author_correction"):
-            _llm_stage(run, manifest, name, prompts[name](outputs), complete_fn, outputs)
+            prompt = prompts[name](outputs)
+            if _skill_owes_yaml(skill) and name in {
+                "provisional_rewrite", "author_correction",
+            }:
+                prompt = f"{prompt.rstrip()}\n\n{YAML_KEEP_CONTRACT}"
+            _llm_stage(run, manifest, name, prompt, complete_fn, outputs)
 
         # 8 — treatment cleanup: deterministic byte-copy when the scan is clean, else the
         # SAME AUTHOR route rewrites (run.py's conditional stage, promoted as-is)
@@ -422,8 +478,11 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             blind_safe = _completed_output(run, manifest, "treatment_cleanup")
         elif cleanup_leaks:
             outputs["treatment_leaks"] = json.dumps(cleanup_leaks, ensure_ascii=False)
+            cleanup_prompt = prompts["treatment_cleanup"](outputs)
+            if _skill_owes_yaml(skill):
+                cleanup_prompt = f"{cleanup_prompt.rstrip()}\n\n{YAML_KEEP_CONTRACT}"
             blind_safe = _llm_stage(run, manifest, "treatment_cleanup",
-                                    prompts["treatment_cleanup"](outputs), complete_fn, outputs)
+                                    cleanup_prompt, complete_fn, outputs)
             _stage_record(manifest, "treatment_cleanup")["execution"] = {"mode": "same_author"}
         else:
             _begin(run, manifest, "treatment_cleanup")
@@ -446,16 +505,40 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             run.save(manifest)
             raise exc
 
-        # 9 — final_html: the PINNED render (renderer id sealed; one byte seam)
+        # yaml-rite gate: a developed report-form synthesis owes typed YAML blocks.
+        # Maps/plans/terse drafts owe nothing. Always pass the run's skill (default report).
+        _require_yaml_draft(blind_safe, skill, run, manifest,
+                            failed_stage="treatment_cleanup")
+        meta = publish_meta or {}
+        yaml_art = yaml_rite.artefato_from_draft(
+            blind_safe, intent=intent, skill=_resolved_skill(skill),
+            cites=meta.get("cites"), lineage=meta.get("lineage"))
+        yaml_violations = yaml_rite.check_yaml_rite(
+            yaml_art, skill=_resolved_skill(skill))
+        cleanup_stage["yaml_rite"] = {"checked_at": now(), "passed": not yaml_violations,
+                                      "violations": yaml_violations}
+        run.save(manifest)
+        if yaml_violations:
+            exc = StageFailure(f"yaml-rite rejected the draft: {yaml_violations}")
+            manifest.update({"status": "failed", "failed_stage": "yaml_rite",
+                             "finished_at": now()})
+            run.save(manifest)
+            raise exc
+
+        # #585: probe/review consume the mentee page, not the YAML source.
+        reader_facing = yaml_rite.reader_facing_text(blind_safe)
+        outputs["reader_facing"] = reader_facing
+
+        # 9 — final_html: YAML → spec_to_html; markdown stays the pinned renderer.
         if _completed_output(run, manifest, "final_html") is None:
             _begin(run, manifest, "final_html")
             try:
-                page_bytes = render.markdown_page_bytes(blind_safe)
+                page_bytes = yaml_rite.page_bytes(blind_safe)
                 out = run.output_for("final_html")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(page_bytes)
                 _finish(run, manifest, "final_html")
-                _stage_record(manifest, "final_html")["renderer_id"] = render.RENDERER_ID
+                _stage_record(manifest, "final_html")["renderer_id"] = yaml_rite.renderer_id_for(blind_safe)
                 run.save(manifest)
             except BaseException as exc:
                 _fail(run, manifest, "final_html", exc)
@@ -466,7 +549,9 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         # clareza pedagógica é critério de strike, com os contrapesos vinculantes
         # (fato é do fact-audit; enchimento ≠ crescimento) escritos na própria lente.
         import feynman_gate as _feynman_gate
-        final_review_prompt = (prompts["final_review"](outputs)
+        review_outputs = dict(outputs)
+        review_outputs["treatment_cleanup"] = outputs.get("reader_facing", blind_safe)
+        final_review_prompt = (prompts["final_review"](review_outputs)
                                + "\n\n" + _feynman_gate.LENS_BLOCK)
         if theme_review_contract:
             final_review_prompt = f"{final_review_prompt}\n\n{theme_review_contract}"
@@ -631,11 +716,14 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
     expected_page = None
     sealed_md = None
     stage_renderer = (by_name.get("final_html") or {}).get("renderer_id")
-    if stage_renderer != render.RENDERER_ID and "renderer-id-mismatch" not in failures:
+    _verify_rid = render.RENDERER_ID
+    if md_path.is_file():
+        _verify_rid = yaml_rite.renderer_id_for(md_path.read_text(encoding="utf-8"))
+    if stage_renderer != _verify_rid and "renderer-id-mismatch" not in failures:
         failures.append("renderer-id-mismatch")
     if md_path.is_file():
         sealed_md = md_path.read_text(encoding="utf-8")
-        expected_page = render.markdown_page_bytes(sealed_md)
+        expected_page = yaml_rite.page_bytes(sealed_md)
         sealed = (by_name.get("final_html") or {}).get("output") or {}
         if sealed.get("sha256") != sha_bytes(expected_page):
             failures.append("form-renderer-mismatch")
@@ -660,7 +748,7 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
         spec = (ev.get("payload") or {}).get("spec") or {}
         if (isinstance(spec, dict)
                 and spec.get("format") == "edge-markdown/v1"
-                and spec.get("renderer_id") == render.RENDERER_ID
+                and spec.get("renderer_id") == yaml_rite.renderer_id_for(sealed_md or "")
                 and spec.get("rito_manifest_sha256") == core
                 and expected_page is not None
                 and spec.get("page_sha256") == sha_bytes(expected_page)
@@ -681,7 +769,7 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
     if not (isinstance(receipt, dict)
             and any(ev.get("seq") == receipt.get("event_seq") for ev in bound)
             and receipt.get("rito_manifest_sha256") == core
-            and receipt.get("renderer_id") == render.RENDERER_ID
+            and receipt.get("renderer_id") == yaml_rite.renderer_id_for(sealed_md or "")
             and expected_page is not None
             and receipt.get("page_sha256") == sha_bytes(expected_page)):
         failures.append("publication-receipt-unbound")
