@@ -1208,6 +1208,10 @@ _BLOCK_TYPE_ALIASES = {
     # Comparison aliases
     "pros-cons": "comparison",
     "compare": "comparison",
+    # lineage / builds-on: a close-check marker, rendered as prose (no new renderer)
+    "lineage": "paragraph",
+    "builds-on": "paragraph",
+    "builds_on": "paragraph",
     # Callout aliases
     "note": "callout",
     "warning": "callout",

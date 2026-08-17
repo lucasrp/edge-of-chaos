@@ -32,6 +32,7 @@ import eventlog  # noqa: E402
 import publisher  # noqa: E402
 import render  # noqa: E402
 import rito  # noqa: E402
+import yaml_rite  # noqa: E402
 
 SLUG = "exp-teste-rito"
 INTENT = "provar que o rito inteiro roda, do dossier a publicacao"
@@ -52,21 +53,121 @@ def _approved_generator_present():
     except OSError:
         return False
 
+YAML_AUTHORIAL_DRAFT = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "O relato anterior nomeou o buraco do indice; este deriva o placar."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_PROVISIONAL = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "O relato anterior nomeou o buraco do indice; este deriva o placar."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "versao revisada: a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_AUTHOR_CORRECTION = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "O relato anterior nomeou o buraco do indice; este deriva o placar."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "versao final auditada. A rodada 3 mostra o mecanismo."]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_LEAKY_CORRECTION = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "Neste rascunho eu explico o mecanismo da rodada 3."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_CLEAN_CLEANUP = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "Aqui eu explico o mecanismo da rodada 3."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+
 # Canned cognitive outputs — scan-clean (no draft/grounding/prompt/harness vocabulary), so the
 # deterministic treatment gates pass and treatment_cleanup takes the deterministic-copy branch.
 CANNED = {
-    "first_authorial_draft": (
-        "# Relatorio exp-teste\n\nA pergunta viva: o buscador melhora com o indice?\n\n"
-        "- fato: 29 vitorias\n- inferencia: o indice ajuda\n\n"
-        "| arm | placar |\n|---|---|\n| raw | 8 |\n| indice | 29 |"),
+    "first_authorial_draft": YAML_AUTHORIAL_DRAFT,
     "gap_critique": "# Lacunas\n\nFaltou o caso concreto da rodada 3.",
     "grounding2_targeted": "# Memo dirigido\n\nEvidencia adicional sobre a rodada 3.",
-    "provisional_rewrite": (
-        "# Relatorio exp-teste\n\nVersao revisada: a rodada 3 mostra o mecanismo."),
+    "provisional_rewrite": YAML_PROVISIONAL,
     "fact_audit": "# Fact audit\n\n## Verdict\nPASS\n\n## Claim ledger\ntudo sustentado.",
-    "author_correction": (
-        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
-        "> o indice vence onde a estrutura importa."),
+    "author_correction": YAML_AUTHOR_CORRECTION,
     "final_review": (
         "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
         "Revisao qualitativa: util por si so."),
@@ -219,7 +320,7 @@ class FullRiteTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _, run_dir, log, blog = _green_run(tmp)
             sealed_md = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
-            expected = render.markdown_page_bytes(sealed_md)
+            expected = yaml_rite.page_bytes(sealed_md)
             self.assertEqual((blog / f"{SLUG}.html").read_bytes(), expected)
             self.assertEqual((run_dir / "09_FINAL.html").read_bytes(), expected)
 
@@ -230,7 +331,7 @@ class FullRiteTest(unittest.TestCase):
             self.assertEqual(len(evs), 1)
             spec = evs[0]["payload"]["spec"]
             self.assertEqual(spec["format"], "edge-markdown/v1")
-            self.assertEqual(spec["renderer_id"], render.RENDERER_ID)
+            self.assertEqual(spec["renderer_id"], yaml_rite.YAML_RENDERER_ID)
             self.assertEqual(spec["rito_manifest_sha256"], rito.manifest_core_hash(manifest))
             page_sha = hashlib.sha256((blog / f"{SLUG}.html").read_bytes()).hexdigest()
             self.assertEqual(spec["page_sha256"], page_sha)
@@ -272,10 +373,8 @@ class FullRiteTest(unittest.TestCase):
 
     def test_treatment_cleanup_same_author_when_correction_leaks(self):
         canned = dict(CANNED)
-        canned["author_correction"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
-                                       "mecanismo da rodada 3.")
-        canned["treatment_cleanup"] = ("# Relatorio exp-teste\n\nAqui eu explico o mecanismo "
-                                       "da rodada 3.")
+        canned["author_correction"] = YAML_LEAKY_CORRECTION
+        canned["treatment_cleanup"] = YAML_CLEAN_CLEANUP
         order = LLM_ORDER[:6] + ["treatment_cleanup"] + LLM_ORDER[6:]
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = _green_run(tmp, canned=canned, order=order)
@@ -610,6 +709,63 @@ class DetectorCliTest(unittest.TestCase):
             bad = rito.main(["verify", str(run_dir), "--log", str(log),
                              "--blog-dir", str(blog)])
             self.assertEqual(bad, 1)
+
+
+    def test_report_markdown_first_draft_is_stage_failure(self):
+        """A report-form first draft that is free markdown fails immediately."""
+        canned = dict(CANNED)
+        canned["first_authorial_draft"] = (
+            "# Relatorio\n\nParagrafo um sobre o indice.\n\n"
+            "Paragrafo dois sobre a rodada 3.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(rito.StageFailure) as ctx:
+                _green_run(tmp, canned=canned)
+            self.assertIn("draft is not YAML", str(ctx.exception))
+            manifest = json.loads((Path(tmp) / "run" / "00_MANIFEST.json").read_text())
+            self.assertEqual(manifest["failed_stage"], "first_authorial_draft")
+            self.assertFalse((Path(tmp) / "run" / "03_GAP_CRITIQUE.md").exists())
+
+
+class ReaderFacingProbeReviewTest(unittest.TestCase):
+    """#585: probe + final_review judge the published HTML, not YAML keys."""
+
+    def test_final_review_prompt_is_rendered_html(self):
+        def prompts():
+            base = _prompts()
+            base["final_review"] = (
+                lambda o: "<strict review>\n\n"
+                + (o.get("reader_facing") or o["treatment_cleanup"]))
+            return base
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
+            did = _stamp_wake(log)
+            rito.run_rito(
+                SLUG, run_dir=run_dir,
+                grounding1_fn=lambda: "# Dossier factual\n\nFatos: 29-8-3 em 40 rodadas.",
+                prompts=prompts(),
+                complete_fn=_complete_fn(CANNED, LLM_ORDER),
+                intent=INTENT, skill="report", dispatch_id=did,
+                log=log, blog_dir=blog,
+            )
+            review_prompt = (run_dir / "prompts" / "10_final_review.md").read_text()
+            sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
+            self.assertTrue(yaml_rite.is_yaml_draft(sealed))
+            self.assertIn("rodada 3", review_prompt)
+            self.assertIn("comparison-grid", review_prompt)
+            self.assertNotIn("type: lineage", review_prompt)
+            self.assertNotIn("type: comparison", review_prompt)
+            self.assertIn("type: lineage", sealed)
+
+    def test_yaml_source_is_not_the_probe_body(self):
+        """The probe facing text is HTML, never raw YAML keys."""
+        facing = yaml_rite.reader_facing_text(YAML_AUTHOR_CORRECTION)
+        self.assertIn("rodada 3", facing)
+        self.assertNotIn("type: comparison", facing)
+        self.assertTrue(facing.lstrip().startswith("<!doctype html>")
+                        or "<main>" in facing)
 
 
 if __name__ == "__main__":
