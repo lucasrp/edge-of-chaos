@@ -1432,7 +1432,9 @@ class TestR5Segmentacao(Base):
         self.assertEqual(p["diversidade"]["sessoes"], 1)
         self.assertEqual(p["estado"], "mesma-cena")
 
-    def test_d3_nao_conta_em_dobro_atraves_do_corte(self):
+    def test_d3_corte_na_mesma_atividade_nao_parte_o_comportamento(self):
+        """R5.2 finding 4: 6 leituras idênticas partidas por gap DENTRO da
+        mesma Atividade = UM comportamento (n=6), não dois grupos de 3."""
         work = self.tmp / "w8"
         entradas = [e_user(0, "monitorando o processo em duas levas", "u1")]
         for i in range(3):
@@ -1449,33 +1451,256 @@ class TestR5Segmentacao(Base):
             proj["segmentacao"]["por_sessao"][0]["n_trechos"], 2)
         d3 = [r for r in reg.nivel(2)
               if r["forma"] == "leituras-repetidas-de-estado-externo"]
-        self.assertEqual(len(d3), 2)  # um grupo por trecho, nunca fundidos
-        self.assertEqual({r["params"]["n_repeticoes"] for r in d3}, {3})
-        for r in d3:
-            self.assertEqual(len(r["trechos"]), 1)
+        self.assertEqual(len(d3), 1)
+        self.assertEqual(d3[0]["params"]["n_repeticoes"], 6)
+        self.assertEqual(len(d3[0]["trechos"]), 2)  # refs aos 2 trechos
+        self.assertTrue(d3[0]["trecho_dono"])       # mas UM dono só
+
+    def _fixture_duas_atividades(self, work):
+        entradas = [e_user(0, "escrevendo o artigo no latex agora", "u1")]
+        for i in range(5):
+            entradas.append(dict(
+                e_tool(10 + i * 100, "Bash", {"command": "pgrep -f x"},
+                       f"ta{i}", f"aa{i}"), cwd="/home/x/latex"))
+        entradas.append(dict(
+            e_user(500, "agora vamos rodar os experimentos", "u2"),
+            cwd="/home/x/exp"))
+        for i in range(5):
+            entradas.append(dict(
+                e_tool(510 + i * 100, "Bash", {"command": "pgrep -f x"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/exp"))
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
 
     def test_trechos_da_mesma_sessao_clusterizam_por_cwd(self):
         """Paper-shape: latex + outro cwd na MESMA sessão → 2 Atividades."""
         work = self.tmp / "w9"
-        entradas = [e_user(0, "escrevendo o artigo no latex agora", "u1")]
-        for i in range(5):
-            entradas.append(dict(
-                e_tool(10 + i * 10, "Bash", {"command": "ls"},
-                       f"ta{i}", f"aa{i}"), cwd="/home/x/latex"))
-        entradas.append(dict(
-            e_user(100, "agora vamos rodar os experimentos", "u2"),
-            cwd="/home/x/exp"))
-        for i in range(5):
-            entradas.append(dict(
-                e_tool(110 + i * 10, "Bash", {"command": "ls"},
-                       f"tb{i}", f"ab{i}"), cwd="/home/x/exp"))
-        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        self._fixture_duas_atividades(work)
         reg, proj = pipeline(work, "hostX")
         self.assertEqual(len(proj["atividades"]), 2)
         cwds = {a["cwd"] for a in proj["atividades"]}
         self.assertEqual(cwds, {"/home/x/latex", "/home/x/exp"})
         for a in proj["atividades"]:
             self.assertEqual(a["session_ids"], [SID])
+
+    def test_d3_fronteira_de_atividade_parte_o_grupo(self):
+        """R5.2 finding 4 (contraparte): leituras através de fronteira de
+        ATIVIDADE ficam em grupos separados."""
+        work = self.tmp / "w10"
+        self._fixture_duas_atividades(work)
+        reg, proj = pipeline(work, "hostX")
+        d3 = [r for r in reg.nivel(2)
+              if r["forma"] == "leituras-repetidas-de-estado-externo"]
+        self.assertEqual(len(d3), 2)
+        self.assertEqual([r["params"]["n_repeticoes"] for r in d3], [5, 5])
+
+
+class TestR52Findings(Base):
+    """R5.2 — um teste por finding do adversarial R5.1."""
+
+    def test_f1_trecho_sem_voz_nao_herda_abertura(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "f1"
+        entradas = [e_user(0, "abrindo o trabalho do dia aqui", "u1")]
+        for i in range(5):
+            entradas.append(e_tool(10 + i * 10, "Bash", {"command": "ls"},
+                                   f"ta{i}", f"aa{i}"))
+        for i in range(5):  # trecho novo SEM voz
+            entradas.append(dict(
+                e_tool(100 + i * 10, "Bash", {"command": "ls"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/outro"))
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        s = _sa(caminho, "hostX")
+        trechos, _ = segmentar(s)
+        self.assertEqual(len(trechos), 2)
+        self.assertEqual(trechos[1]["abertura"], "")  # NUNCA a da sessão
+
+    def test_f1_aberturas_vazias_nao_fundem_clusters(self):
+        from tools.atividades import clusterizar
+        t1 = {"trecho_id": "t1", "session_id": SID, "host": "h",
+              "arquivo": "a", "sha1": "s", "sidechain": False,
+              "cwd": "/home/x/aaa", "abertura": "", "eventos": [],
+              "vozes": [], "assistant_turnos": [],
+              "ts_todos": [BASE], "span": {"ts_start": iso(0),
+                                           "ts_end": None,
+                                           "linha_start": 1}}
+        t2 = dict(t1, trecho_id="t2", cwd="/home/y/bbb", ts_todos=[BASE + 9])
+        atvs, log = clusterizar([t1, t2])
+        self.assertEqual(len(atvs), 2)  # sem evidência → sem merge
+
+    def test_f1_merge_por_cwd_pai_filho_com_profundidade(self):
+        from tools.atividades import _cwd_relacionado
+        self.assertTrue(_cwd_relacionado("/home/x/proj",
+                                         "/home/x/proj/latex"))
+        # pai raso (profundidade 2) NUNCA ancora merge — era a gaveta
+        self.assertFalse(_cwd_relacionado("/home/x", "/home/x/proj"))
+        self.assertFalse(_cwd_relacionado("/home/x/a", "/home/x/b"))
+
+    def test_f2_touch_persiste_cwd_do_trecho(self):
+        work = self.tmp / "f2"
+        TestR5Segmentacao._fixture_duas_atividades(self, work)
+        reg, proj = pipeline(work, "hostX")
+        for a in proj["atividades"]:
+            for t in a["sessions"]:
+                self.assertEqual(t["cwd"], a["cwd"])  # auditável
+
+    def test_f3_dono_unico_soma_bate(self):
+        work = self.tmp / "f3"
+        TestR5Segmentacao._fixture_duas_atividades(self, work)
+        reg, proj = pipeline(work, "hostX")
+        soma = sum(len(a["n2_ids"]) for a in proj["atividades"])
+        self.assertEqual(soma, len(reg.nivel(2)))  # nenhum N2 em duas
+
+    def test_f3_corte_nao_atravessa_janela_voz_acao(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "f3b"
+        entradas = [
+            e_user(0, "prepara o fechamento do texto agora", "u1"),
+            e_user(100, "ok", "u2"),
+            # marcador entre a voz e a ação — o corte cairia AQUI…
+            e_user(150, "agora vamos para a outra frente", "u3"),
+            # …mas a ação está a 90s do "ok": o corte move para depois dela
+            e_tool(190, "Write", {"file_path": "/x", "content": "y"},
+                   "t1", "a1"),
+            e_user(400, "seguindo depois da escrita", "u4"),
+        ]
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        s = _sa(caminho, "hostX")
+        trechos, cortes = segmentar(s)
+        self.assertEqual(len(cortes), 1)
+        self.assertTrue(cortes[0].get("movido"))
+        # voz e ação no MESMO trecho
+        reg, _ = pipeline(work, "hostX")
+        d1 = [r for r in reg.nivel(2)
+              if r["forma"] == "resposta-curta-seguida-de-acao"]
+        self.assertEqual(len(d1), 1)
+        self.assertEqual(len(d1[0]["trechos"]), 1)
+
+    def test_f5_sub_piso_dobra_no_vizinho(self):
+        work = self.tmp / "f5"
+        entradas = [e_user(0, "trabalho principal da manhã aqui", "u1")]
+        for i in range(6):
+            entradas.append(e_tool(10 + i * 100, "Bash",
+                                   {"command": "pgrep -f x"},
+                                   f"ta{i}", f"aa{i}"))
+        # excursão sustentada (5 eventos) mas MINÚSCULA (40s ativos) e sem
+        # retorno — corta, mas o cluster fica sub-piso e dobra no vizinho
+        for i in range(5):
+            entradas.append(dict(
+                e_tool(700 + i * 10, "Bash", {"command": "ls"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/mini"))
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        reg, proj = pipeline(work, "hostX")
+        self.assertEqual(len(proj["atividades"]), 1)
+        a = proj["atividades"][0]
+        dobrados = [t for t in a["sessions"] if t.get("digressao_de")]
+        self.assertEqual(len(dobrados), 1)
+        self.assertEqual(dobrados[0]["cwd"], "/home/x/mini")
+        self.assertTrue(any(l.get("acao") == "dobrado-no-vizinho"
+                            for l in proj["cluster_log"]))
+
+    def test_f5_retorno_ao_cwd_anterior_e_digressao_sem_corte(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "f5b"
+        entradas = [e_user(0, "trabalho principal da manhã aqui", "u1")]
+        for i in range(3):
+            entradas.append(e_tool(10 + i * 10, "Bash", {"command": "ls"},
+                                   f"ta{i}", f"aa{i}"))
+        for i in range(6):  # excursão SUSTENTADA (6 eventos, 50s) que volta
+            entradas.append(dict(
+                e_tool(50 + i * 10, "Bash", {"command": "ls"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/outro"))
+        for i in range(3):  # retorno ao base em ≤900s
+            entradas.append(e_tool(120 + i * 10, "Bash", {"command": "ls"},
+                                   f"tc{i}", f"ac{i}"))
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        s = _sa(caminho, "hostX")
+        trechos, cortes = segmentar(s)
+        self.assertEqual(len(trechos), 1)  # ida-e-volta: nenhum corte
+
+    def test_f6_delta_sempre_leva_catch_fresco(self):
+        from tools.atividades import eval_delta_preparar, eval_preparar
+        work = self.tmp / "f6"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o resumo agora por favor", "u1"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        amostra, prereg_full = eval_preparar(reg, work)
+        # nada rotulado antes → tudo é delta; catch fresco ainda assim entra
+        delta, ra, rb, pre = eval_delta_preparar(amostra, {}, {}, seed=23)
+        self.assertEqual(pre["catch_gold_por_item_delta"] and
+                         len(pre["catch_gold_por_item_delta"]), 2)
+        ids_delta_catch = {i["n2_id"] for i in delta["itens"]
+                          if i["item"] in pre["catch_gold_por_item_delta"]}
+        ids_census_catch = {i["n2_id"] for i in amostra["itens"]
+                           if i["item"] in {int(k) for k in
+                                            prereg_full["catch_gold_por_item"]}}
+        self.assertFalse(ids_delta_catch & ids_census_catch)  # frescos
+        self.assertEqual(len(pre["sha256_bloco_congelado"]), 64)
+
+    def test_f7_nomeador_recebe_o_trabalho(self):
+        from tools.atividades import clusterizar, scan_arquivo as _sa
+        work = self.tmp / "f7"
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "conversa qualquer de abertura aqui", "u1"),
+            e_tool(10, "Edit", {"file_path": "/home/x/proj/artigo.tex",
+                                "content": "y"}, "t1", "a1"),
+        ])
+        s = _sa(caminho, "hostX")
+        prompts = []
+
+        def espiao(p):
+            prompts.append(p)
+            return "Edição do artigo tex"
+
+        orc = OrcamentoLLM()
+        clusterizar([s], complete_fn=espiao, orcamento=orc)
+        self.assertTrue(prompts)
+        self.assertIn("artigo.tex", prompts[0])
+        self.assertIn("/home/x/proj", prompts[0])
+        self.assertIn("Edit", prompts[0])
+
+    def test_f8_segundos_reconciliam_exato(self):
+        work = self.tmp / "f8"
+        TestR5Segmentacao._fixture_duas_atividades(self, work)
+        reg, proj = pipeline(work, "hostX")
+        from tools.atividades import tempo_ativo_s
+        soma_atv = sum(a["segundos_ativos_total"]
+                       for a in proj["atividades"])
+        sessao_s = proj["segmentacao"]["por_sessao"][0]["conservacao_s"][
+            "sessao"]
+        self.assertAlmostEqual(soma_atv, sessao_s, places=3)
+
+    def test_f10_recibo_de_arbitragem_persistido(self):
+        from tools.atividades import scan_arquivo as _sa, segmentar
+        work = self.tmp / "f10"
+        entradas = [e_user(0, "trabalho principal da manhã aqui", "u1"),
+                    e_tool(10, "Bash", {"command": "ls"}, "t0", "a0")]
+        for i in range(3):  # ambíguo (3 eventos), sem retorno
+            entradas.append(dict(
+                e_tool(30 + i * 10, "Bash", {"command": "ls"},
+                       f"tb{i}", f"ab{i}"), cwd="/home/x/outro"))
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        s = _sa(caminho, "hostX")
+        orc = OrcamentoLLM()
+        trechos, cortes = segmentar(
+            s, complete_fn=lambda p: "DISTINTA", orcamento=orc,
+            model="modelo-teste")
+        self.assertEqual(len(trechos), 2)
+        arb = cortes[0]["arbitragem"]
+        self.assertEqual(arb["model"], "modelo-teste")
+        self.assertEqual(len(arb["prompt_sha256"]), 64)
+        self.assertEqual(arb["resposta"], "DISTINTA")
+        # decisão DIGRESSAO também deixa recibo (sem corte)
+        s2 = _sa(caminho, "hostX")
+        trechos2, cortes2 = segmentar(
+            s2, complete_fn=lambda p: "DIGRESSAO", orcamento=OrcamentoLLM(),
+            model="modelo-teste")
+        self.assertEqual(len(trechos2), 1)
+        self.assertEqual(len(s2["arbitragens"]), 1)
+        self.assertEqual(s2["arbitragens"][0]["resposta"], "DIGRESSAO")
 
 
 class TestCwdModal(Base):

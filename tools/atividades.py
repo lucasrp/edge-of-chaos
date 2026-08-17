@@ -90,6 +90,22 @@ GAP_CORTE_S = 900.0
 # corta.
 N_CWD_SUSTENTADO = 5
 N_CWD_AMBIGUO = 3  # [3,5) eventos no cwd novo = candidato AMBÍGUO (LLM arbitra)
+# R5.2 finding 5: ida-e-volta não é mudança de emprego — excursão a outro cwd
+# que RETORNA ao cwd-base em ≤900s é digressão (sem corte). Aterrado no
+# dig-5 B: interrupções curtas no IDE são 3–12min (Meyer TSE 2017); 15min é
+# o limiar de retomada (Parnin/Sanchez) — acima disso deixa de ser excursão.
+DIGRESSAO_RETORNO_S = 900.0
+# R5.2 finding 5: PISO para virar Atividade — cluster precisa de duração
+# ativa ≥300s (gaps <5min são "pensar", não emprego — Xia TSE 2018/Minelli)
+# E ≥5 eventos (abaixo do próprio limiar de corte sustentado, um cluster
+# menor que isso não se sustenta sozinho). Sub-piso dobra na Atividade do
+# trecho VIZINHO como digressão — nunca some.
+PISO_ATIVIDADE_SEGUNDOS = 300.0
+PISO_ATIVIDADE_EVENTOS = 5
+# R5.2 finding 1: merge de clusters exige EVIDÊNCIA — prefixo de cwd
+# relacionado só conta com o pai em profundidade ≥3 (/home/user NUNCA é
+# âncora de merge; /home/user/projeto pode absorver /home/user/projeto/sub)
+PROFUNDIDADE_MIN_MERGE_CWD = 3
 # marcadores explícitos de fronteira na VOZ — lexicon FECHADO e versionado;
 # inclui a forma literal do operador ("vamos continuar a atividade 1. a
 # atividade 2 ta superada", 03/08)
@@ -906,7 +922,7 @@ def _runs_de_cwd(fluxo):
     return runs  # [cwd, idx_inicial_no_fluxo, n_eventos]
 
 
-def segmentar(sessao, complete_fn=None, orcamento=None):
+def segmentar(sessao, complete_fn=None, orcamento=None, model="injetado"):
     """Sessão → lista de trechos (dicts com a mesma forma de uma sessão,
     para _touch/clusterizar). Sinais de corte, nesta ordem de varredura:
 
@@ -946,14 +962,22 @@ def segmentar(sessao, complete_fn=None, orcamento=None):
                            "sinal": "marcador-de-voz",
                            "detalhe": redigir(m.group(0), entropia=True)[:60]})
 
-    # 3. cwd sustentado (runs; digressão curta não corta)
+    # 3. cwd sustentado (runs; digressão curta não corta; R5.2 finding 5:
+    # excursão que RETORNA ao cwd-base em ≤DIGRESSAO_RETORNO_S também não —
+    # ida-e-volta não é mudança de emprego)
+    arbitragens = []
     runs = _runs_de_cwd(fluxo)
     if runs:
         base = runs[0][0]
-        for cwd, idx, n in runs[1:]:
+        for r_i, (cwd, idx, n) in enumerate(runs[1:], 1):
             if cwd == base or not cwd:
                 continue
             ts_c, linha_c, _ = fluxo[idx]
+            dur_run = fluxo[idx + n - 1][0] - ts_c
+            proximo_volta = (r_i + 1 < len(runs)
+                             and runs[r_i + 1][0] == base)
+            if proximo_volta and dur_run <= DIGRESSAO_RETORNO_S:
+                continue  # digressão-com-retorno: sem corte (finding 5)
             if n >= N_CWD_SUSTENTADO:
                 cortes.append({"ts": ts_c, "linha": linha_c,
                                "sinal": "cwd-sustentado",
@@ -961,21 +985,62 @@ def segmentar(sessao, complete_fn=None, orcamento=None):
                 base = cwd
             elif n >= N_CWD_AMBIGUO and complete_fn and orcamento \
                     and orcamento.permitir("segmentar-arbitrar"):
+                prompt = (
+                    "Num log de trabalho, o diretório mudou de "
+                    f"'{base}' para '{cwd}' por {n} eventos "
+                    "consecutivos. Isso é o início de uma atividade "
+                    "DISTINTA ou uma digressão da mesma atividade? "
+                    "Responda exatamente DISTINTA ou DIGRESSAO.")
                 try:
-                    resp = complete_fn(
-                        "Num log de trabalho, o diretório mudou de "
-                        f"'{base}' para '{cwd}' por {n} eventos "
-                        "consecutivos. Isso é o início de uma atividade "
-                        "DISTINTA ou uma digressão da mesma atividade? "
-                        "Responda exatamente DISTINTA ou DIGRESSAO.")
+                    resp = complete_fn(prompt)
                 except Exception:
                     resp = ""
+                # R5.2 finding 10: recibo COMPLETO da arbitragem, cortada
+                # ou não — o re-run pode particionar diferente e o operador
+                # precisa auditar a decisão
+                recibo = {"linha": linha_c, "de": base, "para": cwd,
+                          "n_eventos": n, "model": model,
+                          "prompt_sha256": hashlib.sha256(
+                              prompt.encode()).hexdigest(),
+                          "resposta": redigir((resp or "").strip(),
+                                              entropia=True)[:120]}
+                arbitragens.append(recibo)
                 if "DISTINTA" in (resp or "").upper():
                     cortes.append({"ts": ts_c, "linha": linha_c,
                                    "sinal": "cwd-ambiguo-arbitrado-llm",
-                                   "detalhe": f"{n} eventos em {cwd}"})
+                                   "detalhe": f"{n} eventos em {cwd}",
+                                   "arbitragem": recibo})
                     base = cwd
             # senão: candidato ambíguo sem completer → NÃO corta (dig-5 A)
+    sessao["arbitragens"] = arbitragens
+
+    # R5.2 finding 3: corte NUNCA atravessa uma janela voz→ação ≤120s — o
+    # corte move para depois da ação (o par causal fica inteiro num trecho)
+    vozes_ts = sorted(v[0] for v in sessao["vozes"] if v[0] is not None)
+    acoes_seq = sorted(
+        (_parse_ts(e["ts"]), e["evidencia"]["linha"])
+        for e in sessao["eventos"]
+        if e["kind"] != "voz-turno" and e["ts"]
+        and not e["conteudo_redigido"].get("sidechain"))
+    import bisect as _bisect
+
+    def _mover_se_atravessa(c):
+        for _ in range(10):
+            i_v = _bisect.bisect_left(vozes_ts, c["ts"]) - 1
+            i_a = _bisect.bisect_left(acoes_seq, (c["ts"], -1))
+            if i_v < 0 or i_a >= len(acoes_seq):
+                return c
+            ts_v = vozes_ts[i_v]
+            ts_a, linha_a = acoes_seq[i_a]
+            if ts_a - ts_v <= 120:
+                c = dict(c, ts=ts_a + 1e-3, linha=linha_a,
+                         movido=f"corte movido para depois da ação "
+                                f"L{linha_a} (janela voz→ação ≤120s)")
+                continue
+            return c
+        return c
+
+    cortes = [_mover_se_atravessa(c) for c in cortes]
 
     # consolidar: ordenar, dedupe por ts, descartar corte no início
     t0 = ts_todos[0] if ts_todos else None
@@ -1002,14 +1067,20 @@ def segmentar(sessao, complete_fn=None, orcamento=None):
         evs = [e for e in sessao["eventos"] if _dentro(_parse_ts(e["ts"]))]
         vzs = [v for v in sessao["vozes"] if _dentro(v[0])]
         fl = [f for f in fluxo if _dentro(f[0])]
-        linha_start = (min(f[1] for f in fl) if fl
-                       else (cortes_finais[k - 1]["linha"] if k > 0 else 1))
+        # R5.2 finding 9: âncora e start na MESMA base — trecho não-inicial
+        # começa exatamente na linha do corte
+        if k > 0:
+            linha_start = cortes_finais[k - 1]["linha"]
+        else:
+            linha_start = (min(l for _, l in sessao.get("ts_linhas") or
+                               [(0, 1)]) if sessao.get("ts_linhas")
+                           else (min(f[1] for f in fl) if fl else 1))
+        # R5.2 finding 1: trecho sem voz NUNCA herda a abertura da sessão —
+        # string herdada não é evidência e criava a Atividade-gaveta
         abertura = next((redigir(t, entropia=True)[:200]
                          for _, t, _, _, _ in vzs if len(t) >= 8), "")
         if not abertura and vzs:
             abertura = redigir(vzs[0][1], entropia=True)[:200]
-        if not abertura:
-            abertura = sessao["abertura"]
         cwds_t = Counter(c for _, _, c in fl if c)
         trechos.append({
             "trecho_id": f"tre-{sessao['session_id'][:8]}-L{linha_start}",
@@ -1065,6 +1136,69 @@ def _eh_acao_escrita(ev):
     return c.get("classe") in ("escrita", "commit")
 
 
+def _aplicar_piso(atividades, trechos, log):
+    """R5.2 finding 5: cluster abaixo do piso (duração ativa <
+    PISO_ATIVIDADE_SEGUNDOS OU eventos < PISO_ATIVIDADE_EVENTOS) não vira
+    Atividade — dobra na Atividade do trecho VIZINHO (anterior na sessão;
+    senão o seguinte) como digressão, com log. Nunca some."""
+    if len(atividades) <= 1:
+        return atividades
+
+    def _eventos(atv):
+        return sum(t["n_eventos_voz"] + t["n_eventos_acao"]
+                   for t in atv["sessions"])
+
+    abaixo = {a["ulid"] for a in atividades
+              if a["segundos_ativos_total"] < PISO_ATIVIDADE_SEGUNDOS
+              or _eventos(a) < PISO_ATIVIDADE_EVENTOS}
+    if not abaixo or len(abaixo) == len(atividades):
+        return atividades
+    atv_por_trecho = {tid: a for a in atividades
+                      for tid in a.get("trecho_ids", [])}
+    por_sessao = defaultdict(list)
+    for tr in trechos:
+        por_sessao[tr["session_id"]].append(tr)
+    for lst in por_sessao.values():
+        lst.sort(key=lambda t: t["span"]["ts_start"] or "")
+    vivos = {a["ulid"]: a for a in atividades if a["ulid"] not in abaixo}
+    for a in atividades:
+        if a["ulid"] not in abaixo:
+            continue
+        for tid, touch in zip(a.get("trecho_ids", []), a["sessions"]):
+            lst = por_sessao.get(touch["session_id"], [])
+            idx = next((i for i, tr in enumerate(lst)
+                        if tr["trecho_id"] == tid), None)
+            destino = None
+            if idx is not None:
+                for i in (list(range(idx - 1, -1, -1))
+                          + list(range(idx + 1, len(lst)))):
+                    cand = atv_por_trecho.get(lst[i]["trecho_id"])
+                    if cand and cand["ulid"] not in abaixo:
+                        destino = vivos[cand["ulid"]]
+                        break
+            if destino is None:
+                destino = next(iter(vivos.values()))
+            touch = dict(touch, digressao_de=a["cwd"])
+            destino["sessions"].append(touch)
+            destino["trecho_ids"].append(tid)
+            destino["segundos_ativos_total"] = round(
+                destino["segundos_ativos_total"]
+                + (touch["min_ativos"].get("segundos") or 0.0), 3)
+            log.append({"acao": "dobrado-no-vizinho", "de": a["cwd"],
+                        "para": destino["cwd"], "trecho": tid,
+                        "razao": f"sub-piso ({a['segundos_ativos_total']:.0f}s"
+                                 f" ativos, {_eventos(a)} eventos; piso "
+                                 f"{PISO_ATIVIDADE_SEGUNDOS:.0f}s/"
+                                 f"{PISO_ATIVIDADE_EVENTOS}ev)",
+                        "cluster_version": CLUSTER_VERSION})
+    out = []
+    for a in vivos.values():
+        a["sessions"].sort(key=lambda t: t["ts_start"] or "")
+        a["session_ids"] = sorted({t["session_id"] for t in a["sessions"]})
+        out.append(a)
+    return sorted(out, key=lambda a: a["ulid"])
+
+
 def _trecho_de(sessao, ts):
     """trecho_id do timestamp dentro da sessão (None sem segmentação)."""
     for tr in sessao.get("trechos") or []:
@@ -1075,6 +1209,14 @@ def _trecho_de(sessao, ts):
                 and (fim is None or ts < fim):
             return tr["trecho_id"]
     return None
+
+
+def _span_de(sessao, ts):
+    """Span de comportamento contíguo (mesma Atividade) do timestamp —
+    fallback para o trecho quando os spans ainda não foram atribuídos."""
+    tid = _trecho_de(sessao, ts)
+    spans = sessao.get("spans_por_trecho") or {}
+    return spans.get(tid, tid)
 
 
 def detectar_sessao(sessao, reg):
@@ -1131,10 +1273,11 @@ def detectar_sessao(sessao, reg):
                 and c.get("comando_cabeca") and not c.get("sidechain"):
             # R4 item 2: agrupar pela cabeça BRUTA (transiente) — a redação
             # (***) fundia cabeças distintas num grupo fabricado.
-            # R5: a chave inclui o TRECHO — grupo nunca cruza um corte
-            # (não conta em dobro através da fronteira)
+            # R5.2 finding 4: a chave é o SPAN DE COMPORTAMENTO (trechos
+            # adjacentes da MESMA Atividade) — corte dentro da mesma
+            # Atividade não parte o grupo; fronteira de Atividade sim
             por_cabeca[(brutas.get(ac["id"], c["comando_cabeca"]),
-                        _trecho_de(sessao, _parse_ts(ac["ts"])))].append(ac)
+                        _span_de(sessao, _parse_ts(ac["ts"])))].append(ac)
     for (cabeca, _trecho), lst in por_cabeca.items():
         i = 0
         while i < len(lst):
@@ -1170,7 +1313,7 @@ def detectar_sessao(sessao, reg):
     # rajada de perguntas curtas sobrepunha D2 nos mesmos turnos); R5: a
     # janela não cruza um corte de trecho
     p = th["rajada-de-turnos-curtos"]
-    curtos = [(ts, vid, _trecho_de(sessao, ts)) for ts, t, vid, _, _ in vozes
+    curtos = [(ts, vid, _span_de(sessao, ts)) for ts, t, vid, _, _ in vozes
               if 0 < len(t) <= p["max_chars"]
               and not t.rstrip().endswith("?")]
     i = 0
@@ -1268,12 +1411,29 @@ def _touch(sessao):
         "top_ferramentas": ferramentas.most_common(5),
         "top_arquivos": [(redigir(a), n) for a, n in arquivos.most_common(5)],
         "commits": commits}
+    # R5.2 finding 2: cwd modal do trecho PERSISTE — sem ele a afiliação é
+    # inauditável (40% dos trechos tinham cwd ≠ do da Atividade)
+    t["cwd"] = redigir(sessao.get("cwd") or "", entropia=True)[:200]
+    if seg:
+        t["min_ativos"]["segundos"] = round(seg[int(MIN_ATIVOS_CAP_S)], 3)
     if sessao.get("trecho_id"):
         t["trecho_id"] = sessao["trecho_id"]
         t["segment_version"] = sessao.get("segment_version")
         t["span"] = sessao.get("span")
         t["corte"] = sessao.get("corte")
     return t
+
+
+def _cwd_relacionado(a, b):
+    """Pai/filho com o pai em profundidade ≥ PROFUNDIDADE_MIN_MERGE_CWD —
+    /home/user nunca ancora merge (R5.2 finding 1)."""
+    if not a or not b or a == b:
+        return False
+    pai, filho = (a, b) if len(a) < len(b) else (b, a)
+    if not filho.startswith(pai.rstrip("/") + "/"):
+        return False
+    return len([x for x in pai.strip("/").split("/") if x]) \
+        >= PROFUNDIDADE_MIN_MERGE_CWD
 
 
 # NEW-7: adjetivos de juízo/caráter proibidos em nome de Atividade — nome
@@ -1299,30 +1459,74 @@ def clusterizar(sessoes, complete_fn=None, orcamento=None):
         log.append({"acao": "atribuir", "session_id": s["session_id"],
                     "cluster": chave, "razao": "cwd idêntico",
                     "cluster_version": CLUSTER_VERSION})
-    # merge entre grupos com aberturas semelhantes
+    # merge entre grupos SÓ com EVIDÊNCIA (R5.2 finding 1 — string herdada
+    # nunca é chave; a união transitiva por jaccard 1.00 de aberturas
+    # herdadas criou a Atividade-gaveta):
+    #   (a) cwd pai/filho com pai em profundidade ≥ PROFUNDIDADE_MIN_MERGE_CWD
+    #   (b) ≥1 arquivo tocado em comum
+    #   (c) aberturas GENUÍNAS (ambas não-vazias) com jaccard ≥ 0.6
     chaves = sorted(grupos)
-    merged, dono = {}, {}
-    for c in chaves:
-        dono[c] = c
+    dono = {c: c for c in chaves}
     p = THRESHOLDS["sessoes-com-abertura-semelhante"]
+
+    def _arquivos_do_grupo(chave):
+        # (top5, top1) do grupo (finding 1: "shared top files"). Evidência
+        # de mesmo emprego exige DOMINÂNCIA MÚTUA: o arquivo top-1 de cada
+        # grupo aparece no top-5 do outro. Um hub tocado unilateralmente
+        # (o .tex do paper editado 1-2× de work_exp168) não funde; dois
+        # grupos cujo trabalho dominante se cruza nos dois sentidos, sim.
+        cnt = Counter(a for s in grupos[chave] for e in s["eventos"]
+                      for a in (e["conteudo_redigido"].get("arquivos") or [])
+                      if a)
+        top5 = {a for a, _ in cnt.most_common(5)}
+        top1 = cnt.most_common(1)[0][0] if cnt else None
+        return top5, top1
+
+    arquivos_grupo = {c: _arquivos_do_grupo(c) for c in chaves}
     for i in range(len(chaves)):
         for j in range(i + 1, len(chaves)):
             a, b = chaves[i], chaves[j]
-            jac = max((_jaccard(_tokens(sa["abertura"]), _tokens(sb["abertura"]))
-                       for sa in grupos[a] for sb in grupos[b]), default=0.0)
-            if jac >= p["jaccard_min"]:
+            razao = None
+            (top5_a, top1_a), (top5_b, top1_b) = (arquivos_grupo[a],
+                                                  arquivos_grupo[b])
+            if _cwd_relacionado(a, b):
+                razao = f"cwd relacionado (pai/filho): {a} ↔ {b}"
+            elif top1_a and top1_b and top1_a in top5_b \
+                    and top1_b in top5_a \
+                    and len(grupos[a]) >= 2 and len(grupos[b]) >= 2:
+                # um grupo de 1 trecho com trabalho misto é PONTE, não
+                # emprego: a transitividade da união por arquivo através
+                # dele fundia dois empregos inteiros. Grupo de 1 trecho só
+                # funde por cwd pai/filho; se ficar pequeno demais, o piso
+                # o dobra como digressão.
+                razao = (f"dominância mútua de arquivos: {top1_a[-60:]} ↔ "
+                         f"{top1_b[-60:]}")
+            else:
+                jac = max((_jaccard(_tokens(sa["abertura"]),
+                                    _tokens(sb["abertura"]))
+                           for sa in grupos[a] for sb in grupos[b]
+                           if sa["abertura"] and sb["abertura"]),
+                          default=0.0)
+                if jac >= p["jaccard_min"]:
+                    razao = f"aberturas genuínas com jaccard {jac:.2f}"
+            if razao:
                 raiz_a, raiz_b = dono[a], dono[b]
                 if raiz_a != raiz_b:
                     for k, v in dono.items():
                         if v == raiz_b:
                             dono[k] = raiz_a
                     log.append({"acao": "merge", "de": raiz_b, "para": raiz_a,
-                                "razao": f"abertura jaccard {jac:.2f} >= "
-                                         f"{p['jaccard_min']}",
+                                "razao": razao,
                                 "cluster_version": CLUSTER_VERSION})
     finais = defaultdict(list)
     for c in chaves:
         finais[dono[c]].extend(grupos[c])
+    # R5.2 finding 2: cadeia de merge auditável por Atividade final
+    merges_por_raiz = defaultdict(list)
+    for entry in log:
+        if entry.get("acao") == "merge":
+            merges_por_raiz[dono.get(entry["para"], entry["para"])].append(
+                {k: entry[k] for k in ("de", "para", "razao")})
 
     atividades = []
     for chave, ss in sorted(finais.items()):
@@ -1337,12 +1541,29 @@ def clusterizar(sessoes, complete_fn=None, orcamento=None):
             nome_fallback += f" · {top_arq}"
         nome = None
         if complete_fn and orcamento and orcamento.permitir("nomear-cluster"):
+            # R5.2 finding 7: o nomeador vê o TRABALHO (cwd, ferramentas,
+            # arquivos), não só a primeira frase dita
+            ferr = Counter()
+            arqs = Counter()
+            for t in touches:
+                for f, n in t["top_ferramentas"]:
+                    ferr[f] += n
+                for a, n in t["top_arquivos"]:
+                    arqs[a] += n
             try:
                 resp = complete_fn(
                     "Nomeie em no máximo 6 palavras, descritivas e sem "
-                    "diagnóstico psicológico, a Atividade de trabalho cujas "
-                    "aberturas de sessão são:\n"
-                    + "\n".join(f"- {s['abertura'][:160]}" for s in ss[:5])
+                    "diagnóstico psicológico, a Atividade de TRABALHO com "
+                    "esta evidência (o nome descreve o trabalho feito, não "
+                    "a conversa):\n"
+                    f"diretório: {chave}\n"
+                    f"ferramentas mais usadas: "
+                    f"{[f for f, _ in ferr.most_common(4)]}\n"
+                    f"arquivos mais tocados: "
+                    f"{[os.path.basename(a) for a, _ in arqs.most_common(4)]}\n"
+                    "primeiras falas nos trechos:\n"
+                    + "\n".join(f"- {s['abertura'][:120]}" for s in ss[:3]
+                                if s["abertura"])
                     + "\nResponda SÓ o nome.")
                 nome = redigir((resp or "").strip().splitlines()[0],
                                entropia=True)[:80] or None
@@ -1369,6 +1590,13 @@ def clusterizar(sessoes, complete_fn=None, orcamento=None):
             "hosts": sorted({s["host"] for s in ss}),
             "cwd": chave, "cluster_version": CLUSTER_VERSION,
             "sessions": touches,
+            # R5.2 finding 2: cadeia de merge + finding 8: total em segundos
+            "merges": merges_por_raiz.get(chave, []),
+            "segundos_ativos_total": round(sum(
+                s.get("segundos_ativos_atribuidos", {}).get(
+                    int(MIN_ATIVOS_CAP_S),
+                    tempo_ativo_s(s["ts_todos"], MIN_ATIVOS_CAP_S))
+                for s in ss), 3),
             # R5: afiliação por TRECHO; sessões DISTINTAS continuam sendo o
             # grão de diversidade (anti-inflação)
             "session_ids": sorted({s["session_id"] for s in ss}),
@@ -1883,6 +2111,44 @@ def eval_preparar(reg, workdir, max_amostra=30, seed=17, com_catch=True):
     return amostra, pre_registro
 
 
+def eval_delta_preparar(amostra_nova, mapa_a, mapa_b, seed=23,
+                        arquivo_ref=None, razao=""):
+    """R5.2 finding 6: reuso de rótulos por n2_id + pacote de DELTA que
+    SEMPRE leva ≥1 catch trial FRESCO (gold no pré-registro, nunca no
+    pacote). `mapa_a/b`: {n2_id: resposta} de rodadas anteriores.
+
+    Retorna (delta_amostra, reuso_a, reuso_b, pre_registro_delta)."""
+    reuso_a, reuso_b, delta = [], [], []
+    for i in amostra_nova["itens"]:
+        nid = i["n2_id"]
+        if nid in mapa_a and nid in mapa_b:
+            reuso_a.append({"item": i["item"], "resposta": mapa_a[nid]})
+            reuso_b.append({"item": i["item"], "resposta": mapa_b[nid]})
+        else:
+            delta.append(dict(i))
+    catch_gold = {}
+    base_n = max((i["item"] for i in amostra_nova["itens"]), default=0)
+    for k, (item, gold) in enumerate(_itens_catch(seed, arquivo_ref), 1):
+        item["item"] = base_n + k
+        delta.append(item)
+        catch_gold[item["item"]] = gold
+    bloco = amostra_nova["thresholds_congelados"]
+    pre = {"gravado_em": datetime.now(tz=timezone.utc).isoformat(),
+           "sha256_bloco_congelado": hashlib.sha256(json.dumps(
+               bloco, sort_keys=True, ensure_ascii=False).encode())
+           .hexdigest(),
+           "delta_n2_ids": sorted(i["n2_id"] for i in delta
+                                  if i["item"] not in catch_gold),
+           "delta_itens": sorted(i["item"] for i in delta),
+           "catch_gold_por_item_delta": catch_gold,
+           "labels_reutilizados_por_n2_id": len(reuso_a),
+           "razao": razao or "delta = grupos N2 novos/mudados; rótulos "
+                             "anteriores valem por n2_id determinístico"}
+    delta_amostra = {"pergunta": amostra_nova["pergunta"],
+                     "thresholds_congelados": bloco, "itens": delta}
+    return delta_amostra, reuso_a, reuso_b, pre
+
+
 _CLASSES_EVAL = ("sim", "nao", "evidencia-insuficiente")
 
 
@@ -2050,8 +2316,28 @@ def ausencia(cobertura):
 # Pipeline / persistência
 # ---------------------------------------------------------------------------
 
+def _carregar_referencia_n2(caminho):
+    """{n2_id: forma} de uma referência antiga — atividades.jsonl (registros
+    nivel 2) ou arquivo de amostra do eval (itens com n2_id/forma)."""
+    ref = {}
+    p = Path(caminho)
+    if p.suffix == ".jsonl":
+        for linha in open(p, encoding="utf-8"):
+            try:
+                r = json.loads(linha)
+            except Exception:
+                continue
+            if r.get("nivel") == 2:
+                ref[r["id"]] = r["forma"]
+    else:
+        dados = json.loads(p.read_text())
+        for i in dados.get("itens", []):
+            ref[i["n2_id"]] = i["forma"]
+    return ref
+
+
 def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
-             model="injetado", eval_estagio0=None):
+             model="injetado", eval_estagio0=None, diff_referencia=None):
     """Cópia de trabalho (já redigida) → registry + projeção completa.
 
     `eval_estagio0` (resultado de eval_ingerir): GATE dos N3/N4 (finding R1
@@ -2100,10 +2386,11 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
         for ev in s["eventos"]:
             reg.add(ev)
 
-    # R5: segmentar ANTES da detecção (D3/D6 respeitam fronteiras de trecho)
+    # R5: segmentar ANTES de tudo; R5.2: clusterizar ANTES da detecção (a
+    # contagem de padrões precisa dos spans de comportamento contíguo)
     todos_trechos, seg_recibos = [], []
     for s in sessoes:
-        trechos, cortes = segmentar(s, complete_fn, orc)
+        trechos, cortes = segmentar(s, complete_fn, orc, model=model)
         s["trechos"] = trechos
         todos_trechos.extend(trechos)
         soma_s = sum(t["segundos_ativos_atribuidos"][int(MIN_ATIVOS_CAP_S)]
@@ -2113,26 +2400,51 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
             "session_id": s["session_id"], "arquivo": s["arquivo"],
             "n_trechos": len(trechos),
             "cortes": cortes,
+            "arbitragens": s.get("arbitragens") or [],
             "conservacao_s": {"soma_trechos": round(soma_s, 3),
                               "sessao": round(sessao_s, 3),
                               "delta": round(soma_s - sessao_s, 6)}})
+
+    # R5.2 finding 4: clusterizar ANTES da detecção
+    atividades, cluster_log = clusterizar(todos_trechos, complete_fn, orc)
+    # R5.2 finding 5: piso de Atividade — sub-piso dobra no vizinho
+    atividades = _aplicar_piso(atividades, todos_trechos, cluster_log)
+    # spans de COMPORTAMENTO contíguo: trechos adjacentes da mesma Atividade
+    # formam um span; D3/D6 agrupam por span (corte dentro da mesma
+    # Atividade não parte o comportamento — finding 4)
+    atv_por_trecho = {tid: atv["ulid"] for atv in atividades
+                      for tid in atv.get("trecho_ids", [])}
+    for s in sessoes:
+        spans, span_idx, atv_ant = {}, 0, None
+        for tr in sorted(s.get("trechos") or [],
+                         key=lambda t: t["span"]["ts_start"] or ""):
+            a = atv_por_trecho.get(tr["trecho_id"])
+            if a != atv_ant:
+                span_idx += 1
+                atv_ant = a
+            spans[tr["trecho_id"]] = f"{a or 'sem-atv'}#{span_idx}"
+        s["spans_por_trecho"] = spans
 
     n2s = []
     for s in sessoes:
         n2s.extend(detectar_sessao(s, reg))
     n2s.extend(detectar_cross_sessao(sessoes, reg))
-    # R5: N2 ganha refs de trecho (âncoras N1 intactas; ids N2 idem)
+    # R5: N2 ganha refs de trecho + DONO ÚNICO (finding 3: o trecho da 1ª
+    # instância; âncoras N1 intactas; ids N2 idem)
     spans_por_sessao = {s["session_id"]: s for s in sessoes}
     for n2 in reg.nivel(2):
-        trs = set()
+        trs, dono = [], None
         for iid in n2["instancias"]:
             n1 = reg.by_id[iid]
             s = spans_por_sessao.get(n1["session_id"])
             if s:
                 tid = _trecho_de(s, _parse_ts(n1["ts"]))
                 if tid:
-                    trs.add(tid)
-        n2["trechos"] = sorted(trs)
+                    trs.append(tid)
+                    if dono is None:
+                        dono = tid
+        n2["trechos"] = sorted(set(trs))
+        n2["trecho_dono"] = dono
 
     degradacoes = []
     if complete_fn is None:
@@ -2153,7 +2465,6 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
             degradacoes.append(
                 "formas sem selo `confiavel` no estágio 0 — N3/N4 NÃO "
                 f"gerados para: {', '.join(reprovadas)}")
-    atividades, cluster_log = clusterizar(todos_trechos, complete_fn, orc)
     if complete_fn is not None and formas_confiaveis:
         inferir_n3(reg, complete_fn, orc, model=model,
                    formas_permitidas=formas_confiaveis,
@@ -2165,6 +2476,27 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
                 f"orçamento LLM esgotado: {orc.negadas} chamadas negadas "
                 f"(teto {orc.teto})")
 
+    # R5.2 finding 4: recibo de diff do n dos padrões contra uma referência
+    padroes_diff = None
+    if diff_referencia:
+        ref = _carregar_referencia_n2(diff_referencia)
+        novos = {n2["id"]: n2["forma"] for n2 in reg.nivel(2)}
+        padroes_diff = {
+            "referencia": os.path.basename(str(diff_referencia)),
+            "nota": "ids N2 = hash das instâncias; 'dissolvido' significa "
+                    "que o CONJUNTO de instâncias daquele grupo mudou "
+                    "(re-derivação por corte/comportamento contíguo), nunca "
+                    "que o comportamento sumiu do corpus",
+            "por_forma": []}
+        for f in sorted(set(ref.values()) | set(novos.values())):
+            antes = {i for i, fo in ref.items() if fo == f}
+            depois = {i for i, fo in novos.items() if fo == f}
+            padroes_diff["por_forma"].append({
+                "forma": f, "n_antes": len(antes), "n_depois": len(depois),
+                "mantidos": len(antes & depois),
+                "dissolvidos": len(antes - depois),
+                "novos": len(depois - antes)})
+
     agora_ts = agora_ts or datetime.now(tz=timezone.utc).timestamp()
     ts_all = [t for s in sessoes for t in s["ts_todos"]]
     janela = {"de": _iso(min(ts_all)) if ts_all else None,
@@ -2173,16 +2505,16 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
     cobertura = montar_cobertura([host], len(sessoes), puladas, janela)
     padroes, formas_sem_instancias = fold_padroes(reg, agora_ts, cobertura)
 
-    # índice N2 por TRECHO → atividade (R5); fallback por sessão para N2
-    # sem refs de trecho
+    # índice N2 → atividade pelo TRECHO-DONO (R5.2 finding 3: dono único —
+    # Σ n2_ids das Atividades == N2 distintos); fallback por sessão só para
+    # N2 sem dono
     n2_por_trecho = defaultdict(list)
     n2_por_sessao = defaultdict(list)
     for n2 in reg.nivel(2):
-        if n2.get("trechos"):
-            for tid in n2["trechos"]:
-                n2_por_trecho[tid].append(n2["id"])
+        if n2.get("trecho_dono"):
+            n2_por_trecho[n2["trecho_dono"]].append(n2["id"])
         else:
-            for sid in n2["sessoes"]:
+            for sid in n2["sessoes"][:1]:
                 n2_por_sessao[sid].append(n2["id"])
     for atv in atividades:
         ids = {i for tid in atv.get("trecho_ids", [])
@@ -2224,6 +2556,7 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
         "atividades": atividades,
         "cluster_log": cluster_log,
         "padroes": padroes,
+        "padroes_diff": padroes_diff,
         "formas_sem_instancias": formas_sem_instancias,
         "contagens": {f"n{n}": len(reg.nivel(n)) for n in (1, 2, 3, 4)},
         "eval_estagio0": eval_estagio0}
@@ -2361,8 +2694,18 @@ def render_report(reg, projecao, eval_estagio0=None):
                 H.append("<ul>" + "".join(
                     f"<li>corte <b>{_esc(c['sinal'])}</b> em "
                     f"<span class='anc'>{_esc(r['arquivo'])}:{c['linha']}"
-                    f"</span> ({_esc(str(c.get('detalhe', ''))[:80])})</li>"
+                    f"</span> ({_esc(str(c.get('detalhe', ''))[:80])})"
+                    + (f" [{_esc(c['movido'])}]" if c.get("movido") else "")
+                    + "</li>"
                     for c in r["cortes"]) + "</ul>")
+            if r.get("arbitragens"):
+                H.append("<ul>" + "".join(
+                    f"<li class='exp'>arbitragem LLM em L{a['linha']} "
+                    f"({_esc(a['de'])}→{_esc(a['para'])}, {a['n_eventos']} "
+                    f"eventos): resposta \"{_esc(a['resposta'][:40])}\" · "
+                    f"model {_esc(str(a['model'])[:40])} · prompt sha256 "
+                    f"<code>{_esc(a['prompt_sha256'][:12])}…</code></li>"
+                    for a in r["arbitragens"]) + "</ul>")
             H.append("</li>")
         H.append("</ul>")
 
@@ -2388,7 +2731,17 @@ def render_report(reg, projecao, eval_estagio0=None):
                  f"(+{va.get('acao_delegada_sidechain', 0)} ações delegadas a "
                  f"subagentes, fora da manchete) "
                  f"(unidade: {va['unidade']}; {_esc(va['nota'])})</p>")
-        H.append("<table><tr><th>sessão</th><th>trecho</th><th>início</th>"
+        if atv.get("merges"):
+            H.append("<p>Cadeia de merge (evidência): "
+                     + " · ".join(_esc(m["razao"])[:90]
+                                  for m in atv["merges"][:6]) + "</p>")
+        seg_tot = atv.get("segundos_ativos_total")
+        if seg_tot is not None:
+            H.append(f"<p>Tempo ativo total: {seg_tot:.1f}s "
+                     f"({seg_tot / 60:.1f} min — exato em segundos; os "
+                     f"minutos por trecho abaixo são arredondados a 0.1)</p>")
+        H.append("<table><tr><th>sessão</th><th>trecho</th><th>cwd do "
+                 "trecho</th><th>início</th>"
                  "<th>fim</th>"
                  "<th>min ativos (teto 300s)</th><th>sens. 120/600s</th>"
                  "<th>voz</th><th>ação</th><th>commits</th></tr>")
@@ -2399,9 +2752,12 @@ def render_report(reg, projecao, eval_estagio0=None):
             tr_lbl = (t.get("trecho_id", "—") or "—")
             if corte:
                 tr_lbl += f" ({corte['sinal']})"
+            if t.get("digressao_de"):
+                tr_lbl += " [digressão dobrada]"
             H.append(
                 f"<tr><td><code>{_esc(t['session_id'][:8])}</code></td>"
                 f"<td><code>{_esc(tr_lbl)}</code></td>"
+                f"<td><code>{_esc(t.get('cwd', '—'))}</code></td>"
                 f"<td>{_esc((t['ts_start'] or '')[:16])}</td>"
                 f"<td>{_esc((t['ts_end'] or '')[:16])}</td>"
                 f"<td>{ma['minutos']}</td>"
@@ -2457,6 +2813,17 @@ def render_report(reg, projecao, eval_estagio0=None):
     H.append("</table>")
     if not projecao["padroes"]:
         H.append(f"<p>Padrões: {_esc(aus)}.</p>")
+    pd_diff = projecao.get("padroes_diff")
+    if pd_diff:
+        H.append(f"<p>Recibo de diff do n (vs {_esc(pd_diff['referencia'])})"
+                 f": {_esc(pd_diff['nota'])}</p>")
+        H.append("<table><tr><th>forma</th><th>n antes</th><th>n depois</th>"
+                 "<th>mantidos</th><th>dissolvidos</th><th>novos</th></tr>")
+        for d in pd_diff["por_forma"]:
+            H.append(f"<tr><td>{_esc(d['forma'])}</td><td>{d['n_antes']}</td>"
+                     f"<td>{d['n_depois']}</td><td>{d['mantidos']}</td>"
+                     f"<td>{d['dissolvidos']}</td><td>{d['novos']}</td></tr>")
+        H.append("</table>")
 
     # Estágio 0
     H.append("<h2>Estágio 0 — avaliação cega dos detectores</h2>")
@@ -2653,7 +3020,8 @@ def _cmd_backfill(args):
     reg, projecao = pipeline(args.workdir, args.host, complete_fn,
                              janela_dias=args.janela_dias,
                              model=args.complete_cmd or "nenhum",
-                             eval_estagio0=ev)
+                             eval_estagio0=ev,
+                             diff_referencia=args.diff_referencia)
     state = persistir(args.state, reg, projecao)
     html = render_report(reg, projecao, ev)
     (state / "report.html").write_text(html, encoding="utf-8")
@@ -2832,6 +3200,9 @@ def main(argv=None):
     p.add_argument("--eval", default=None,
                    help="eval.json do estágio 0 — GATE dos N3/N4 (sem ele, "
                         "nenhum N3/N4 é gerado; degradação declarada)")
+    p.add_argument("--diff-referencia", dest="diff_referencia", default=None,
+                   help="atividades.jsonl ou amostra antiga — gera o recibo "
+                        "de diff do n dos padrões (R5.2 finding 4)")
     p.set_defaults(fn=_cmd_backfill)
 
     p = sub.add_parser("eval", help="estágio 0 — avaliação cega")
