@@ -713,9 +713,10 @@ class TestEvalPacote(Base):
         self.assertNotIn("sk-FAKE", blob)
         self.assertNotIn("PENSAMENTO-CRU", blob)
         self.assertNotIn("ASSINATURA-CRUA", blob)
+        catch_ns = {int(k) for k in prereg["catch_gold_por_item"]}
         d1 = [i for i in amostra["itens"]
               if i["forma"] == "resposta-curta-seguida-de-acao"
-              and "catch" not in i["n2_id"]]
+              and i["item"] not in catch_ns]
         self.assertTrue(d1)
         cargas = json.dumps(d1[0]["evidencia"], ensure_ascii=False)
         # o fato julgado (comando integral, redigido) está no pacote
@@ -827,6 +828,267 @@ class TestRegistryColisao(unittest.TestCase):
         reg.add(dict(base))  # idempotente: mesmo conteúdo, ok
         with self.assertRaises(CitacaoInvalida):
             reg.add(dict(base, conteudo_redigido={"texto": "outro"}))
+
+
+class TestNew1CredencialEmFlag(Base):
+    """NEW-1 (dig-3 A): credencial em flag de CLI + camada de entropia."""
+
+    def test_flag_p_com_valor_de_segredo(self):
+        senha = "3f9a1c7e" * 8  # 64 hex
+        red = redigir(f"cypher-shell -u neo4j -p {senha} 'MATCH (n)'")
+        self.assertNotIn(senha, red)
+        red2 = redigir(f"mysql --password={senha} -h host db")
+        self.assertNotIn(senha, red2)
+
+    def test_flags_inocentes_nao_disparam(self):
+        for cmd in ("mkdir -p /tmp/x/y", "ssh -p 22 host ls",
+                    "grep -P 'pat' f"):
+            self.assertEqual(redigir(cmd), cmd, cmd)
+
+    def test_entropia_hex_longo_mascara_uuid_e_sha_curto_nao(self):
+        senha = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b"
+        self.assertIn("***", redigir(f"a senha é {senha}78", entropia=True))
+        uuid = "7fed4159-1841-467b-8b28-04272fdb6299"
+        self.assertEqual(redigir(f"sessão {uuid}", entropia=True),
+                         f"sessão {uuid}")
+        sha16 = "ca8926b767123039"
+        self.assertEqual(redigir(f"linha {sha16}", entropia=True),
+                         f"linha {sha16}")
+
+    def test_pipeline_e_eval_sem_hex64(self):
+        """O caso real do R2-verifier: 64-hex depois de -p chega ao pacote."""
+        senha = "3f9a1c7e" * 8
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "conecta no neo4j e roda a query agora", "u1"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Bash",
+                   {"command": f"cypher-shell -u neo4j -p {senha} "
+                               "'MATCH (n) RETURN n' && git commit -am 'q'"},
+                   "t1", "a1"),
+        ])
+        reg, proj = pipeline(work, "hostX")
+        amostra, prereg = eval_preparar(reg, work)
+        state = self.tmp / "state"
+        persistir(state, reg, proj)
+        blob = json.dumps(amostra) + json.dumps(list(reg.by_id.values()))
+        for f in state.rglob("*"):
+            if f.is_file():
+                self.assertNotIn(senha.encode(), f.read_bytes(), f)
+        self.assertNotIn(senha, blob)
+
+
+class TestNew2ComandoAninhado(unittest.TestCase):
+    """NEW-2 (dig-3 B): comando remoto/aninhado classificado por recursão;
+    payload ilegível nunca herda leitura."""
+
+    def test_ssh_payload_mutante(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("ssh assertia 'pip install rank-bm25'"),
+                         "escrita")
+        self.assertEqual(cc("ssh -o BatchMode=yes host "
+                            "'timeout 540 python3 run.py'"), "execucao")
+        self.assertEqual(cc("ssh host 'git commit -am x'"), "commit")
+
+    def test_ssh_payload_leitura_continua_leitura(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("ssh roberto 'ls -la'"), "leitura")
+        self.assertEqual(cc("ssh -i k -p 22 host 'cat /etc/os-release'"),
+                         "leitura")
+
+    def test_ssh_sem_payload_e_unknown(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("ssh host"), "execucao")
+
+    def test_bash_c_e_docker_exec(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("bash -c 'rm -rf /tmp/x'"), "escrita")
+        self.assertEqual(cc("sh -c 'ls /tmp'"), "leitura")
+        self.assertEqual(cc("docker exec -it caixa cat /var/log/app.log"),
+                         "leitura")
+        self.assertEqual(cc("docker exec caixa touch /x"), "escrita")
+        self.assertEqual(cc("docker ps"), "leitura")
+
+
+class TestNew3Atribuicao(Base):
+    """NEW-3: N3/N4 não atribuem ao operador execução do agente."""
+
+    def _fixture(self, work):
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o texto do resumo agora", "u1"),
+            e_assistant_text(50, "Proposta de fechamento:\n" + "z" * 900,
+                             "a0"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+        ])
+
+    _EVAL_OK = {"por_forma": {"resposta-curta-seguida-de-acao":
+                              {"veredicto": "confiavel"}}}
+
+    def test_claim_que_atribui_ao_operador_e_descartado(self):
+        work = self.tmp / "w1"
+        self._fixture(work)
+
+        def teimoso(prompt):
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            return ('{"claim": "Você executou a escrita em 10s", '
+                    '"confianca": 0.6, "alternativas": ["a"]}')
+
+        reg, proj = pipeline(work, "hostX", complete_fn=teimoso,
+                             eval_estagio0=self._EVAL_OK)
+        self.assertEqual(reg.nivel(3), [])
+        self.assertTrue(any("NEW-3" in d for d in proj["degradacoes"]))
+
+    def test_claim_com_atribuicao_correta_passa(self):
+        work = self.tmp / "w2"
+        self._fixture(work)
+
+        def correto(prompt):
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            if "hipóteses de mentoria" in prompt:
+                return ('{"hipotese": "O agente executou a escrita sob seu '
+                        'comando — você revisa o resultado depois?", '
+                        '"falsificacao": "relato de revisão"}')
+            return ('{"claim": "o agente delegado executou a escrita 10s '
+                    'após o aceite do operador", "confianca": 0.6, '
+                    '"alternativas": ["revisão prévia"]}')
+
+        reg, proj = pipeline(work, "hostX", complete_fn=correto,
+                             eval_estagio0=self._EVAL_OK)
+        self.assertEqual(len(reg.nivel(3)), 1)
+        self.assertEqual(reg.nivel(3)[0]["executores_da_base"],
+                         {"acoes": 1, "executadas_por_agente": 1})
+        self.assertEqual(len(reg.nivel(4)), 1)
+
+
+class TestNew4SessaoProtocolo(Base):
+    """NEW-4: sessão de despacho/protocolo não é voz do operador."""
+
+    def test_dispatch_plan_nao_e_voz_e_sessao_e_pulada_com_razao(self):
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "AUTHORITATIVE DISPATCH PLAN\n\nYou are the executor "
+                      "of beat 42. Produce the artefato.", "u1"),
+            e_assistant_text(10, "executando o plano", "a1"),
+            e_tool(20, "Bash", {"command": "ls"}, "t1", "a2"),
+        ])
+        escrever(work / "proj2" / f"{SID2}.jsonl", [
+            e_user(0, "me explica a projeção ortogonal de novo", "u1"),
+        ])
+        reg, proj = pipeline(work, "hostX")
+        self.assertEqual(len(proj["atividades"]), 1)  # fantasma não entra
+        puladas = proj["cobertura"]["sessoes_puladas"]
+        self.assertTrue(any("protocolo/despacho" in p["razao"]
+                            for p in puladas))
+
+    def test_skill_header_nao_e_voz(self):
+        work = self.tmp / "w2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "Base directory for this skill: /x/y", "u1"),
+            e_user(10, "roda o beat agora por favor", "u2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        vozes = [r for r in reg.nivel(1) if r["kind"] == "voz-turno"]
+        self.assertEqual(len(vozes), 1)
+
+
+class TestNew5CatchIndistinguivel(Base):
+    def test_catch_tem_forma_de_item_real(self):
+        """NEW-5: id n2-<12hex>, âncora com arquivo/linha/uuid — nada de
+        'catch' visível nem linha nula."""
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o resumo agora por favor", "u1"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        amostra, prereg = eval_preparar(reg, work)
+        catch_ns = {int(k) for k in prereg["catch_gold_por_item"]}
+        for i in amostra["itens"]:
+            self.assertRegex(i["n2_id"], r"^n2-[0-9a-f]{12}$", i["n2_id"])
+            for e in i["evidencia"]:
+                anc = e["ancora"]
+                self.assertIsInstance(anc["linha"], int)
+                self.assertTrue(anc.get("arquivo"))
+                self.assertTrue(anc.get("uuid"))
+            if i["item"] in catch_ns:
+                self.assertNotIn("catch", json.dumps(i))
+
+
+class TestNew6Adjacencia(Base):
+    def test_turno_humano_no_meio_quebra_antecedente(self):
+        """NEW-6: antecedente = assistant-texto IMEDIATAMENTE anterior."""
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "me explica o plano de novo por favor", "u1"),
+            e_assistant_text(10, "Plano detalhado:\n" + "p" * 900, "a1"),
+            e_user(50, "hmm vou pensar mais um pouco nisso", "u2"),
+            e_user(80, "ok", "u3"),
+            e_tool(90, "Write", {"file_path": "/x", "content": "y"},
+                   "t1", "a2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        acao = next(r for r in reg.nivel(1) if r["kind"] == "tool-call")
+        # 'ok' não tem antecedente imediato (u2 interveio) → desconhecido
+        self.assertEqual(acao["agencia"]["autorizacao"], "desconhecido")
+
+    def test_adjacencia_direta_autoriza(self):
+        work = self.tmp / "w2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "me explica o plano de novo por favor", "u1"),
+            e_assistant_text(10, "Plano detalhado:\n" + "p" * 900, "a1"),
+            e_user(80, "ok", "u3"),
+            e_tool(90, "Write", {"file_path": "/x", "content": "y"},
+                   "t1", "a2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        acao = next(r for r in reg.nivel(1) if r["kind"] == "tool-call")
+        self.assertEqual(acao["agencia"]["autorizacao"], "autorizado")
+
+
+class TestNew7NomeSemJuizo(Base):
+    def test_nome_com_juizo_cai_para_fallback_deterministico(self):
+        from tools.atividades import clusterizar, scan_arquivo as _sa
+        work = self.tmp / "work"
+        caminho = escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "despacha os planos da rodada de hoje", "u1"),
+            e_tool(10, "Write", {"file_path": "/home/x/proj/plano.md",
+                                 "content": "y"}, "t1", "a1"),
+        ])
+        s = _sa(caminho, "hostX")
+        orc = OrcamentoLLM()
+        atvs, log = clusterizar(
+            [s], complete_fn=lambda p: "Despacho Autoritário de Planos "
+                                       "Mecânicos", orcamento=orc)
+        self.assertEqual(len(atvs), 1)
+        self.assertNotIn("Autoritário", atvs[0]["nome"])
+        self.assertIn("proj", atvs[0]["nome"])  # basename do cwd
+        self.assertTrue(any(l["acao"] == "nome-rejeitado" for l in log))
+
+
+class TestNew8CommitsVisiveis(Base):
+    def test_ate_12_commits_todos_renderizam(self):
+        work = self.tmp / "work"
+        entradas = [e_user(0, "sobe a série de commits de hoje", "u1")]
+        for i in range(11):
+            entradas.append(e_tool(10 + i * 10, "Bash",
+                                   {"command": f"git commit -am 'c{i}'"},
+                                   f"t{i}", f"a{i}"))
+            entradas.append(e_result(12 + i * 10, f"t{i}",
+                                     f"ok\n   aaaa{i:03d}..bcd{i:04d}  x -> y",
+                                     f"u{i + 10}"))
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        reg, proj = pipeline(work, "hostX")
+        html = render_report(reg, proj)
+        commits = proj["atividades"][0]["sessions"][0]["commits"]
+        self.assertEqual(len(commits), 11)
+        for c in commits:
+            self.assertIn(c[:7], html)
 
 
 class TestCwdModal(Base):

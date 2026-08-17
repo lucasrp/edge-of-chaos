@@ -124,16 +124,69 @@ _RE_SEGREDOS = [
     # basic_auth.py): userinfo sem os delimitadores reservados da RFC 3986 §2.2.
     # gitleaks NÃO tem regra genérica scheme://user:pass@ (dig-1, perna A).
     re.compile(r"://[^:/?#\[\]@!$&'()*+,;=\s]+:[^:/?#\[\]@!$&'()*+,;=\s]+@"),
+    # NEW-1 (dig-3 perna A): credencial em FLAG de CLI (gitleaks curl-auth /
+    # trufflehog: keyword+context é o padrão de campo).
+    # Flags longas: o valor é sempre mascarado.
+    re.compile(r"(?i)(?<=\s)--(?:password|passwd|pass|token|secret|api-key|"
+               r"auth-token)(?:[= ]\s*)(?!-)\S+"),
+    # -p/-P curtas (cypher-shell/mysql/psql): só valor com CARA de segredo
+    # (≥8 chars, letra+dígito, sem '/', charset de token) — `mkdir -p /x` e
+    # `ssh -p 22` não disparam.
+    re.compile(r"(?<=\s)-[pP]\s+(?=\S*\d)(?=\S*[A-Za-z])"
+               r"[A-Za-z0-9+_=.\-]{8,}(?=\s|$)"),
+    # curl-style -u user:pass
+    re.compile(r"(?<=\s)-u\s+[^\s:@/]+:\S+"),
 ]
+
+# --- NEW-1, camada de ENTROPIA (dig-3 perna A: detect-secrets
+# HexHighEntropyString default H>3.0; Base64HighEntropyString H>4.5; gitleaks
+# decode hex≥32/b64; UUID hifenizado filtrado por forma). Aplicada SÓ a campos
+# de CONTEÚDO (voz, comandos, cargas do eval) — nunca à serialização de
+# registros, cujos campos de evidência carregam sha1/sha256 legítimos (o erro
+# do generic do trufflehog é banir 64-hex nu; aqui o hash de evidência é dado).
+_RX_HEX_LONGO = re.compile(r"\b[a-fA-F0-9]{32,}\b")
+_RX_B64_LONGO = re.compile(r"\b[A-Za-z0-9+/][A-Za-z0-9+/=_\-]{23,}\b")
+
+
+def _entropia_shannon(s):
+    if not s:
+        return 0.0
+    contagens = Counter(s)
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in contagens.values())
+
+
+def _mascarar_entropia(texto):
+    def _hex(m):
+        t = m.group(0)
+        return _MASK if _entropia_shannon(t) > 3.0 else t
+
+    def _b64(m):
+        t = m.group(0)
+        if re.fullmatch(r"[a-fA-F0-9]+", t) or "-" in t and re.fullmatch(
+                r"[0-9a-fA-F\-]+", t):
+            return t  # hex puro já tratado; forma de UUID não é segredo b64
+        return _MASK if _entropia_shannon(t) > 4.5 else t
+
+    texto = _RX_HEX_LONGO.sub(_hex, texto)
+    texto = _RX_B64_LONGO.sub(_b64, texto)
+    return texto
 _MASK = "***"
 
 
-def redigir(texto):
-    """Substitui padrões de segredo por *** — chamada na INGESTÃO, sempre."""
+def redigir(texto, entropia=False):
+    """Substitui padrões de segredo por *** — chamada na INGESTÃO, sempre.
+
+    `entropia=True` liga a camada de alta-entropia (NEW-1) para campos de
+    CONTEÚDO (voz, comandos, cargas do eval). Fica desligada na serialização
+    de registros inteiros, onde sha1/sha256 de evidência são dados legítimos
+    (dig-3 perna A: contexto separa hash de password, não o alfabeto)."""
     if not texto:
         return texto
     for rx in _RE_SEGREDOS:
         texto = rx.sub(_MASK, texto)
+    if entropia:
+        texto = _mascarar_entropia(texto)
     return texto
 
 
@@ -293,12 +346,15 @@ _GIT_LEITURA = frozenset(("status", "log", "diff", "show", "blame", "describe",
                           "reflog", "grep"))
 _GIT_BRANCH_FLAGS_RO = frozenset(("-a", "-r", "-v", "-vv", "--list",
                                   "--show-current", "--contains", "--merged"))
+# NEW-2: `ssh` NÃO é mais head de leitura — o comando remoto é classificado
+# recursivamente (dig-3 perna B: payload remoto nunca herda "safe" sem parse;
+# unparseable → unknown/execucao, nunca leitura)
 _LEITURA_HEADS = frozenset(("cat ls head tail grep rg find wc ps df du stat "
                             "file which env jq sed awk tree diff sort uniq cut "
                             "tr pgrep pstree top free uptime date md5sum sha1sum "
                             "sha256sum hostname whoami pwd echo printf test "
                             "readlink basename dirname uname getent id nproc "
-                            "ssh curl less more column comm strings xxd od").split())
+                            "curl less more column comm strings xxd od").split())
 _ESCRITA_PALAVRAS = re.compile(
     r"\b(tee|mv|cp|rm|rmdir|mkdir|touch|ln|chmod|chown|truncate|dd|rsync|scp)\b"
     r"|\bsed\s+(-[a-zA-Z]*\s+)*-i\b"
@@ -308,22 +364,64 @@ _ESCRITA_PALAVRAS = re.compile(
 _WRAPPERS_1 = frozenset(("sudo", "nohup", "time", "nice", "command"))
 
 
-def _classificar_segmento(seg):
+# NEW-2 (dig-3 perna B): payloads entre aspas são EXTRAÍDOS LITERALMENTE
+# (nunca shlex+rejoin — o pitfall do unwrap) e o comando interno de
+# ssh/bash -c/docker exec é classificado recursivamente; herdar `leitura`
+# exige parse limpo do payload; payload ilegível/vazio → execucao (unknown).
+_RX_ASPAS_CAPTURA = re.compile(r"'([^']*)'|\"([^\"]*)\"|`([^`]*)`")
+_RX_PLACEHOLDER = re.compile(r"__Q(\d+)__")
+# flags do ssh que consomem argumento (dig-3 B: "flags que comem argumento")
+_SSH_FLAGS_COM_ARG = frozenset(("-o", "-i", "-p", "-l", "-F", "-E", "-J",
+                                "-L", "-R", "-D", "-W", "-b", "-c", "-e",
+                                "-m", "-Q", "-S"))
+_DOCKER_FLAGS_COM_ARG = frozenset(("-e", "--env", "-u", "--user", "-w",
+                                   "--workdir", "--name", "--network",
+                                   "--entrypoint"))
+_DOCKER_LEITURA = frozenset(("ps", "images", "inspect", "logs", "top",
+                             "stats", "version", "info", "diff"))
+
+
+def _com_placeholders(cmd):
+    payloads = []
+
+    def _sub(m):
+        payloads.append(next(g for g in m.groups() if g is not None))
+        return f" __Q{len(payloads) - 1}__ "
+
+    return _RX_ASPAS_CAPTURA.sub(_sub, cmd or ""), payloads
+
+
+def _restaurar(toks, payloads):
+    partes = []
+    for t in toks:
+        m = _RX_PLACEHOLDER.fullmatch(t)
+        partes.append(payloads[int(m.group(1))] if m else t)
+    return " ".join(partes)
+
+
+def _classificar_segmento(seg, payloads, prof):
     s = seg.strip()
     if not s:
         return None
-    sem_aspas = _RX_ASPAS.sub("''", s)
-    sem_stderr = _RX_STDERR_REDIR.sub(" ", sem_aspas)
+    sem_stderr = _RX_STDERR_REDIR.sub(" ", s)
     toks = sem_stderr.split()
-    while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
-        toks = toks[1:]  # prefixos VAR=val
-    while toks and toks[0] in _WRAPPERS_1:
-        toks = toks[1:]
-    if toks and toks[0] == "timeout":
-        toks = toks[2:]  # timeout <dur> cmd
+    while toks:
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
+            toks = toks[1:]  # prefixos VAR=val
+        elif toks[0] in _WRAPPERS_1 or toks[0] == "env":
+            toks = toks[1:]
+        elif toks[0] == "timeout":
+            toks = toks[1:]
+            if toks and toks[0] == "-k":
+                toks = toks[2:]
+            if toks and re.match(r"^\d+[smhd]?$", toks[0]):
+                toks = toks[1:]
+        else:
+            break
     if not toks:
         return None
     head = toks[0].rsplit("/", 1)[-1]
+
     if head == "git":
         sub = toks[1] if len(toks) > 1 else ""
         resto = toks[2:]
@@ -342,6 +440,39 @@ def _classificar_segmento(seg):
         if sub == "remote" and (not resto or resto[0] in ("-v", "show")):
             return "leitura"
         return "escrita"  # add/checkout/switch/merge/rebase/stash/fetch/pull…
+
+    if head == "ssh":
+        resto = toks[1:]
+        while resto and resto[0].startswith("-"):
+            resto = resto[2:] if resto[0] in _SSH_FLAGS_COM_ARG else resto[1:]
+        resto = resto[1:]  # host
+        if not resto:
+            return "execucao"  # ssh interativo/ilegível: unknown, não leitura
+        return classificar_comando(_restaurar(resto, payloads), prof + 1)
+
+    if head in ("bash", "sh", "zsh", "dash"):
+        if "-c" in toks:
+            i = toks.index("-c")
+            if i + 1 < len(toks):
+                return classificar_comando(
+                    _restaurar(toks[i + 1:i + 2], payloads), prof + 1)
+        return "execucao"
+
+    if head == "docker":
+        sub = toks[1] if len(toks) > 1 else ""
+        if sub in _DOCKER_LEITURA:
+            return "leitura"
+        if sub in ("exec", "run"):
+            resto = toks[2:]
+            while resto and resto[0].startswith("-"):
+                resto = (resto[2:] if resto[0] in _DOCKER_FLAGS_COM_ARG
+                         else resto[1:])
+            resto = resto[1:]  # container/imagem
+            if not resto:
+                return "execucao"
+            return classificar_comando(_restaurar(resto, payloads), prof + 1)
+        return "execucao"
+
     m = _RX_REDIR_SAIDA.search(sem_stderr)
     if m and m.group(1) not in _DEV_SAIDAS_INOCUAS:
         return "escrita"
@@ -357,12 +488,16 @@ def _classificar_segmento(seg):
 _PRIORIDADE_CLASSE = {"commit": 3, "escrita": 2, "execucao": 1, "leitura": 0}
 
 
-def classificar_comando(cmd):
+def classificar_comando(cmd, prof=0):
     """Classe do comando inteiro = classe mais privilegiada entre os segmentos
-    (RO só se todos os segmentos são RO — dig-2 perna A)."""
-    classes = [c for c in (_classificar_segmento(seg) for seg in
-                           _RX_SEP_SEGMENTO.split(_RX_ASPAS.sub("''", cmd or "")))
-               if c]
+    (RO só se todos os segmentos são RO — dig-2 perna A); comandos aninhados
+    (ssh/bash -c/docker exec) classificados recursivamente (NEW-2), com teto
+    de profundidade fail-closed."""
+    if prof > 3:
+        return "execucao"
+    texto, payloads = _com_placeholders(cmd)
+    classes = [c for c in (_classificar_segmento(seg, payloads, prof)
+                           for seg in _RX_SEP_SEGMENTO.split(texto)) if c]
     if not classes:
         return "execucao"
     return max(classes, key=lambda c: _PRIORIDADE_CLASSE[c])
@@ -378,10 +513,25 @@ def _texto_de(content):
     return ""
 
 
+# NEW-4 (dig-3 perna C: exclusão por protocol_marker com motivo logado — em
+# log de agente "o motivo é o dado"): turnos de despacho/protocolo NÃO são voz
+# do operador; marcadores MECÂNICOS de forma, nunca leitura de conteúdo.
+_RX_PROTOCOLO = re.compile(
+    r"^(AUTHORITATIVE DISPATCH PLAN|Base directory for this skill"
+    r"|<command-name>|<system-reminder>)"
+    r"|^.{0,200}?AUTHORITATIVE DISPATCH PLAN", re.S)
+
+
+def _eh_protocolo(texto):
+    return bool(_RX_PROTOCOLO.search((texto or "").strip()))
+
+
 def _eh_voz(entry, texto):
     t = (texto or "").strip()
     if not t or t.startswith("<") or t.startswith("Caveat:") \
             or t.startswith("[Request interrupted"):
+        return False
+    if _eh_protocolo(t):
         return False
     if entry.get("isMeta") or entry.get("isCompactSummary"):
         return False
@@ -489,7 +639,11 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
     pendentes = {}  # tool_use_id -> (n1, classe)
     cwd, uuids_vistos, linhas_puladas = "", set(), 0
     cwds = Counter()          # cwd MODAL, não o último (finding R1 #18)
-    viu_assistant_texto = False  # antecedente p/ aceite (finding R1 #6)
+    # NEW-6: antecedente por ADJACÊNCIA real (DAMSL proposta→aceite): o aceite
+    # só tem antecedente se o último TURNO substantivo antes dele for texto do
+    # assistant — um turno humano no meio quebra o par (bool não é sticky)
+    assistant_texto_pendente = False
+    turnos_protocolo = 0      # NEW-4: turnos de protocolo/despacho excluídos
 
     atual = {"uuid": None, "sha256_linha": None}
 
@@ -542,15 +696,18 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
 
             if tipo == "user":
                 texto = _texto_de(content)
+                if not eh_side and _eh_protocolo(texto):
+                    turnos_protocolo += 1
                 if not eh_side and _eh_voz(e, texto) and ts is not None:
-                    texto_red = redigir(texto)[:VERBATIM_CAP]
+                    texto_red = redigir(texto, entropia=True)[:VERBATIM_CAP]
                     ev = ev_base("voz-turno", ts, linha_n)
                     ev["id"] = _rid("n1", session_id, arquivo_rel, linha_n, "voz")
                     ev["conteudo_redigido"] = {"texto": texto_red,
                                                "chars": len(texto.strip())}
                     eventos.append(ev)
                     vozes.append((ts, texto.strip(), ev["id"], linha_n,
-                                  viu_assistant_texto))
+                                  assistant_texto_pendente))
+                    assistant_texto_pendente = False  # voz quebra a adjacência
                 # tool_results: procurar hash de commit p/ tool calls pendentes
                 if isinstance(content, list):
                     for b in content:
@@ -587,7 +744,7 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                     assistant_turnos.append({
                         "ts": ts, "linha": linha_n, "chars": len(texto),
                         "n_perguntas": texto.count("?")})
-                    viu_assistant_texto = True
+                    assistant_texto_pendente = True
                 for b in content:
                     if not (isinstance(b, dict) and b.get("type") == "tool_use"):
                         continue
@@ -600,7 +757,8 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
                     if nome == "Bash":
                         cmd = inp.get("command") or ""
                         classe = classificar_comando(cmd)
-                        cabeca = redigir(" ".join(cmd.strip().split()[:2]))[:80]
+                        cabeca = redigir(" ".join(cmd.strip().split()[:2]),
+                                         entropia=True)[:80]
                     elif nome in ("Edit", "Write", "NotebookEdit"):
                         classe = "escrita"
                         if inp.get("file_path") or inp.get("notebook_path"):
@@ -628,10 +786,10 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
     abertura = ""
     for _, t, _, _, _ in vozes:
         if len(t) >= 8:
-            abertura = redigir(t)[:200]
+            abertura = redigir(t, entropia=True)[:200]
             break
     if not abertura and vozes:
-        abertura = redigir(vozes[0][1])[:200]
+        abertura = redigir(vozes[0][1], entropia=True)[:200]
     if cwds:
         cwd = cwds.most_common(1)[0][0]  # modal (finding R1 #18)
 
@@ -639,7 +797,8 @@ def scan_arquivo(path, host, arquivo_rel=None, sidechain=False, session_id=None)
             "sha1": sha1, "cwd": cwd, "sidechain": sidechain,
             "eventos": eventos, "vozes": vozes,
             "assistant_turnos": assistant_turnos, "ts_todos": sorted(ts_todos),
-            "abertura": abertura, "linhas_puladas": linhas_puladas}
+            "abertura": abertura, "linhas_puladas": linhas_puladas,
+            "turnos_protocolo": turnos_protocolo}
 
 
 def tempo_ativo_s(ts_list, cap):
@@ -843,6 +1002,15 @@ def _touch(sessao):
         "commits": commits}
 
 
+# NEW-7: adjetivos de juízo/caráter proibidos em nome de Atividade — nome
+# descreve o TRABALHO, nunca julga o trabalhador (Codex #3 reentrando pelo
+# nome do cluster)
+_RX_NOME_JUIZO = re.compile(
+    r"(?i)(autorit|mec[aâ]nic|obedien|submiss|impulsiv|apressad|preguiç|"
+    r"descuidad|negligen|compulsiv|obsessiv|ansios|irrefletid|servil|"
+    r"passiv|rob[oó]tic|autom[aá]tic|cego|acr[ií]tic|displicent)")
+
+
 def clusterizar(sessoes, complete_fn=None, orcamento=None):
     """Determinístico primeiro: cwd; merge por similaridade de abertura.
 
@@ -886,6 +1054,13 @@ def clusterizar(sessoes, complete_fn=None, orcamento=None):
     for chave, ss in sorted(finais.items()):
         ss.sort(key=lambda s: s["ts_todos"][0] if s["ts_todos"] else 0)
         abertura_ref = max((s["abertura"] for s in ss), key=len, default="")
+        touches = [_touch(s) for s in ss]
+        # NEW-7: fallback DETERMINÍSTICO de nome (basename do cwd + top file)
+        top_arq = next((os.path.basename(a) for t in touches
+                        for a, _ in t["top_arquivos"][:1]), "")
+        nome_fallback = (os.path.basename(chave.rstrip("/")) or chave)
+        if top_arq:
+            nome_fallback += f" · {top_arq}"
         nome = None
         if complete_fn and orcamento and orcamento.permitir("nomear-cluster"):
             try:
@@ -895,19 +1070,31 @@ def clusterizar(sessoes, complete_fn=None, orcamento=None):
                     "aberturas de sessão são:\n"
                     + "\n".join(f"- {s['abertura'][:160]}" for s in ss[:5])
                     + "\nResponda SÓ o nome.")
-                nome = redigir((resp or "").strip().splitlines()[0])[:80] or None
+                nome = redigir((resp or "").strip().splitlines()[0],
+                               entropia=True)[:80] or None
             except Exception as ex:
                 log.append({"acao": "nomear-falhou", "cluster": chave,
                             "razao": str(ex)[:120]})
+        # NEW-7: nome com juízo de caráter é rejeitado mecanicamente; idem
+        # nome que não é nome (markup/vazio — ex.: completer devolvendo
+        # "<function_calls>")
+        if nome and (_RX_NOME_JUIZO.search(nome) or nome.startswith("<")
+                     or not re.search(r"[A-Za-zÀ-ú0-9]", nome)):
+            log.append({"acao": "nome-rejeitado", "cluster": chave,
+                        "nome_llm": nome,
+                        "razao": "juízo de caráter ou markup no nome (NEW-7); "
+                                 "fallback determinístico aplicado"})
+            nome = None
         if not nome:
-            nome = (abertura_ref[:60] or chave)
+            nome = (abertura_ref[:60] or nome_fallback) \
+                if not complete_fn else nome_fallback
         atividades.append({
             "ulid": _rid("atv", chave), "nome": nome,
             "finalidade": abertura_ref[:160],
             "estado": "aberta",
             "hosts": sorted({s["host"] for s in ss}),
             "cwd": chave, "cluster_version": CLUSTER_VERSION,
-            "sessions": [_touch(s) for s in ss],
+            "sessions": touches,
             "session_ids": [s["session_id"] for s in ss]})
     return atividades, log
 
@@ -970,6 +1157,39 @@ def _json_do_llm(texto):
         return None
 
 
+# NEW-3: N3/N4 não podem atribuir ao operador execução que os próprios N1
+# dizem ser do agente (executor=agente). Checagem MECÂNICA pós-geração.
+_RX_ATRIBUICAO_INDEVIDA = re.compile(
+    r"(?i)\b(voc[eê]|o\s+operador|operador)\s+(executa|executou|roda|rodou|"
+    r"faz|fez|escreve|escreveu|commita|commitou|valida|validou|inspeciona|"
+    r"inspecionou|realiza|realizou|trabalha|l[eê]|leu|digita|digitou|"
+    r"verifica|verificou|constr[oó]i|construiu|implementa|implementou)\b")
+
+
+def _quebra_executores(reg, n2):
+    """(n_acoes, n_executadas_por_agente) das instâncias N1 do n2."""
+    acoes = [reg.by_id[i] for i in n2["instancias"]
+             if reg.by_id[i].get("agencia")]
+    n_agente = sum(1 for a in acoes
+                   if a["agencia"].get("executor") == "agente")
+    return len(acoes), n_agente
+
+
+def _atribuicao_invalida(texto, n_acoes, n_agente):
+    if n_acoes and n_agente / n_acoes > 0.5:
+        return bool(_RX_ATRIBUICAO_INDEVIDA.search(texto or ""))
+    return False
+
+
+def _bloco_atribuicao(n_acoes, n_agente):
+    return (f"\nATRIBUIÇÃO OBRIGATÓRIA: {n_agente} de {n_acoes} ações destas "
+            "instâncias foram executadas pelo AGENTE DELEGADO "
+            "(executor=agente). Atribua a EXECUÇÃO ao agente e o "
+            "comando/decisão/observação ao operador. É PROIBIDO escrever "
+            "'o operador executou' ou 'você executa/faz/roda' quando o "
+            "executor é o agente.")
+
+
 def _resumo_instancia(n1):
     c = n1.get("conteudo_redigido") or {}
     if n1["kind"] == "voz-turno":
@@ -984,7 +1204,7 @@ def _resumo_instancia(n1):
 
 
 def inferir_n3(reg, complete_fn, orcamento, model="injetado",
-               formas_permitidas=None):
+               formas_permitidas=None, degradacoes=None):
     """≤1 call por correlação; claim com confiança + alternativas inocentes.
 
     GATE do estágio 0 (finding R1 #2): só formas com veredicto `confiavel`
@@ -1002,25 +1222,48 @@ def inferir_n3(reg, complete_fn, orcamento, model="injetado",
             break
         evid = "\n".join(_resumo_instancia(reg.by_id[i])
                          for i in n2["instancias"][:8])
-        try:
-            resp = complete_fn(
-                "Você anota correlações mecânicas em transcripts de trabalho. "
-                "NUNCA afirme cognição; um claim é 'compatível com', nunca "
-                "'prova'. A evidência resumida (redigida) está ABAIXO — não "
-                "peça o transcript; se ela for pouca, devolva um claim "
-                "modesto com confiança baixa. Correlação:\n"
-                f"forma: {n2['forma']}\nparams: {json.dumps(n2['params'])}\n"
-                f"janela: {json.dumps(n2['janela'])}\n"
-                f"instancias:\n{evid}\n"
-                "Responda SÓ JSON: {\"claim\": \"...\", \"confianca\": 0.0-1.0, "
-                "\"alternativas\": [\">=1 explicação inocente\"]}")
-        except Exception:
-            continue
-        j = _json_do_llm(resp)
-        if not j or not j.get("claim") or not j.get("alternativas"):
+        n_acoes, n_agente = _quebra_executores(reg, n2)
+        prompt = (
+            "Você anota correlações mecânicas em transcripts de trabalho. "
+            "NUNCA afirme cognição; um claim é 'compatível com', nunca "
+            "'prova'. A evidência resumida (redigida) está ABAIXO — não "
+            "peça o transcript; se ela for pouca, devolva um claim "
+            "modesto com confiança baixa. Correlação:\n"
+            f"forma: {n2['forma']}\nparams: {json.dumps(n2['params'])}\n"
+            f"janela: {json.dumps(n2['janela'])}\n"
+            f"instancias:\n{evid}\n"
+            + _bloco_atribuicao(n_acoes, n_agente)
+            + "\nResponda SÓ JSON: {\"claim\": \"...\", \"confianca\": "
+              "0.0-1.0, \"alternativas\": [\">=1 explicação inocente\"]}")
+        j = None
+        for tentativa in range(2):  # NEW-3: 1 regeneração; senão descarta
+            try:
+                resp = complete_fn(prompt if tentativa == 0 else (
+                    prompt + "\nSUA RESPOSTA ANTERIOR ATRIBUIU EXECUÇÃO AO "
+                    "OPERADOR — proibido. Reescreva atribuindo a execução ao "
+                    "agente delegado."))
+            except Exception:
+                j = None
+                break
+            j = _json_do_llm(resp)
+            if not j or not j.get("claim") or not j.get("alternativas"):
+                j = None
+                break
+            if not _atribuicao_invalida(str(j["claim"]), n_acoes, n_agente):
+                break
+            if tentativa == 1 or not orcamento.permitir("n3-retry"):
+                if degradacoes is not None:
+                    degradacoes.append(
+                        f"N3 de {n2['id']} descartado: atribuição de "
+                        "execução ao operador com executor=agente nas "
+                        "instâncias (NEW-3), mesmo após regeneração")
+                j = None
+        if not j:
             continue
         rec = {"id": _rid("n3", n2["id"]), "nivel": 3,
-               "claim": redigir(str(j["claim"]))[:400],
+               "claim": redigir(str(j["claim"]), entropia=True)[:400],
+               "executores_da_base": {"acoes": n_acoes,
+                                      "executadas_por_agente": n_agente},
                "confianca": max(0.0, min(1.0, float(j.get("confianca", 0.5)))),
                "alternativas": [redigir(str(a))[:200]
                                 for a in j["alternativas"]][:4],
@@ -1033,12 +1276,13 @@ def inferir_n3(reg, complete_fn, orcamento, model="injetado",
 N3_CONFIANCA_MIN_PARA_N4 = 0.2  # N3 degenerado (confiança ~0) não sobe a N4
 
 
-def hipotetizar_n4(reg, complete_fn, orcamento, model="injetado"):
+def hipotetizar_n4(reg, complete_fn, orcamento, model="injetado",
+                   degradacoes=None):
     """≤1 call por padrão (forma) com N3s; status nasce 'proposta'.
 
     Só N3 com confiança ≥ N3_CONFIANCA_MIN_PARA_N4 entra na base — filtro
     declarado (não é leitura de cognição: usa a incerteza que o próprio N3
-    declara)."""
+    declara). NEW-3: mesma checagem mecânica de atribuição dos N3."""
     out = []
     por_forma = defaultdict(list)
     for n3 in reg.nivel(3):
@@ -1049,25 +1293,53 @@ def hipotetizar_n4(reg, complete_fn, orcamento, model="injetado"):
     for forma, n3s in sorted(por_forma.items()):
         if not orcamento.permitir("n4"):
             break
-        try:
-            resp = complete_fn(
-                "Você formula hipóteses de mentoria CONFIRMÁVEIS pelo "
-                "mentorado — a correção dele sempre vence. As inferências "
-                "abaixo são todo o insumo disponível; não peça mais contexto. "
-                f"Padrão observado: '{forma}'. Inferências:\n"
-                + "\n".join(f"- {n3['claim']} (confiança {n3['confianca']})"
-                            for n3 in n3s[:5])
-                + "\nResponda SÓ JSON: {\"hipotese\": \"frase interrogativa "
-                  "dirigida ao mentorado sobre COMO ELE TRABALHA, terminando "
-                  "em ?\", \"falsificacao\": "
-                  "\"que observação a derrubaria\"}")
-        except Exception:
-            continue
-        j = _json_do_llm(resp)
-        if not j or not j.get("hipotese") or not j.get("falsificacao"):
+        n_acoes = sum(n3.get("executores_da_base", {}).get("acoes", 0)
+                      for n3 in n3s)
+        n_agente = sum(n3.get("executores_da_base", {})
+                       .get("executadas_por_agente", 0) for n3 in n3s)
+        prompt = (
+            "Você formula hipóteses de mentoria CONFIRMÁVEIS pelo "
+            "mentorado — a correção dele sempre vence. As inferências "
+            "abaixo são todo o insumo disponível; não peça mais contexto. "
+            f"Padrão observado: '{forma}'. Inferências:\n"
+            + "\n".join(f"- {n3['claim']} (confiança {n3['confianca']})"
+                        for n3 in n3s[:5])
+            + _bloco_atribuicao(n_acoes, n_agente)
+            + "\nResponda SÓ JSON: {\"hipotese\": \"frase interrogativa "
+              "dirigida ao mentorado sobre COMO ELE TRABALHA, terminando "
+              "em ?\", \"falsificacao\": "
+              "\"que observação a derrubaria\"}")
+        j = None
+        for tentativa in range(2):  # NEW-3: 1 regeneração; senão descarta
+            try:
+                resp = complete_fn(prompt if tentativa == 0 else (
+                    prompt + "\nSUA RESPOSTA ANTERIOR ATRIBUIU EXECUÇÃO AO "
+                    "OPERADOR — proibido. Reescreva distinguindo o agente "
+                    "que executou do operador que comandou."))
+            except Exception:
+                j = None
+                break
+            j = _json_do_llm(resp)
+            if not j or not j.get("hipotese") or not j.get("falsificacao"):
+                j = None
+                break
+            if not _atribuicao_invalida(str(j["hipotese"]), n_acoes,
+                                        n_agente):
+                break
+            if tentativa == 1 or not orcamento.permitir("n4-retry"):
+                if degradacoes is not None:
+                    degradacoes.append(
+                        f"N4 de '{forma}' descartado: atribuição de "
+                        "execução ao operador com executor=agente na base "
+                        "(NEW-3), mesmo após regeneração")
+                j = None
+        if not j:
             continue
         rec = {"id": _rid("n4", forma, *sorted(n3["id"] for n3 in n3s)),
-               "nivel": 4, "hipotese": redigir(str(j["hipotese"]))[:400],
+               "nivel": 4,
+               "hipotese": redigir(str(j["hipotese"]), entropia=True)[:400],
+               "executores_da_base": {"acoes": n_acoes,
+                                      "executadas_por_agente": n_agente},
                "falsificacao": redigir(str(j["falsificacao"]))[:300],
                "base": sorted({n3["id"] for n3 in n3s}), "status": "proposta",
                "model": model,
@@ -1157,7 +1429,8 @@ def _carga_util(workdir, arquivo_rel, linha):
                 inp = b.get("input") or {}
                 tc = {"tool": b.get("name")}
                 if inp.get("command"):
-                    tc["comando_completo"] = redigir(inp["command"])[:4000]
+                    tc["comando_completo"] = redigir(inp["command"],
+                                                     entropia=True)[:4000]
                 for k in ("file_path", "notebook_path"):
                     if inp.get(k):
                         tc["file_path"] = redigir(inp[k])[:300]
@@ -1166,49 +1439,71 @@ def _carga_util(workdir, arquivo_rel, linha):
     if texto:
         campo = ("texto_humano" if j.get("type") == "user"
                  else "texto_assistant")
-        out[campo] = redigir(texto)[:4000]
+        out[campo] = redigir(texto, entropia=True)[:4000]
         out["chars_total"] = len(texto)
     if tools:
         out["tool_calls"] = tools
     return out
 
 
-def _itens_catch(seed_base):
+def _itens_catch(seed_base, arquivo_ref=None):
     """Catch trials (dig-2 perna B: gold seeding, Oleson 2011/Snow 2008) —
     itens sintéticos com rótulo conhecido, um deles com ERRO TENTADOR (pernas
     de timing batem, mas o comando é só leitura → gold `nao`). Excluídos do
-    IAA e da precisão; medem atenção/aterramento do rotulador."""
-    t0 = "2026-08-12T14:03:10.000000+00:00"
-    catch1 = {
-        "n2_id": f"n2-catch-{seed_base}a", "forma": "resposta-curta-seguida-de-acao",
-        "descricao_mecanica": "turno humano com <= 6 chars seguido, em ate "
-                              "120s, de tool call de escrita/commit "
-                              "(observado: {\"delta_s\": 12.0, \"chars_voz\": 2})",
-        "pergunta": PERGUNTA_MECANICA,
-        "evidencia": [
-            {"ancora": {"kind": "voz-turno", "linha": None},
-             "carga": {"tipo": "user", "ts": t0, "texto_humano": "ok",
-                       "chars_total": 2}},
-            {"ancora": {"kind": "tool-call", "linha": None},
-             "carga": {"tipo": "assistant",
-                       "ts": "2026-08-12T14:03:22.000000+00:00",
-                       "tool_calls": [{"tool": "Bash", "comando_completo":
-                                       "tail -n 50 servidor.log 2>/dev/null"}]}}]}
-    catch2 = {
-        "n2_id": f"n2-catch-{seed_base}b",
-        "forma": "leituras-repetidas-de-estado-externo",
-        "descricao_mecanica": ">= 3 execucoes Bash de leitura com a mesma "
-                              "cabeca de comando em <= 3600s (observado: "
-                              "{\"comando_cabeca\": \"grep -c\", "
-                              "\"n_repeticoes\": 3})",
-        "pergunta": PERGUNTA_MECANICA,
-        "evidencia": [
-            {"ancora": {"kind": "tool-call", "linha": None},
-             "carga": {"tipo": "assistant",
-                       "ts": f"2026-08-12T15:0{m}:00.000000+00:00",
-                       "tool_calls": [{"tool": "Bash", "comando_completo":
-                                       f"grep -c padrao arquivo{m}.log"}]}}
-            for m in (1, 3, 5)]}
+    IAA e da precisão; medem atenção/aterramento do rotulador.
+
+    NEW-5: âncoras com FORMA idêntica às reais (id n2-<12hex>, arquivo do
+    corpus, linha inteira plausível, uuid) — indistinguíveis no pacote; o
+    gold vive só no pré-registro."""
+    import random
+    rnd = random.Random(f"catch-{seed_base}")
+    arquivo = arquivo_ref or "sessao-desconhecida.jsonl"
+    # linhas CRESCENTES por item — jsonl append-only tem linha↑ ⇔ ts↑; âncora
+    # fora de ordem denuncia o item sintético (apontado pelos rotuladores R3)
+    linhas_iter = iter(sorted(rnd.sample(range(180, 6100), 8)))
+
+    def _anc(kind):
+        return {"arquivo": arquivo, "linha": next(linhas_iter),
+                "kind": kind,
+                "uuid": (f"{rnd.getrandbits(32):08x}-{rnd.getrandbits(16):04x}"
+                         f"-4{rnd.getrandbits(12):03x}"
+                         f"-8{rnd.getrandbits(12):03x}"
+                         f"-{rnd.getrandbits(48):012x}")}
+
+    def _item(forma, sufixo, descricao, evidencia):
+        return {"n2_id": _rid("n2", "catch", seed_base, sufixo, forma),
+                "forma": forma, "descricao_mecanica": descricao,
+                "pergunta": PERGUNTA_MECANICA, "evidencia": evidencia}
+
+    t0 = "2026-08-12T14:03:10.287000+00:00"
+    a1, a2 = _anc("voz-turno"), _anc("tool-call")
+    catch1 = _item(
+        "resposta-curta-seguida-de-acao", "a",
+        "turno humano com <= 6 chars seguido, em ate 120s, de tool call de "
+        "escrita/commit (observado: {\"delta_s\": 12.0, \"chars_voz\": 2})",
+        [{"ancora": a1,
+          "carga": {"linha": a1["linha"], "tipo": "user", "ts": t0,
+                    "texto_humano": "ok", "chars_total": 2}},
+         {"ancora": a2,
+          "carga": {"linha": a2["linha"], "tipo": "assistant",
+                    "ts": "2026-08-12T14:03:22.301000+00:00",
+                    "tool_calls": [{"tool": "Bash", "comando_completo":
+                                    "tail -n 50 servidor.log 2>/dev/null"}]}}])
+    evid2 = []
+    for m in (1, 3, 5):
+        a = _anc("tool-call")
+        evid2.append({"ancora": a,
+                      "carga": {"linha": a["linha"], "tipo": "assistant",
+                                "ts": f"2026-08-12T15:0{m}:11.44{m}000+00:00",
+                                "tool_calls": [{"tool": "Bash",
+                                                "comando_completo":
+                                                f"grep -c padrao arquivo{m}.log"}]}})
+    catch2 = _item(
+        "leituras-repetidas-de-estado-externo", "b",
+        ">= 3 execucoes Bash de leitura com a mesma cabeca de comando em <= "
+        "3600s (observado: {\"comando_cabeca\": \"grep -c\", "
+        "\"n_repeticoes\": 3})",
+        evid2)
     return [(catch1, "nao"), (catch2, "sim")]
 
 
@@ -1263,7 +1558,12 @@ def eval_preparar(reg, workdir, max_amostra=30, seed=17, com_catch=True):
                     "evidencia": evid})
     catch_gold = {}
     if com_catch:
-        for item, gold in _itens_catch(seed):
+        arquivos_reais = Counter(
+            e["ancora"].get("arquivo") for i in itens
+            for e in i["evidencia"] if e.get("ancora", {}).get("arquivo"))
+        arquivo_ref = (arquivos_reais.most_common(1)[0][0]
+                       if arquivos_reais else None)
+        for item, gold in _itens_catch(seed, arquivo_ref):
             pos = rnd.randrange(len(itens) + 1) if itens else 0
             itens.insert(pos, item)
             catch_gold[item["n2_id"]] = gold
@@ -1479,8 +1779,11 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
             puladas.append({"arquivo": rel, "razao": f"erro de parse: {ex}"})
             continue
         if not s["vozes"]:
-            puladas.append({"arquivo": rel,
-                            "razao": "sem turno humano de voz"})
+            razao = ("sessão de protocolo/despacho: turnos humanos são plano "
+                     "de despacho/skill, não voz do operador (NEW-4)"
+                     if s.get("turnos_protocolo")
+                     else "sem turno humano de voz")
+            puladas.append({"arquivo": rel, "razao": razao})
             continue
         sessoes.append(s)
     por_id = {s["session_id"]: s for s in sessoes}
@@ -1530,8 +1833,10 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
     atividades, cluster_log = clusterizar(sessoes, complete_fn, orc)
     if complete_fn is not None and formas_confiaveis:
         inferir_n3(reg, complete_fn, orc, model=model,
-                   formas_permitidas=formas_confiaveis)
-        hipotetizar_n4(reg, complete_fn, orc, model=model)
+                   formas_permitidas=formas_confiaveis,
+                   degradacoes=degradacoes)
+        hipotetizar_n4(reg, complete_fn, orc, model=model,
+                       degradacoes=degradacoes)
         if orc.negadas:
             degradacoes.append(
                 f"orçamento LLM esgotado: {orc.negadas} chamadas negadas "
@@ -1730,8 +2035,10 @@ def render_report(reg, projecao, eval_estagio0=None):
                 f"<td>{t['n_eventos_voz']}</td>"
                 f"<td>{t['n_eventos_acao']} ({t['n_eventos_acao_sidechain']} "
                 f"sidechain)</td>"
-                f"<td>{_esc(', '.join(c[:7] for c in t['commits'][:8]))}"
-                f"{_esc(' +' + str(len(t['commits']) - 8) if len(t['commits']) > 8 else '')}"
+                # NEW-8: âncoras de aceitação nunca somem num "+N" — até 12
+                # commits renderizam TODOS
+                f"<td>{_esc(', '.join(c[:7] for c in t['commits'][:12]))}"
+                f"{_esc(' +' + str(len(t['commits']) - 12) if len(t['commits']) > 12 else '')}"
                 f"</td></tr>")
         H.append("</table>")
         # N2 navegáveis até a âncora
