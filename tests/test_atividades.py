@@ -217,8 +217,10 @@ class TestRegressao17s(Base):
         work = self.tmp / "work"
         escrever(work / "proj" / f"{SID}.jsonl", [
             e_user(0, "publica o parágrafo com o gancho formal", "u1"),
-            e_assistant_text(30, "Parágrafo pronto:\n" + "x" * 900, "a1"),
-            e_user(1552, "ok", "u2"),                       # voz curta
+            # proposta ADJACENTE ao aceite (R4 item 3: antecedente expira em
+            # 300s e é consumido por tool_call/voz no meio)
+            e_assistant_text(1500, "Parágrafo pronto:\n" + "x" * 900, "a1"),
+            e_user(1552, "ok", "u2"),                       # voz curta, +52s
             e_tool(1569, "Bash",                            # +17s
                    {"command": "python3 escreve.py && git commit -am 'p' "
                                "&& git push"}, "t1", "a2"),
@@ -1089,6 +1091,213 @@ class TestNew8CommitsVisiveis(Base):
         self.assertEqual(len(commits), 11)
         for c in commits:
             self.assertIn(c[:7], html)
+
+
+class TestR4Responder(Base):
+    """R4 item 1: resposta do operador a N4 — transição, idempotência,
+    corpus rotulado, render."""
+
+    def _estado_com_n4(self, nome):
+        work = self.tmp / f"w-{nome}"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o texto do resumo agora", "u1"),
+            e_assistant_text(50, "Proposta:\n" + "z" * 900, "a0"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+        ])
+
+        def fake(prompt):
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            if "hipóteses de mentoria" in prompt:
+                return ('{"hipotese": "O agente executou a escrita sob seu '
+                        'comando — você revisa depois?", '
+                        '"falsificacao": "relato de revisão"}')
+            return ('{"claim": "o agente delegado executou a escrita após '
+                    'aceite do operador", "confianca": 0.6, '
+                    '"alternativas": ["revisão prévia"]}')
+
+        ev = {"por_forma": {"resposta-curta-seguida-de-acao":
+                            {"veredicto": "confiavel"}}}
+        reg, proj = pipeline(work, "hostX", complete_fn=fake,
+                             eval_estagio0=ev)
+        state = self.tmp / f"state-{nome}"
+        persistir(state, reg, proj)
+        n4_id = reg.nivel(4)[0]["id"]
+        return state, n4_id
+
+    def test_confirmo_transiciona_e_registra(self):
+        from tools.atividades import responder_n4
+        state, n4_id = self._estado_com_n4("c")
+        n4 = responder_n4(state, n4_id, "confirmo", nota="isso mesmo")
+        self.assertEqual(n4["status"], "confirmada")
+        self.assertEqual(n4["resposta_operador"]["nota"], "isso mesmo")
+        self.assertNotIn("invalid_at", n4)
+        # persistido + corpus rotulado
+        linhas = [json.loads(l) for l in
+                  open(state / "respostas.jsonl", encoding="utf-8")]
+        self.assertEqual(len(linhas), 1)
+        self.assertEqual(linhas[0]["veredito"], "confirmo")
+        html = (state / "report.html").read_text(encoding="utf-8")
+        self.assertIn("[confirmada]", html)
+        self.assertIn("isso mesmo", html)
+
+    def test_contesto_bi_temporal_e_idempotencia(self):
+        from tools.atividades import responder_n4
+        state, n4_id = self._estado_com_n4("x")
+        n4 = responder_n4(state, n4_id, "contesto",
+                          nota="eu revisei em outra tela")
+        self.assertEqual(n4["status"], "contestada")
+        self.assertTrue(n4["invalid_at"])  # bi-temporal, nunca deleção
+        # o registro continua no estado
+        recs = [json.loads(l) for l in
+                open(state / "atividades.jsonl", encoding="utf-8")]
+        persistido = next(r for r in recs if r.get("id") == n4_id)
+        self.assertEqual(persistido["status"], "contestada")
+        html = (state / "report.html").read_text(encoding="utf-8")
+        self.assertIn("[contestada", html)
+        # idempotência: já respondida → erro, nunca sobrescreve
+        with self.assertRaises(ValueError):
+            responder_n4(state, n4_id, "confirmo")
+
+    def test_veredito_invalido_e_n4_inexistente(self):
+        from tools.atividades import responder_n4
+        state, n4_id = self._estado_com_n4("v")
+        with self.assertRaises(ValueError):
+            responder_n4(state, n4_id, "talvez")
+        with self.assertRaises(ValueError):
+            responder_n4(state, "n4-inexistente99", "confirmo")
+
+
+class TestR4EntropiaPaths(Base):
+    """R4 item 2 (NEWER-1): a máscara de entropia não pode comer paths e
+    fundir cabeças de comando D3."""
+
+    PATH = ("/tmp/claude-1001/-home-edgesandbox/"
+            "828886a1-cc8d-43c0-b950-b2ba009c34b1/tasks/b2xli4v0j.output")
+
+    def test_path_de_task_fica_intacto(self):
+        cmd = f"cat {self.PATH}"
+        self.assertEqual(redigir(cmd, entropia=True), cmd)
+
+    def test_segredo_b64_sem_barras_continua_mascarado(self):
+        self.assertIn("***", redigir("chave A9zX3kQ8wP1mN5vB7cR2tY6u aqui",
+                                     entropia=True))
+
+    def test_leituras_de_arquivos_distintos_nao_viram_grupo(self):
+        base = "/tmp/claude-1001/-home-edgesandbox/x/tasks"
+        work = self.tmp / "work"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "acompanha as três saídas de task", "u1"),
+            e_tool(60, "Bash", {"command": f"cat {base}/b2xli4v0j.output"},
+                   "t1", "a1"),
+            e_tool(120, "Bash", {"command": f"cat {base}/b4czrssm1.output"},
+                   "t2", "a2"),
+            e_tool(180, "Bash", {"command": f"cat {base}/b9qwe7rt2.output"},
+                   "t3", "a3"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d3 = [r for r in reg.nivel(2)
+              if r["forma"] == "leituras-repetidas-de-estado-externo"]
+        self.assertEqual(d3, [])  # 3 cabeças distintas, nenhum grupo
+
+    def test_mesma_cabeca_continua_agrupando_e_persiste_redigida(self):
+        work = self.tmp / "work2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "monitora o processo do beat", "u1"),
+        ] + [e_tool(60 * (i + 1), "Bash", {"command": "pgrep -f beat"},
+                    f"t{i}", f"a{i}") for i in range(3)])
+        reg, _ = pipeline(work, "hostX")
+        d3 = [r for r in reg.nivel(2)
+              if r["forma"] == "leituras-repetidas-de-estado-externo"]
+        self.assertEqual(len(d3), 1)
+        self.assertEqual(d3[0]["params"]["comando_cabeca"], "pgrep -f")
+
+
+class TestR4Adjacencia(Base):
+    """R4 item 3: antecedente consumido por tool_call e expirado por tempo."""
+
+    def test_probe_r2_assistant_cedo_ok_3h_depois(self):
+        work = self.tmp / "w1"
+        entradas = [
+            e_user(0, "roda a rotina completa de hoje", "u1"),
+            e_assistant_text(5, "Plano:\n" + "p" * 900, "a0"),
+        ]
+        for i in range(30):
+            entradas.append(e_tool(10 + i * 300, "Bash",
+                                   {"command": "pgrep -f x"},
+                                   f"t{i}", f"a{i + 1}"))
+        entradas += [
+            e_user(10800, "ok", "u2"),
+            e_tool(10810, "Write", {"file_path": "/x", "content": "y"},
+                   "tw", "aw"),
+        ]
+        escrever(work / "proj" / f"{SID}.jsonl", entradas)
+        reg, _ = pipeline(work, "hostX")
+        acao = next(r for r in reg.nivel(1)
+                    if r["kind"] == "tool-call"
+                    and r["conteudo_redigido"].get("tool") == "Write")
+        self.assertEqual(acao["agencia"]["autorizacao"], "desconhecido")
+
+    def test_tool_call_no_meio_consome_antecedente(self):
+        work = self.tmp / "w2"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "me mostra o plano de novo", "u1"),
+            e_assistant_text(10, "Plano:\n" + "p" * 900, "a0"),
+            e_tool(20, "Bash", {"command": "ls"}, "t0", "a1"),
+            e_user(60, "ok", "u2"),
+            e_tool(70, "Write", {"file_path": "/x", "content": "y"},
+                   "tw", "aw"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        acao = next(r for r in reg.nivel(1)
+                    if r["conteudo_redigido"].get("tool") == "Write")
+        self.assertEqual(acao["agencia"]["autorizacao"], "desconhecido")
+
+    def test_antecedente_expira_em_300s(self):
+        work = self.tmp / "w3"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "me mostra o plano de novo", "u1"),
+            e_assistant_text(10, "Plano:\n" + "p" * 900, "a0"),
+            e_user(400, "ok", "u2"),
+            e_tool(410, "Write", {"file_path": "/x", "content": "y"},
+                   "tw", "aw"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        acao = next(r for r in reg.nivel(1)
+                    if r["conteudo_redigido"].get("tool") == "Write")
+        self.assertEqual(acao["agencia"]["autorizacao"], "desconhecido")
+
+
+class TestR4DoubleUnwrap(unittest.TestCase):
+    """R4 item 4: unwrap duplo (docker→sh -c, ssh→sh -c) com payload
+    completo após -c."""
+
+    def test_probes_do_verificador(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc('docker exec c sh -c "echo ok > f"'), "escrita")
+        self.assertEqual(cc('docker exec c bash -c "git commit -m x"'),
+                         "commit")
+        self.assertEqual(cc("ssh host \"sh -c 'touch /x'\""), "escrita")
+
+    def test_payload_completo_apos_c(self):
+        from tools.atividades import classificar_comando as cc
+        self.assertEqual(cc("bash -c 'cat /a | wc -l'"), "leitura")
+        self.assertEqual(cc("sh -c 'ls && rm /x'"), "escrita")
+
+
+class TestR4AcaoSemBase(unittest.TestCase):
+    """R4 item 6 (NEWER-4): base com 0 ações não sustenta texto de 'ação'."""
+
+    def test_zero_acoes_rejeita_texto_de_acao(self):
+        from tools.atividades import _atribuicao_invalida
+        self.assertTrue(_atribuicao_invalida(
+            "Você trabalha em ciclos pergunta-confirmação-ação", 0, 0))
+        self.assertTrue(_atribuicao_invalida(
+            "padrão compatível com execução imediata", 0, 0))
+        self.assertFalse(_atribuicao_invalida(
+            "padrão de pergunta seguida de resposta curta", 0, 0))
 
 
 class TestCwdModal(Base):
