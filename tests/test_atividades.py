@@ -1703,6 +1703,166 @@ class TestR52Findings(Base):
         self.assertEqual(s2["arbitragens"][0]["resposta"], "DIGRESSAO")
 
 
+class TestRecall(Base):
+    """eval-recall — o desenho anti-autoelogio (Codex #5/#20)."""
+
+    def _corpus(self, work):
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o texto do resumo agora", "u1"),
+            e_assistant_text(50, "Proposta:\n" + "z" * 900, "a0"),
+            e_user(100, "ok", "u2"),                       # D1 congelado
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+            e_user(300, "blz manda", "u3"),                # D1 SÓ relaxado
+            e_tool(540, "Write", {"file_path": "/y.md", "content": "y"},
+                   "t2", "a2"),                            # Δ240s > 120
+            e_user(4000, "janela morta sem candidato nenhum aqui", "u4"),
+            e_user(5200, "outra janela morta bem parada", "u5"),
+        ])
+        return pipeline(work, "hostX")
+
+    def test_relaxado_cobre_congelado_e_pool_exclui_detectado(self):
+        from tools.atividades import recall_pool_fn, _scan_corpus
+        work = self.tmp / "w1"
+        reg, _ = self._corpus(work)
+        sessoes, _ = _scan_corpus(work, "hostX")
+        pool, relaxados = recall_pool_fn(sessoes, reg)
+        # relaxado ⊇ congelado: todo N2 congelado das 4 formas tem candidato
+        # relaxado compartilhando instância
+        for n2 in reg.nivel(2):
+            if n2["forma"] not in relaxados:
+                continue
+            self.assertTrue(any(
+                set(rc["instancias"]) & set(n2["instancias"])
+                for rc in relaxados[n2["forma"]]), n2["forma"])
+        # o pool de FN NÃO contém o detectado (u2/t1); contém o relaxado
+        # (u3/t2)
+        d1_pool = pool["resposta-curta-seguida-de-acao"]
+        inst_pool = {i for rc in d1_pool for i in rc["instancias"]}
+        detectados = {i for n2 in reg.nivel(2)
+                      if n2["forma"] == "resposta-curta-seguida-de-acao"
+                      for i in n2["instancias"]}
+        self.assertFalse(inst_pool & detectados)
+        self.assertTrue(d1_pool)  # o par blz-manda/Write está no pool
+
+    def test_janelas_de_fundo_sem_candidato(self):
+        from tools.atividades import (recall_pool_fn, recall_janelas_de_fundo,
+                                      _scan_corpus, _parse_ts)
+        work = self.tmp / "w2"
+        self._corpus(work)
+        sessoes, _ = _scan_corpus(work, "hostX")
+        _, relaxados = recall_pool_fn(sessoes, Registry())
+        janelas = recall_janelas_de_fundo(sessoes, relaxados, k=3, seed=5)
+        intervalos = [(_parse_ts(rc["janela"]["de"]),
+                       _parse_ts(rc["janela"]["ate"]))
+                      for lst in relaxados.values() for rc in lst]
+        for j in janelas:
+            ini, fim = _parse_ts(j["ts_ini"]), _parse_ts(j["ts_fim"])
+            for a, b in intervalos:
+                self.assertFalse(a < fim and b > ini, j)
+
+    def test_wilson(self):
+        from tools.atividades import wilson
+        lo, hi = wilson(0, 10)
+        self.assertEqual(lo, 0.0)
+        self.assertLess(hi, 0.35)
+        lo2, hi2 = wilson(10, 10)
+        self.assertGreater(lo2, 0.65)
+        self.assertEqual(wilson(0, 0), (None, None))
+
+    def test_pre_registro_limpo_e_catch_separado(self):
+        """Cadeia limpa: recibo sem campo pós-rótulo; catch em retorno
+        separado do ingest (a ressalva do R5.2 fechada em código)."""
+        from tools.atividades import (eval_recall_preparar,
+                                      eval_recall_ingerir, _scan_corpus)
+        work = self.tmp / "w3"
+        reg, _ = self._corpus(work)
+        sessoes, _ = _scan_corpus(work, "hostX")
+        pre, amostra = eval_recall_preparar(
+            sessoes, reg, work, {"resposta-curta-seguida-de-acao": 1},
+            max_por_forma=5, k_fundo=2, seed=3)
+        self.assertNotIn("catch_resultado", json.dumps(pre))
+        self.assertEqual(len(pre["catch_gold_por_item"]), 2)
+        # rotular tudo: FN-reais 'nao', catch pelo gold, fundo 'nenhuma'
+        fundo = {i["item"] for i in amostra["itens"]
+                 if i.get("tipo") == "janela-de-fundo"}
+        catch = {int(k): v for k, v in pre["catch_gold_por_item"].items()}
+        labels = []
+        for i in amostra["itens"]:
+            if i["item"] in fundo:
+                r = "nenhuma"
+            elif i["item"] in catch:
+                r = catch[i["item"]]
+            else:
+                r = "nao"
+            labels.append({"item": i["item"], "resposta": r})
+        la = {"rotulador": "a", "labels": labels}
+        lb = {"rotulador": "b", "labels": labels}
+        recall, catch_res = eval_recall_ingerir(amostra, la, lb, pre)
+        self.assertEqual(catch_res, {"a": 2, "b": 2, "n": 2})
+        self.assertNotIn("catch", json.dumps(recall["por_forma"]))
+        d1 = recall["por_forma"]["resposta-curta-seguida-de-acao"]
+        self.assertEqual(d1["tp_detectados"], 1)
+        self.assertEqual(d1["p_fn_amostrado"], 0.0)
+        self.assertEqual(d1["recall_estimado"], 1.0)
+        self.assertEqual(recall["fundo"]["nenhuma_unanime"],
+                         recall["fundo"]["n"])
+
+    def test_fn_rotulado_sim_derruba_o_recall(self):
+        from tools.atividades import (eval_recall_preparar,
+                                      eval_recall_ingerir, _scan_corpus)
+        work = self.tmp / "w4"
+        reg, _ = self._corpus(work)
+        sessoes, _ = _scan_corpus(work, "hostX")
+        pre, amostra = eval_recall_preparar(
+            sessoes, reg, work, {"resposta-curta-seguida-de-acao": 1},
+            max_por_forma=5, k_fundo=0, seed=3)
+        catch = {int(k) for k in pre["catch_gold_por_item"]}
+        labels = [{"item": i["item"],
+                   "resposta": ("sim" if i["item"] not in catch
+                                and i.get("forma") ==
+                                "resposta-curta-seguida-de-acao" else "nao")}
+                  for i in amostra["itens"]]
+        la = {"rotulador": "a", "labels": labels}
+        lb = {"rotulador": "b", "labels": labels}
+        recall, _cr = eval_recall_ingerir(amostra, la, lb, pre)
+        d1 = recall["por_forma"]["resposta-curta-seguida-de-acao"]
+        self.assertEqual(d1["p_fn_amostrado"], 1.0)
+        self.assertLess(d1["recall_estimado"], 0.6)  # honesto: recall cai
+
+    def test_semeadura_bem_formada_e_seeded_recall(self):
+        from tools.atividades import _linhas_semente, recall_seeded
+        linhas, manifesto = _linhas_semente(9, 1000000000.0)
+        self.assertEqual(set(manifesto), {
+            "resposta-curta-seguida-de-acao",
+            "pergunta-explicacao-resposta-curta",
+            "leituras-repetidas-de-estado-externo",
+            "rajada-de-turnos-curtos"})
+        for classes in manifesto.values():
+            self.assertEqual(len(classes), 4)
+            for inst in classes.values():
+                self.assertEqual(len(inst), 3)  # M=12 por forma
+        for linha in linhas:
+            json.loads(linha)  # bem-formadas
+        # roda os detectores CONGELADOS numa cópia semeada mínima
+        work = self.tmp / "seeded" / "proj"
+        work.mkdir(parents=True)
+        base = [e_user(0, "sessão base para a semeadura de recall", "u1")]
+        with open(work / f"{SID}.jsonl", "w", encoding="utf-8") as fh:
+            for e in base:
+                fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+            for linha in linhas:
+                fh.write(linha + "\n")
+        tabela = recall_seeded(work.parent, manifesto, host="seed")
+        d1 = tabela["resposta-curta-seguida-de-acao"]
+        self.assertEqual(d1["in-spec"]["detectadas"], 3)       # harness ok
+        self.assertEqual(d1["aceite-7-15-chars"]["detectadas"], 0)
+        self.assertEqual(d1["atraso-121-600s"]["detectadas"], 0)
+        d3 = tabela["leituras-repetidas-de-estado-externo"]
+        self.assertEqual(d3["in-spec"]["detectadas"], 3)
+        self.assertEqual(d3["duas-repeticoes"]["detectadas"], 0)
+
+
 class TestCwdModal(Base):
     def test_cwd_e_o_modal_nao_o_ultimo(self):
         """Finding R1 #18: sessão que muda de diretório fica com o cwd MODAL."""
