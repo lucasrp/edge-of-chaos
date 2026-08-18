@@ -3424,14 +3424,17 @@ def _scan_corpus(workdir, host):
 
 def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
              model="injetado", eval_estagio0=None, diff_referencia=None,
-             sessao_em_curso=None):
+             sessao_em_curso=None, llm_teto=LLM_TETO_GLOBAL):
     """Cópia de trabalho (já redigida) → registry + projeção completa.
 
     `eval_estagio0` (resultado de eval_ingerir): GATE dos N3/N4 (finding R1
     #2) — sem ele, NENHUM N3/N4 é gerado (degradação declarada); com ele, só
     formas `confiavel` sobem."""
     reg = Registry()
-    orc = OrcamentoLLM()
+    # teto declarado no recibo (orcamento_llm.teto na projeção); a ordem
+    # N3→N4 é imposta pela regra de citação (N4 cita N3) — para garantir N4
+    # eleva-se o teto NESTA rodada, nunca se inverte a ordem
+    orc = OrcamentoLLM(teto=llm_teto)
     sessoes, puladas = _scan_corpus(workdir, host)
 
     for s in sessoes:
@@ -4218,7 +4221,8 @@ def _cmd_backfill(args):
                              model=args.complete_cmd or "nenhum",
                              eval_estagio0=ev,
                              diff_referencia=args.diff_referencia,
-                             sessao_em_curso=args.sessao_em_curso)
+                             sessao_em_curso=args.sessao_em_curso,
+                             llm_teto=args.llm_teto)
     state = persistir(args.state, reg, projecao)
     html = render_report(reg, projecao, ev)
     (state / "report.html").write_text(html, encoding="utf-8")
@@ -4491,6 +4495,10 @@ def main(argv=None):
     p.add_argument("--sessao-em-curso", dest="sessao_em_curso", default=None,
                    help="session_id de sessão VIVA no corpus — declara "
                         "varredura parcial na cobertura (R6.2 fix 6)")
+    p.add_argument("--llm-teto", dest="llm_teto", type=int,
+                   default=LLM_TETO_GLOBAL,
+                   help="teto de chamadas LLM desta rodada (declarado no "
+                        "recibo orcamento_llm; default LLM_TETO_GLOBAL)")
     p.set_defaults(fn=_cmd_backfill)
 
     p = sub.add_parser("eval", help="estágio 0 — avaliação cega")
