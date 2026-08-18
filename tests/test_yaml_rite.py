@@ -87,40 +87,19 @@ def _empty_comparison_yaml_art():
 
 
 class YamlRiteGate(unittest.TestCase):
-    def test_short_yaml_with_moves_passes_no_h2_no_word_floor(self):
-        violations = yaml_rite.check_yaml_rite(_short_yaml_art())
-        self.assertEqual(violations, [], violations)
-        # also through check_genus: no yaml-rite:* 
-        genus = [v for v in close.check_genus(_short_yaml_art()) if v.startswith("yaml-rite")]
-        self.assertEqual(genus, [], genus)
+    """The YAML/H2/word-floor form gate is rolled back to 3aeb049.
 
-    def test_jurix_thin_free_html_fails(self):
-        v = yaml_rite.check_yaml_rite(_jurix_thin_html_art())
-        self.assertIn("yaml-rite:typed-blocks", v, v)
-        self.assertIn("yaml-rite:comparison-or-derivation", v, v)
-        self.assertIn("yaml-rite:cites", v, v)
+    check_yaml_rite is a no-op. Leftover YAML still *renders* (YamlParseAndRender)
+    and the reader probe still sees HTML (ReaderFacingText).
+    """
 
-    def test_empty_comparison_yaml_fails(self):
-        v = yaml_rite.check_yaml_rite(_empty_comparison_yaml_art())
-        self.assertIn("yaml-rite:comparison-or-derivation", v, v)
-
-    def test_empty_comparison_chrome_fails_normalize(self):
-        self.assertIsNone(blocks.normalize_block({"type": "comparison", "title": "JURIX"}))
-        self.assertIsNone(blocks.normalize_block({
-            "type": "comparison",
-            "before": {"title": "A"},
-            "after": {"title": "B"},
-        }))
-
-    def test_title_only_derivation_fails_normalize(self):
-        self.assertIsNone(blocks.normalize_block({"type": "derivation", "title": "Derivation"}))
-
-    def test_substantive_comparison_survives_normalize(self):
-        self.assertIsNotNone(blocks.normalize_block(_comparison()))
-
-    def test_markdown_without_skill_still_owes_and_fails_typed_blocks(self):
-        """The last-beat bug: omitting skill used to skip the gate and publish markdown."""
-        art = {
+    def test_form_gate_never_blocks(self):
+        samples = [
+            _short_yaml_art(),
+            _jurix_thin_html_art(),
+            _empty_comparison_yaml_art(),
+        ]
+        md = {
             "intent": "open: venue unnamed; bet: mention JURIX",
             "cites": [],
             "lineage": [],
@@ -130,18 +109,41 @@ class YamlRiteGate(unittest.TestCase):
                 "JURIX remains the object of this note.\n"
             )},
         }
-        self.assertNotIn("skill", art)
-        self.assertTrue(yaml_rite.owes_yaml_rite(art))
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertIn("yaml-rite:typed-blocks", v, v)
+        samples.append(md)
+        empty_skill = _jurix_thin_html_art()
+        empty_skill["skill"] = ""
+        samples.append(empty_skill)
+        for art in samples:
+            self.assertEqual(yaml_rite.check_yaml_rite(art), [], art)
 
-    def test_empty_skill_markdown_still_owes(self):
-        art = _jurix_thin_html_art()
-        art["skill"] = ""
-        self.assertTrue(yaml_rite.owes_yaml_rite(art))
-        self.assertIn("yaml-rite:typed-blocks", yaml_rite.check_yaml_rite(art))
+    def test_genus_does_not_emit_yaml_rite_codes(self):
+        genus = [v for v in close.check_genus(_short_yaml_art()) if v.startswith("yaml-rite")]
+        self.assertEqual(genus, [], genus)
+        thin = [v for v in close.check_genus(_jurix_thin_html_art()) if v.startswith("yaml-rite")]
+        self.assertEqual(thin, [], thin)
 
-    def test_map_owes_nothing(self):
+    def test_empty_comparison_chrome_fails_normalize(self):
+        """3aeb049: titles alone never qualify as comparison payload."""
+        self.assertIsNone(blocks.normalize_block({"type": "comparison", "title": "JURIX"}))
+        self.assertIsNone(blocks.normalize_block({
+            "type": "comparison",
+            "before": {"title": "A"},
+            "after": {"title": "B"},
+        }))
+
+    def test_substantive_comparison_survives_normalize(self):
+        self.assertIsNotNone(blocks.normalize_block(_comparison()))
+
+    def test_one_sided_comparison_is_payload_enough(self):
+        """3aeb049: one side with bullets qualifies; both-sides was a #647 form contract."""
+        block = {
+            "type": "comparison",
+            "before": {"title": "session cursor", "bullets": ["one watermark"]},
+            "after": {"title": "per-session watermark"},
+        }
+        self.assertIsNotNone(blocks.normalize_block(block))
+
+    def test_map_and_plan_still_unblocked(self):
         art = {
             "slug": "rel-map",
             "skill": "map",
@@ -154,11 +156,7 @@ class YamlRiteGate(unittest.TestCase):
             ]}]},
         }
         self.assertEqual(yaml_rite.check_yaml_rite(art), [])
-        rich = [v for v in close.check_genus(art) if v.startswith("yaml-rite")]
-        self.assertEqual(rich, [])
-
-    def test_terse_plan_owes_nothing(self):
-        art = {
+        plan = {
             "skill": "plan",
             "intent": "open: next step unnamed; bet: name it",
             "cites": [],
@@ -166,77 +164,7 @@ class YamlRiteGate(unittest.TestCase):
                 {"type": "next-steps-grid", "steps": [{"title": "ship the watermark"}]},
             ]}]},
         }
-        self.assertEqual(yaml_rite.check_yaml_rite(art), [])
-
-    def test_terse_report_below_threshold_owes_nothing(self):
-        art = {
-            "skill": "report",
-            "intent": "open: one observation; bet: park it",
-            "cites": [],
-            "content": {"sections": [{"title": "", "blocks": [
-                {"type": "paragraph", "text": "One terse observation, nothing more."},
-            ]}]},
-        }
-        self.assertEqual(yaml_rite.check_yaml_rite(art), [])
-
-    def test_first_block_must_be_lineage(self):
-        art = _short_yaml_art()
-        art["content"]["sections"][0]["blocks"] = [_comparison(), _lineage_block(), _gap()]
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertIn("yaml-rite:lineage-first", v, v)
-
-    def test_missing_gap_fails(self):
-        art = _short_yaml_art()
-        art["content"]["sections"][0]["blocks"] = [_lineage_block(), _comparison()]
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertIn("yaml-rite:gap", v, v)
-
-    def test_derivation_satisfies_comparison_or_derivation(self):
-        art = _short_yaml_art()
-        art["content"]["sections"][0]["blocks"] = [
-            _lineage_block(),
-            {"type": "derivation", "text": "A session is bounded, therefore the cursor is per-session."},
-            _gap(),
-        ]
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertNotIn("yaml-rite:comparison-or-derivation", v, v)
-        self.assertEqual(v, [], v)
-
-    def test_one_sided_comparison_fails(self):
-        art = _short_yaml_art()
-        art["content"]["sections"][0]["blocks"] = [
-            _lineage_block(),
-            {"type": "comparison",
-             "before": {"title": "session cursor", "bullets": ["one watermark"]},
-             "after": {"title": "per-session watermark"}},
-            _gap(),
-        ]
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertIn("yaml-rite:comparison-or-derivation", v, v)
-        self.assertIsNone(blocks.normalize_block(
-            art["content"]["sections"][0]["blocks"][1]))
-
-    def test_cite_without_snippet_fails(self):
-        art = _short_yaml_art()
-        art["cites"] = [{"ref": "arXiv:2507.02778", "kind": "mundo"}]
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertIn("yaml-rite:cites", v, v)
-
-    def test_string_cite_fails(self):
-        art = _short_yaml_art()
-        art["cites"] = ["arXiv:2507.02778"]
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertIn("yaml-rite:cites", v, v)
-
-    def test_empty_gap_marker_fails(self):
-        art = _short_yaml_art()
-        art["content"]["sections"][0]["blocks"] = [
-            _lineage_block(), _comparison(),
-            {"type": "gap-marker", "text": ""},
-        ]
-        v = yaml_rite.check_yaml_rite(art)
-        self.assertIn("yaml-rite:gap", v, v)
-        self.assertIsNone(blocks.normalize_block({"type": "gap-marker", "text": ""}))
+        self.assertEqual(yaml_rite.check_yaml_rite(plan), [])
 
 
 class YamlParseAndRender(unittest.TestCase):

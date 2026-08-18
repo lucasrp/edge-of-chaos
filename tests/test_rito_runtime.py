@@ -161,7 +161,27 @@ blocks:
 
 # Canned cognitive outputs — scan-clean (no draft/grounding/prompt/harness vocabulary), so the
 # deterministic treatment gates pass and treatment_cleanup takes the deterministic-copy branch.
+# Default canned outputs are Markdown (3aeb049 producer). YAML_* fixtures
+# remain for the leftover-YAML HTML-probe tests (#647 / #585).
 CANNED = {
+    "first_authorial_draft": (
+        "# Relatorio exp-teste\n\nA pergunta viva: o buscador melhora com o indice?\n\n"
+        "- fato: 29 vitorias\n- inferencia: o indice ajuda\n\n"
+        "| arm | placar |\n|---|---|\n| raw | 8 |\n| indice | 29 |"),
+    "gap_critique": "# Lacunas\n\nFaltou o caso concreto da rodada 3.",
+    "grounding2_targeted": "# Memo dirigido\n\nEvidencia adicional sobre a rodada 3.",
+    "provisional_rewrite": (
+        "# Relatorio exp-teste\n\nVersao revisada: a rodada 3 mostra o mecanismo."),
+    "fact_audit": "# Fact audit\n\n## Verdict\nPASS\n\n## Claim ledger\ntudo sustentado.",
+    "author_correction": (
+        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
+        "> o indice vence onde a estrutura importa."),
+    "final_review": (
+        "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
+        "Revisao qualitativa: util por si so."),
+}
+
+YAML_CANNED = {
     "first_authorial_draft": YAML_AUTHORIAL_DRAFT,
     "gap_critique": "# Lacunas\n\nFaltou o caso concreto da rodada 3.",
     "grounding2_targeted": "# Memo dirigido\n\nEvidencia adicional sobre a rodada 3.",
@@ -331,7 +351,7 @@ class FullRiteTest(unittest.TestCase):
             self.assertEqual(len(evs), 1)
             spec = evs[0]["payload"]["spec"]
             self.assertEqual(spec["format"], "edge-markdown/v1")
-            self.assertEqual(spec["renderer_id"], yaml_rite.YAML_RENDERER_ID)
+            self.assertEqual(spec["renderer_id"], render.RENDERER_ID)
             self.assertEqual(spec["rito_manifest_sha256"], rito.manifest_core_hash(manifest))
             page_sha = hashlib.sha256((blog / f"{SLUG}.html").read_bytes()).hexdigest()
             self.assertEqual(spec["page_sha256"], page_sha)
@@ -373,8 +393,10 @@ class FullRiteTest(unittest.TestCase):
 
     def test_treatment_cleanup_same_author_when_correction_leaks(self):
         canned = dict(CANNED)
-        canned["author_correction"] = YAML_LEAKY_CORRECTION
-        canned["treatment_cleanup"] = YAML_CLEAN_CLEANUP
+        canned["author_correction"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
+                                       "mecanismo da rodada 3.")
+        canned["treatment_cleanup"] = ("# Relatorio exp-teste\n\nAqui eu explico o mecanismo "
+                                       "da rodada 3.")
         order = LLM_ORDER[:6] + ["treatment_cleanup"] + LLM_ORDER[6:]
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = _green_run(tmp, canned=canned, order=order)
@@ -711,24 +733,18 @@ class DetectorCliTest(unittest.TestCase):
             self.assertEqual(bad, 1)
 
 
-    def test_report_markdown_first_draft_is_stage_failure(self):
-        """A report-form first draft that is free markdown fails immediately."""
-        canned = dict(CANNED)
-        canned["first_authorial_draft"] = (
-            "# Relatorio\n\nParagrafo um sobre o indice.\n\n"
-            "Paragrafo dois sobre a rodada 3.\n"
-        )
+    def test_report_markdown_first_draft_completes(self):
+        """3aeb049: a report-form first draft is Markdown. YAML is not required."""
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(rito.StageFailure) as ctx:
-                _green_run(tmp, canned=canned)
-            self.assertIn("draft is not YAML", str(ctx.exception))
-            manifest = json.loads((Path(tmp) / "run" / "00_MANIFEST.json").read_text())
-            self.assertEqual(manifest["failed_stage"], "first_authorial_draft")
-            self.assertFalse((Path(tmp) / "run" / "03_GAP_CRITIQUE.md").exists())
+            manifest, run_dir, log, blog = _green_run(tmp)
+            self.assertEqual(manifest["status"], "completed")
+            sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
+            self.assertFalse(yaml_rite.is_yaml_draft(sealed))
+            self.assertTrue((blog / f"{SLUG}.html").is_file())
 
 
 class ReaderFacingProbeReviewTest(unittest.TestCase):
-    """#585: probe + final_review judge the published HTML, not YAML keys."""
+    """#585 / #647: leftover YAML is reviewed as published HTML, not keys."""
 
     def test_final_review_prompt_is_rendered_html(self):
         def prompts():
@@ -746,7 +762,7 @@ class ReaderFacingProbeReviewTest(unittest.TestCase):
                 SLUG, run_dir=run_dir,
                 grounding1_fn=lambda: "# Dossier factual\n\nFatos: 29-8-3 em 40 rodadas.",
                 prompts=prompts(),
-                complete_fn=_complete_fn(CANNED, LLM_ORDER),
+                complete_fn=_complete_fn(YAML_CANNED, LLM_ORDER),
                 intent=INTENT, skill="report", dispatch_id=did,
                 log=log, blog_dir=blog,
             )

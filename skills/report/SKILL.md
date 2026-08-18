@@ -118,14 +118,8 @@ rendered page) and seals a receipt for every stage. Your job is the COGNITION: t
 prompts. The runtime owns sequencing, sealing, rendering (the pinned neutral-markdown renderer,
 `render.RENDERER_ID`) and publication. A run that didn't publish didn't finish the rite.
 
-The stages you feed (authoring format is **YAML blocks**, not free markdown and not a mandatory
-H2 outline). A developed report is a YAML document: root fields (`intent`, `cites` /
-bibliography, `lineage`) plus `blocks:` (or `content.sections[].blocks`). **Choosing the
-block is choosing the move** — comparison, derivation, gap-marker / gap-table /
-gap-resolution. The first authored block is lineage (what the prior report brought and why
-this exists) — a close check, not an H2 name. A markdown fence with yaml is accepted. Do
-not write a section outline. Do not write free markdown and call it a report:
-`grounding1_dossier` (your gathered factual dossier — the gather-grounding
+The stages you feed (authoring format is **Markdown**, H1 first; tables/lists/blockquotes carry
+the visual idiom): `grounding1_dossier` (your gathered factual dossier — the gather-grounding
 slot above) → `first_authorial_draft` → `gap_critique` → `grounding2_targeted` →
 `provisional_rewrite` → `fact_audit` → `author_correction` → `treatment_cleanup` (deterministic
 copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) →
@@ -156,6 +150,7 @@ report closes an Experiment: the atomic curated conclusion — short curated pro
 that becomes the canonical reading; omit when no experiment closes).
 
     tools/edge-python <<'EOF'
+    import sys; sys.path.insert(0, 'tools')
     import rito, llm_routes
 
     slug = '<slug>'
@@ -165,13 +160,13 @@ that becomes the canonical reading; omit when no experiment closes).
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"Write a YAML document, not free markdown. Root fields: intent (one prose string, not a mapping), cites (non-empty {{ref, snippet}}; every load-bearing phrase appears in a snippet), lineage, blocks. First block type is lineage. Then a substantive comparison-table or derivation (hyphenated type; BOTH sides of a comparison carry payload). Then a gap-marker or gap-table whose text is nonblank. The mentee reads the rendered HTML (`yaml_rite.page_bytes`), not these keys — write payloads that teach. yaml-rite still checks the YAML source. Choosing the block is choosing the move. No H2 outline, no word target, no free markdown. PEDAGOGUE's Feynman voice lives in the block payloads.\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'first_authorial_draft': lambda o: f"<the produce guidance, this theme; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME the operator's known (edge + his domain — re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target>\n\nDOSSIER:\n{o['grounding1_dossier']}",
         'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? where is it cryptic / contextualization thin? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
         'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
-        'provisional_rewrite':   lambda o: f"<same-author rewrite STILL AS YAML (intent as one prose string, cites as [{{ref, snippet}}], lineage, hyphenated block types; do not convert to markdown; do not turn intent into a mapping) in the Feynman voice. Payloads are what the mentee reads after render. Keep the calibration (assume the known), fold critique+the new grounding2 into block payloads>\n\n{o['grounding2_targeted']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2 into contextualizing prose>\n\n{o['grounding2_targeted']}",
         'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
-        'author_correction':     lambda o: f"<bounded same-author correction from the audit; emit YAML not markdown; intent stays a prose string; hyphenated block types>\n\n{o['fact_audit']}",
-        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup; keep YAML document shape>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
+        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
         'final_review':          lambda o: f"<strict review of the READER-FACING page (rendered HTML if the sealed draft is YAML; markdown as-is); begin with the 3-line ACCEPTANCE header>\n\n{o.get('reader_facing') or o['treatment_cleanup']}",
     }
 
@@ -184,9 +179,7 @@ that becomes the canonical reading; omit when no experiment closes).
                                 'experiment_curation': None})
     EOF
 
-Import `rito` / `close` / `publisher` via package/`PYTHONPATH`. Never `sys.path.insert(0, 'tools')` from the phenotype cwd — that loads the live phenotype rito and skips the YAML gate.
-
-The publisher's rito seam recomputes the pinned render from the sealed draft (YAML → `render.spec_to_html`, markdown stays the pinned markdown renderer) and **refuses a
+The publisher's rito seam recomputes the pinned render from the sealed markdown and **refuses a
 hash mismatch** — the exact reviewed bytes, and only they, land at `blog/entries/<slug>.html`,
 bound to the `artefato.published` event + mandatory `intent.kernel` in one atomic act (C3). The
 first authorial draft stays sealed and addressable in the run dir for later blind reading.

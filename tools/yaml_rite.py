@@ -354,51 +354,12 @@ def owes_yaml_rite(artefato: dict) -> bool:
 
 
 def check_yaml_rite(artefato: dict, skill=None) -> list[str]:
-    """Mechanical yaml-rite violations ([] iff the gate is not owed or all present).
+    """Form gate rolled back to 3aeb049 — no YAML/H2/word-floor contract.
 
-    A developed report-form synthesis MUST contain:
-      - non-empty cites / bibliography
-      - a substantive comparison OR derivation (`normalize_block` — empty chrome fails)
-      - a substantive gap block
-      - lineage declared (root `lineage` or a lineage / builds-on block)
-      - first authored block is lineage (close check, not an H2 name)
-    Free-markdown-only drafts (no typed cognitive blocks) fail as `yaml-rite:typed-blocks`.
-    `skill` (the run's skill, default report) is applied when the caller has it —
-    rito must pass it so a missing artefato skill cannot skip the gate.
+    This module remains the #647/#585 render/probe seam: leftover YAML
+    still becomes the published HTML so the reader probe never scores keys.
     """
-    if not isinstance(artefato, dict):
-        return []
-    if skill is not None:
-        artefato = dict(artefato)
-        artefato["skill"] = skill
-    if not owes_yaml_rite(artefato):
-        return []
-    violations: list[str] = []
-    blocks = authored_blocks(artefato)
-
-    if not _has_cites(artefato):
-        violations.append("yaml-rite:cites")
-    if not _has_intent(artefato):
-        violations.append("yaml-rite:intent")
-
-    typed = [
-        b for b in blocks
-        if _raw_type(b) in COGNITIVE_TYPES
-        or _canon_type(b) in COGNITIVE_TYPES
-        or _is_lineage_block(b)
-    ]
-    if not typed:
-        violations.append("yaml-rite:typed-blocks")
-
-    if not _has_substantive(blocks, COMPARISON_TYPES | DERIVATION_TYPES):
-        violations.append("yaml-rite:comparison-or-derivation")
-    if not _has_substantive(blocks, GAP_TYPES):
-        violations.append("yaml-rite:gap")
-    if not _has_lineage(artefato, blocks):
-        violations.append("yaml-rite:lineage")
-    if blocks and not _is_lineage_block(blocks[0]):
-        violations.append("yaml-rite:lineage-first")
-    return violations
+    return []
 
 
 def spec_page_bytes(spec: dict) -> bytes:

@@ -7,13 +7,11 @@ emits the PROPOSTA; the pipeline is what runs once the PROPOSTA names the forma/
 is no per-skill pipeline: the PROPOSTA supplies the theme, a skill supplies the producing
 cognition, the pipeline supplies the spine.
 
-This is the modern, publish-only rewrite of the legacy `consolidate-state` +
+This is the modern, **de-YAML'd, publish-only rewrite** of the legacy `consolidate-state` +
 the `_shared/` trio (`report-template` / `state-protocol` / `workflow-conventions`). The legacy
-mandated report-sections. **The report form writes YAML blocks again**:
-choosing the block is choosing the move (comparison, derivation, gap). There is no
-mandatory H2 outline and no word floor. Maps/plans/terse forms still owe nothing.
-The pipeline publishes HTML by rendering those blocks (`render.spec_to_html`).
-The reader probe and final review judge that rendered page, not the YAML source.
+mandated report-sections and emitted YAML; this pipeline mandates none and publishes HTML
+directly. The reader probe and final review judge the rendered HTML page the mentee
+sees, not raw authoring source (if a leftover draft is still YAML, they never score the keys).
 
 ## The three phases
 
