@@ -321,19 +321,43 @@ class ArtefatoProposalsConsolidateIntoProposedTier(unittest.TestCase):
     def test_candidates_become_proposed_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
+            opened = eventlog.open_atividade(
+                operacao="edge", finalidade="Trilho vivo",
+                tier="asserted", author="operador", log=log)
+            ulid = opened["payload"]["ulid"]
+            rel = [{"kind": "atividade", "id": ulid}]
             eventlog._append_orphan_published_for_test("recall-report", proposes=[
-                {"body": "name the full-read budget", "kind": "constraint"},
-                {"body": "watch read:write ratio"}], log=log)
+                {"body": "name the full-read budget", "kind": "constraint",
+                 "relates_to": rel},
+                {"body": "watch read:write ratio", "relates_to": rel}], log=log)
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 2)
             prop = eventlog.direction_at(log=log)["proposed"]
             self.assertEqual({i["from_artefato"] for i in prop}, {"recall-report"})
             self.assertIn("name the full-read budget", [i["body"] for i in prop])
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)  # idempotent
 
+    def test_orphan_proposes_do_not_auto_land(self):
+        """artefato.published.proposes[] without a live activity stay off proposed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog._append_orphan_published_for_test("recall-report", proposes=[
+                {"body": "name the full-read budget", "kind": "constraint"},
+                {"body": "watch read:write ratio"}], log=log)
+            self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)
+            d = eventlog.direction_at(log=log)
+            self.assertTrue(d is None or d.get("proposed") == [])
+
     def test_dropped_candidate_not_resurrected(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog._append_orphan_published_for_test("r", proposes=[{"body": "X"}], log=log)
+            opened = eventlog.open_atividade(
+                operacao="edge", finalidade="Trilho vivo",
+                tier="asserted", author="operador", log=log)
+            ulid = opened["payload"]["ulid"]
+            eventlog._append_orphan_published_for_test(
+                "r", proposes=[{"body": "X",
+                                "relates_to": [{"kind": "atividade", "id": ulid}]}],
+                log=log)
             eventlog.consolidate_artefato_proposals(log=log)
             eventlog.drop("r:0", "rejected", log=log)
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)
@@ -352,7 +376,14 @@ class ArtefatoProposalsConsolidateIntoProposedTier(unittest.TestCase):
                          '"payload": "a corrupt string payload"}\n')
                 fh.write('{"seq": 2, "ts": "t", "type": "direction.proposed", "subject": "direction", '
                          '"payload": [1, 2, 3]}\n')
-            eventlog._append_orphan_published_for_test("r", proposes=[{"body": "X"}], log=log)
+            opened = eventlog.open_atividade(
+                operacao="edge", finalidade="Trilho vivo",
+                tier="asserted", author="operador", log=log)
+            ulid = opened["payload"]["ulid"]
+            eventlog._append_orphan_published_for_test(
+                "r", proposes=[{"body": "X",
+                                "relates_to": [{"kind": "atividade", "id": ulid}]}],
+                log=log)
             # must not raise — the valid candidate still consolidates past the corrupt direction events
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 1)
             self.assertIn("X", [i["body"] for i in eventlog.direction_at(log=log)["proposed"]])

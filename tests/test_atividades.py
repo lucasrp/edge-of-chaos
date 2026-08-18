@@ -5,6 +5,7 @@ SINTÉTICA (teste de regressão do detector genérico, nunca evidência de
 validade — brief v2 §3.4).
 """
 import json
+import sys
 import os
 import shutil
 import tempfile
@@ -494,14 +495,16 @@ class TestDegradacaoDeclarada(Base):
 
     @staticmethod
     def _fake_complete(prompt):
-        if "hipóteses de mentoria" in prompt:
-            return ('{"hipotese": "Você revisa antes do ok?", '
-                    '"falsificacao": "um relato de revisão prévia"}')
+        if "PORQUÊ ESTRATÉGICO" in prompt or "PORQUE ESTRATEGICO" in prompt:
+            return ('{"hipotese": "Quer o resumo fechado para retomar o fio '
+                    'sem reler a sessão", '
+                    '"falsificacao": "N1s posteriores pedindo outro entregável"}')
         if "Nomeie" in prompt:
             return "Fechamento do resumo"
-        return ('{"claim": "sequência compatível com aceite rápido", '
-                '"confianca": 0.6, "alternativas": ["revisão prévia em '
-                'outra superfície"]}')
+        return ('{"claim": "fechar o texto do resumo nesta sessão", '
+                '"confianca": 0.6, "alternativas": ["só validar o rascunho '
+                'já escrito"], '
+                '"falsificacao": "N1s posteriores pedindo outro entregável"}')
 
     _EVAL_OK = {"por_forma": {"resposta-curta-seguida-de-acao":
                               {"veredicto": "confiavel"}}}
@@ -545,7 +548,7 @@ class TestDegradacaoDeclarada(Base):
             thresholds_congelados={
                 "precisao_min": 0.8, "concordancia_min": 0.7},
             rotuladores=["a", "b"], amostra=1))
-        self.assertIn("Você revisa antes do ok?", html)
+        self.assertIn("Quer o resumo fechado para retomar o fio", html)
 
     def test_render_gate_esconde_n3_n4_de_forma_reprovada(self):
         """Finding R1 #2 (render): N3/N4 de forma reprovada ficam fora do
@@ -563,8 +566,8 @@ class TestDegradacaoDeclarada(Base):
                                    "concordancia_min": 0.7},
             rotuladores=["a", "b"], amostra=1)
         html = render_report(reg, proj, ev_reprovado)
-        self.assertNotIn("sequência compatível com aceite rápido", html)
-        self.assertNotIn("Você revisa antes do ok?", html)
+        self.assertNotIn("fechar o texto do resumo nesta sessão", html)
+        self.assertNotIn("Quer o resumo fechado para retomar o fio", html)
         self.assertIn("fora do relatório principal", html)
 
 
@@ -937,6 +940,9 @@ class TestNew3Atribuicao(Base):
         def teimoso(prompt):
             if "Nomeie" in prompt:
                 return "Fechamento do resumo"
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "Você executou a escrita em 10s", '
+                        '"falsificacao": "x"}')
             return ('{"claim": "Você executou a escrita em 10s", '
                     '"confianca": 0.6, "alternativas": ["a"]}')
 
@@ -952,21 +958,25 @@ class TestNew3Atribuicao(Base):
         def correto(prompt):
             if "Nomeie" in prompt:
                 return "Fechamento do resumo"
-            if "hipóteses de mentoria" in prompt:
-                return ('{"hipotese": "O agente executou a escrita sob seu '
-                        'comando — você revisa o resultado depois?", '
-                        '"falsificacao": "relato de revisão"}')
-            return ('{"claim": "o agente delegado executou a escrita 10s '
-                    'após o aceite do operador", "confianca": 0.6, '
-                    '"alternativas": ["revisão prévia"]}')
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "O aceite autoriza o agente a fechar '
+                        'o entregável agora", '
+                        '"falsificacao": "N1s posteriores pedindo outro alvo"}')
+            return ('{"claim": "fechar o texto do resumo com o agente '
+                    'escrevendo após o aceite", "confianca": 0.6, '
+                    '"alternativas": ["só revisar o rascunho"], '
+                    '"falsificacao": "N1s posteriores com outro entregável"}')
 
         reg, proj = pipeline(work, "hostX", complete_fn=correto,
                              eval_estagio0=self._EVAL_OK)
-        # v2.1: "fecha o texto…" (imperativo ≤30) também vira D1 → 2 N3
-        self.assertEqual(len(reg.nivel(3)), 2)
+        # unidade = atividade viva, não correlação N2
+        self.assertEqual(len(reg.nivel(3)), 1)
+        self.assertEqual(reg.nivel(3)[0]["kind"], "objetivo-imediato")
+        self.assertTrue(reg.nivel(3)[0].get("atividade_id"))
         self.assertEqual(reg.nivel(3)[0]["executores_da_base"],
                          {"acoes": 1, "executadas_por_agente": 1})
         self.assertEqual(len(reg.nivel(4)), 1)
+        self.assertEqual(reg.nivel(4)[0]["kind"], "porque-estrategico")
 
 
 class TestNew4SessaoProtocolo(Base):
@@ -1113,13 +1123,14 @@ class TestR4Responder(Base):
         def fake(prompt):
             if "Nomeie" in prompt:
                 return "Fechamento do resumo"
-            if "hipóteses de mentoria" in prompt:
-                return ('{"hipotese": "O agente executou a escrita sob seu '
-                        'comando — você revisa depois?", '
-                        '"falsificacao": "relato de revisão"}')
-            return ('{"claim": "o agente delegado executou a escrita após '
-                    'aceite do operador", "confianca": 0.6, '
-                    '"alternativas": ["revisão prévia"]}')
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "O aceite autoriza o agente a fechar '
+                        'o entregável agora", '
+                        '"falsificacao": "N1s posteriores pedindo outro alvo"}')
+            return ('{"claim": "fechar o texto do resumo com o agente '
+                    'escrevendo após o aceite", "confianca": 0.6, '
+                    '"alternativas": ["só revisar o rascunho"], '
+                    '"falsificacao": "N1s posteriores com outro entregável"}')
 
         ev = {"por_forma": {"resposta-curta-seguida-de-acao":
                             {"veredicto": "confiavel"}}}
@@ -2250,6 +2261,186 @@ class TestCwdModal(Base):
         caminho = escrever(work / "proj" / f"{SID}.jsonl", entradas)
         s = scan_arquivo(caminho, "hostX")
         self.assertEqual(s["cwd"], "/home/x/proj")
+
+
+
+class TestN3N4ObjetivoEstrategico(Base):
+    """N3 = objetivo imediato da atividade viva; N4 = porquê estratégico."""
+
+    _EVAL_OK = {"por_forma": {"resposta-curta-seguida-de-acao":
+                              {"veredicto": "confiavel"}}}
+
+    def _fixture(self, work):
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o texto do resumo agora", "u1"),
+            e_assistant_text(50, "Proposta de fechamento:\n" + "z" * 900,
+                             "a0"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+        ])
+
+    def test_n3_e_objetivo_imediato_nao_gloss_de_n2(self):
+        work = self.tmp / "wo"
+        self._fixture(work)
+        prompts = []
+
+        def fake(prompt):
+            prompts.append(prompt)
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "Precisa do resumo pronto para o '
+                        'próximo movimento", '
+                        '"falsificacao": "N1s pedindo outro entregável"}')
+            return ('{"claim": "fechar o texto do resumo agora", '
+                    '"confianca": 0.7, "alternativas": ["só revisar"], '
+                    '"falsificacao": "N1s posteriores com outro alvo"}')
+
+        from tools.atividades import pipeline
+        reg, proj = pipeline(work, "hostX", complete_fn=fake,
+                             eval_estagio0=self._EVAL_OK)
+        n3_prompts = [p for p in prompts if "OBJETIVO IMEDIATO" in p]
+        self.assertTrue(n3_prompts)
+        self.assertFalse(any("COMO ELE TRABALHA" in p for p in prompts))
+        self.assertEqual(len(reg.nivel(3)), 1)
+        n3 = reg.nivel(3)[0]
+        self.assertEqual(n3["kind"], "objetivo-imediato")
+        self.assertIn("fechar o texto do resumo", n3["claim"])
+        self.assertTrue(n3.get("falsificacao"))
+        self.assertTrue(n3.get("atividade_id"))
+        self.assertEqual(n3["atividade_id"], proj["atividades"][0]["ulid"])
+
+    def test_n3_gloss_de_forma_e_descartado(self):
+        work = self.tmp / "wg"
+        self._fixture(work)
+
+        def gloss(prompt):
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "why", "falsificacao": "x"}')
+            return ('{"claim": "sequência compatível com '
+                    'resposta-curta-seguida-de-acao", '
+                    '"confianca": 0.6, "alternativas": ["a"], '
+                    '"falsificacao": "x"}')
+
+        from tools.atividades import pipeline
+        reg, proj = pipeline(work, "hostX", complete_fn=gloss,
+                             eval_estagio0=self._EVAL_OK)
+        self.assertEqual(reg.nivel(3), [])
+        self.assertTrue(any("gloss" in d for d in proj["degradacoes"]))
+
+    def test_n4_e_porque_estrategico_sem_critica(self):
+        work = self.tmp / "w4"
+        self._fixture(work)
+
+        def fake(prompt):
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "O resumo vira âncora para o próximo '
+                        'arco sem reler a sessão", '
+                        '"falsificacao": "N1s pedindo outro entregável"}')
+            return ('{"claim": "fechar o texto do resumo agora", '
+                    '"confianca": 0.7, "alternativas": ["só revisar"], '
+                    '"falsificacao": "N1s posteriores com outro alvo"}')
+
+        from tools.atividades import pipeline
+        reg, _ = pipeline(work, "hostX", complete_fn=fake,
+                          eval_estagio0=self._EVAL_OK)
+        self.assertEqual(len(reg.nivel(4)), 1)
+        n4 = reg.nivel(4)[0]
+        self.assertEqual(n4["kind"], "porque-estrategico")
+        self.assertIn("âncora", n4["hipotese"])
+        self.assertNotIn("incremental-reativo", n4["hipotese"])
+
+    def test_n4_com_critica_de_estilo_e_descartado(self):
+        work = self.tmp / "wc"
+        self._fixture(work)
+
+        def critica(prompt):
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "você é incremental-reativo e precisa '
+                        'melhorar o estilo de trabalho", '
+                        '"falsificacao": "x"}')
+            return ('{"claim": "fechar o texto do resumo agora", '
+                    '"confianca": 0.7, "alternativas": ["só revisar"], '
+                    '"falsificacao": "N1s posteriores com outro alvo"}')
+
+        from tools.atividades import pipeline
+        reg, proj = pipeline(work, "hostX", complete_fn=critica,
+                             eval_estagio0=self._EVAL_OK)
+        self.assertEqual(len(reg.nivel(3)), 1)
+        self.assertEqual(reg.nivel(4), [])
+        self.assertTrue(any("crítica" in d or "critica" in d
+                            or "estilo" in d for d in proj["degradacoes"]))
+
+    def test_sem_completer_nao_inventa_objetivo(self):
+        work = self.tmp / "wd"
+        self._fixture(work)
+        from tools.atividades import pipeline
+        reg, proj = pipeline(work, "hostX", complete_fn=None)
+        self.assertEqual(reg.nivel(3), [])
+        self.assertEqual(reg.nivel(4), [])
+        self.assertTrue(any("DECLARADA" in d for d in proj["degradacoes"]))
+
+
+class TestSweepProposedDaAtividade(Base):
+    """Sweep registra o par N3+N4 da atividade viva — nunca topic-7d."""
+
+    _EVAL_OK = {"por_forma": {"resposta-curta-seguida-de-acao":
+                              {"veredicto": "confiavel"}}}
+
+    def test_propose_um_por_atividade_idempotente_sem_set(self):
+        from tools.atividades import (pipeline, persistir,
+                                      propose_live_activity_directions)
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+        import eventlog
+        work = self.tmp / "ws"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha o texto do resumo agora", "u1"),
+            e_user(100, "ok", "u2"),
+            e_tool(110, "Write", {"file_path": "/x.md", "content": "y"},
+                   "t1", "a1"),
+        ])
+
+        def fake(prompt):
+            if "Nomeie" in prompt:
+                return "Fechamento do resumo"
+            if "PORQUÊ ESTRATÉGICO" in prompt:
+                return ('{"hipotese": "O resumo vira âncora do próximo arco", '
+                        '"falsificacao": "N1s pedindo outro entregável"}')
+            return ('{"claim": "fechar o texto do resumo agora", '
+                    '"confianca": 0.7, "alternativas": ["só revisar"], '
+                    '"falsificacao": "N1s posteriores com outro alvo"}')
+
+        reg, proj = pipeline(work, "hostX", complete_fn=fake,
+                             eval_estagio0=self._EVAL_OK)
+        state = persistir(self.tmp / "st-prop", reg, proj)
+        log = self.tmp / "log.jsonl"
+        n = propose_live_activity_directions(reg, proj, log)
+        self.assertEqual(n, 1)
+        d = eventlog.direction_at(log=log)
+        self.assertEqual(len(d["proposed"]), 1)
+        self.assertEqual(d["set"], [])
+        item = d["proposed"][0]
+        self.assertTrue(item["id"].startswith("atividade:"))
+        self.assertIn("Objetivo imediato (N3)", item["body"])
+        self.assertIn("Porquê estratégico (N4)", item["body"])
+        self.assertNotIn("topic-7d", item["id"])
+        self.assertEqual(propose_live_activity_directions(reg, proj, log), 0)
+
+        eventlog.set_direction(item["id"], item["body"], title=item["title"],
+                               log=log)
+        # never reopen set
+        self.assertEqual(propose_live_activity_directions(reg, proj, log), 0)
+        d2 = eventlog.direction_at(log=log)
+        self.assertEqual(len(d2["set"]), 1)
+        self.assertEqual(d2["proposed"], [])
+
 
 
 if __name__ == "__main__":

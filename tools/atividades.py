@@ -11,11 +11,15 @@ iguais ou inferiores (regra imposta em código, `Registry.add`):
   derivada mecanicamente (nunca chutada; sem sinal → `desconhecido`).
 - **N2 — correlação** (mecânica, determinística, versionada): nomes DESCRITIVOS
   da sequência, zero psicologia. Catálogo em `THRESHOLDS` (congelado).
-- **N3 — inferência** (LLM via seam `complete_fn`, injetável): claim com
-  `confianca` + ≥1 alternativa inocente. Sem completer → DEGRADA DECLARADO
-  para N2-only (campo `degradacoes` da projeção), nunca silencioso.
-- **N4 — hipótese de mentoria** (confirmável pelo operador): `falsificacao`
-  obrigatória; no relatório, N4 `proposta` só aparece como PERGUNTA.
+- **N3 — objetivo imediato** (LLM via seam `complete_fn`, injetável): hipótese
+  do objetivo IMEDIATO do mentorado nesta atividade viva — não um gloss da
+  forma N2. `confianca` + ≥1 alternativa inocente + `falsificacao` por N1s
+  posteriores. Sem completer → DEGRADA DECLARADO (campo `degradacoes`),
+  nunca inventa objetivo em silêncio.
+- **N4 — porquê estratégico** (hipótese falsificável do WHY daquele N3):
+  sem crítica no registro, sem estilo/pedagogia ("você é incremental-reativo").
+  Confirmação que vira Direction passa por eventlog.propose/set_direction/drop,
+  não só pelo sidecar respostas.jsonl.
 
 Privacidade: redaction NA INGESTÃO (`redigir`) — nenhum byte de segredo
 persiste. Verbatim persistido: só turnos humanos, teto 500 chars. Tool calls:
@@ -34,8 +38,8 @@ Proxies mecânicos declarados (nunca leituras de cognição):
 - "entrega com perguntas" (D5): último turno assistant da sessão com ≥2 "?" e
   nenhum turno humano posterior nas superfícies varridas.
 
-Custo LLM bounded: nomear ≤1 call/cluster, N3 ≤1 call/correlação, N4 ≤1
-call/padrão, teto global 60 calls por backfill (`OrcamentoLLM`).
+Custo LLM bounded: nomear ≤1 call/cluster, N3 ≤1 call/atividade viva,
+N4 ≤1 call/N3, teto global 60 calls por backfill (`OrcamentoLLM`).
 
 CLI: scan | backfill | eval | list | show | report. NUNCA escreve em
 state/events/ (guarda `_guard_estado`).
@@ -2029,74 +2033,194 @@ def _resumo_instancia(n1):
     return f"- [{n1['kind']} @ {n1['ts']}] {que}"
 
 
-def inferir_n3(reg, complete_fn, orcamento, model="injetado",
-               formas_permitidas=None, degradacoes=None):
-    """≤1 call por correlação; claim com confiança + alternativas inocentes.
+def _n1s_da_atividade(reg, atv):
+    sids = set(atv.get("session_ids") or [])
+    return [n1 for n1 in reg.nivel(1) if n1.get("session_id") in sids]
 
-    GATE do estágio 0 (finding R1 #2): só formas com veredicto `confiavel`
-    geram N3 — `formas_permitidas` vem do eval; None/vazio → nada sobe.
 
-    O prompt EMBUTE o resumo redigido das instâncias N1 — sem isso o modelo
-    responde meta-reclamações de "transcript não fornecido" (observado no
-    backfill de 2026-08-17)."""
+def _n2s_da_atividade(reg, atv, permitidas):
+    ids = set(atv.get("n2_ids") or [])
+    return [n2 for n2 in reg.nivel(2)
+            if n2["id"] in ids and n2["forma"] in (permitidas or set())]
+
+
+def _atribuir_n2_as_atividades(reg, atividades):
+    """Dono único de cada N2 (R5.2 finding 3) — corre ANTES de N3/N4."""
+    n2_por_trecho = defaultdict(list)
+    n2_por_sessao = defaultdict(list)
+    for n2 in reg.nivel(2):
+        if n2.get("trecho_dono"):
+            n2_por_trecho[n2["trecho_dono"]].append(n2["id"])
+        else:
+            for sid in (n2.get("sessoes") or [])[:1]:
+                n2_por_sessao[sid].append(n2["id"])
+    for atv in atividades:
+        ids = {i for tid in atv.get("trecho_ids", [])
+               for i in n2_por_trecho.get(tid, [])}
+        ids |= {i for sid in atv.get("session_ids", [])
+                for i in n2_por_sessao.get(sid, [])}
+        atv["n2_ids"] = sorted(ids)
+
+
+def _executores_da_atividade(reg, n1s, n2s):
+    acoes = [n1 for n1 in n1s if n1.get("agencia")]
+    if not acoes and n2s:
+        tot_a = tot_g = 0
+        for n2 in n2s:
+            a, g = _quebra_executores(reg, n2)
+            tot_a += a
+            tot_g += g
+        return tot_a, tot_g
+    n_agente = sum(1 for a in acoes
+                   if a["agencia"].get("executor") == "agente")
+    return len(acoes), n_agente
+
+
+_RX_GLOSS_N2 = re.compile(
+    r"(?i)\b(sequ[eê]ncia compat[ií]vel|padr[aã]o observado|"
+    r"correla[cç][aã]o mec[aâ]nica|gloss da forma|forma n2)\b")
+
+
+def _n3_e_gloss_de_forma(texto, formas):
+    low = (texto or "").lower()
+    if _RX_GLOSS_N2.search(low):
+        return True
+    for forma in formas or ():
+        slug = str(forma).lower()
+        if slug and slug in low:
+            return True
+        words = slug.replace("-", " ")
+        if words and words in low:
+            return True
+    return False
+
+
+_RX_CRITICA_N4 = re.compile(
+    r"(?i)("
+    r"incremental-reativo|"
+    r"voc[eê]\s+[eé]\s+\w[\w\-]*|"
+    r"estilo\s+(de\s+)?trabalho|"
+    r"pedagogia|"
+    r"como\s+voc[eê]\s+trabalha|"
+    r"h[aá]bito\s+(ruim|problem[aá]tico)|"
+    r"precisaria\s+melhorar|"
+    r"deveria\s+(mudar|parar|aprender)"
+    r")")
+
+
+def _n4_tem_critica(texto):
+    return bool(_RX_CRITICA_N4.search(texto or ""))
+
+
+def hipotetizar_n3(reg, complete_fn, orcamento, atividades, model="injetado",
+                   formas_permitidas=None, degradacoes=None):
+    """≤1 call por atividade viva: hipótese do objetivo IMEDIATO.
+
+    Não é gloss da forma N2. Falsificada por N1s posteriores. GATE do
+    estágio 0: sem formas `confiavel` nada sobe. Sem completer o caller
+    nem chama — degradação DECLARADA, nunca objetivo inventado.
+    """
     out = []
     permitidas = formas_permitidas or set()
-    for n2 in sorted(reg.nivel(2), key=lambda r: r["id"]):
-        if n2["forma"] not in permitidas:
+    for atv in sorted(atividades or [], key=lambda a: a.get("ulid") or ""):
+        if atv.get("estado") not in ("aberta", "reaberta", None):
+            continue
+        n1s = _n1s_da_atividade(reg, atv)
+        n2s = _n2s_da_atividade(reg, atv, permitidas)
+        if not n1s and not n2s:
             continue
         if not orcamento.permitir("n3"):
             break
-        evid = "\n".join(_resumo_instancia(reg.by_id[i])
-                         for i in n2["instancias"][:8])
-        n_acoes, n_agente = _quebra_executores(reg, n2)
+        evid_n1 = "\n".join(_resumo_instancia(n1) for n1 in n1s[:8])
+        evid_n2 = "\n".join(
+            f"- forma mecânica (contexto, NÃO o claim): {n2['forma']} "
+            f"({len(n2.get('instancias') or [])} instâncias)"
+            for n2 in n2s[:4])
+        n_acoes, n_agente = _executores_da_atividade(reg, n1s, n2s)
         prompt = (
-            "Você anota correlações mecânicas em transcripts de trabalho. "
-            "NUNCA afirme cognição; um claim é 'compatível com', nunca "
-            "'prova'. A evidência resumida (redigida) está ABAIXO — não "
-            "peça o transcript; se ela for pouca, devolva um claim "
-            "modesto com confiança baixa. Correlação:\n"
-            f"forma: {n2['forma']}\nparams: {json.dumps(n2['params'])}\n"
-            f"janela: {json.dumps(n2['janela'])}\n"
-            f"instancias:\n{evid}\n"
+            "Você formula a hipótese do OBJETIVO IMEDIATO do mentorado "
+            "nesta atividade VIVA — o que ele está tentando concluir agora. "
+            "NÃO parafraseie a forma N2; NÃO diagnostique estilo. "
+            "NUNCA afirme cognição como fato; um claim é 'compatível com', "
+            "nunca 'prova'. A evidência resumida (redigida) está ABAIXO — "
+            "não peça o transcript; se for pouca, devolva um objetivo "
+            "modesto com confiança baixa.\n"
+            f"atividade: {atv.get('nome') or atv.get('ulid')}\n"
+            f"finalidade observada: {(atv.get('finalidade') or '')[:200]}\n"
+            f"eventos N1:\n{evid_n1 or '(nenhum N1)'}\n"
+            f"correlações N2 (só contexto mecânico):\n{evid_n2 or '(nenhuma)'}\n"
             + _bloco_atribuicao(n_acoes, n_agente)
-            + "\nResponda SÓ JSON: {\"claim\": \"...\", \"confianca\": "
-              "0.0-1.0, \"alternativas\": [\">=1 explicação inocente\"]}")
+            + "\nResponda SÓ JSON: {\"claim\": \"objetivo imediato em 1 frase\", "
+              "\"confianca\": 0.0-1.0, \"alternativas\": "
+              "[\">=1 outro objetivo inocente\"], "
+              "\"falsificacao\": \"que N1s posteriores derrubariam este objetivo\"}")
         j = None
-        for tentativa in range(2):  # NEW-3: 1 regeneração; senão descarta
+        formas_ctx = [n2["forma"] for n2 in n2s]
+        for tentativa in range(2):
             try:
-                resp = complete_fn(prompt if tentativa == 0 else (
-                    prompt + "\nSUA RESPOSTA ANTERIOR VIOLOU a regra de "
-                    "ATRIBUIÇÃO OBRIGATÓRIA acima. Reescreva respeitando-a "
-                    "à letra."))
+                extra = ""
+                if tentativa:
+                    extra = (
+                        "\nSUA RESPOSTA ANTERIOR VIOLOU uma regra: atribuição "
+                        "obrigatória OU o claim era gloss da forma N2. "
+                        "Reescreva o OBJETIVO IMEDIATO sem restatar a forma.")
+                resp = complete_fn(prompt + extra)
             except Exception:
                 j = None
                 break
             j = _json_do_llm(resp)
-            if not j or not j.get("claim") or not j.get("alternativas"):
+            if not j:
+                break
+            claim = j.get("claim") or j.get("objetivo")
+            if not claim or not j.get("alternativas"):
                 j = None
                 break
-            if not _atribuicao_invalida(str(j["claim"]), n_acoes, n_agente):
-                break
-            if tentativa == 1 or not orcamento.permitir("n3-retry"):
-                if degradacoes is not None:
-                    degradacoes.append(
-                        f"N3 de {n2['id']} descartado: texto incoerente com "
-                        "a base (atribuição indevida ou ação sem ação na "
-                        "base — NEW-3/NEWER-4), mesmo após regeneração")
-                j = None
+            j["claim"] = claim
+            if _atribuicao_invalida(str(claim), n_acoes, n_agente) \
+                    or _n3_e_gloss_de_forma(str(claim), formas_ctx):
+                if tentativa == 1 or not orcamento.permitir("n3-retry"):
+                    if degradacoes is not None:
+                        degradacoes.append(
+                            f"N3 de {atv.get('ulid')} descartado: texto "
+                            "incoerente com a base (atribuição indevida, "
+                            "ação sem ação, ou gloss da forma N2 — "
+                            "NEW-3/NEWER-4), mesmo após regeneração")
+                    j = None
+                continue
+            break
         if not j:
             continue
-        rec = {"id": _rid("n3", n2["id"]), "nivel": 3,
+        fals = j.get("falsificacao") or (
+            "N1s posteriores nesta atividade que mostrem outro objetivo "
+            "imediato")
+        base = [n1["id"] for n1 in n1s[:8]] + [n2["id"] for n2 in n2s[:4]]
+        if not base:
+            continue
+        rec = {"id": _rid("n3", atv.get("ulid") or atv.get("nome")),
+               "nivel": 3,
+               "kind": "objetivo-imediato",
+               "atividade_id": atv.get("ulid"),
                "claim": redigir(str(j["claim"]), entropia=True)[:400],
                "executores_da_base": {"acoes": n_acoes,
                                       "executadas_por_agente": n_agente},
                "confianca": max(0.0, min(1.0, float(j.get("confianca", 0.5)))),
                "alternativas": [redigir(str(a))[:200]
                                 for a in j["alternativas"]][:4],
-               "base": [n2["id"]], "detector_version": DETECTOR_VERSION,
+               "falsificacao": redigir(str(fals))[:300],
+               "base": base, "detector_version": DETECTOR_VERSION,
                "model": model}
         out.append(reg.add(rec))
     return out
+
+
+def inferir_n3(reg, complete_fn, orcamento, model="injetado",
+               formas_permitidas=None, degradacoes=None, atividades=None):
+    """Compat: N3 agora é por atividade viva. Exige `atividades`."""
+    if not atividades:
+        return []
+    return hipotetizar_n3(reg, complete_fn, orcamento, atividades,
+                          model=model, formas_permitidas=formas_permitidas,
+                          degradacoes=degradacoes)
 
 
 N3_CONFIANCA_MIN_PARA_N4 = 0.2  # N3 degenerado (confiança ~0) não sobe a N4
@@ -2104,44 +2228,45 @@ N3_CONFIANCA_MIN_PARA_N4 = 0.2  # N3 degenerado (confiança ~0) não sobe a N4
 
 def hipotetizar_n4(reg, complete_fn, orcamento, model="injetado",
                    degradacoes=None):
-    """≤1 call por padrão (forma) com N3s; status nasce 'proposta'.
+    """≤1 call por N3: hipótese do PORQUÊ ESTRATÉGICO daquele objetivo.
 
-    Só N3 com confiança ≥ N3_CONFIANCA_MIN_PARA_N4 entra na base — filtro
-    declarado (não é leitura de cognição: usa a incerteza que o próprio N3
-    declara). NEW-3: mesma checagem mecânica de atribuição dos N3."""
+    Falsificável. Sem crítica, sem estilo/pedagogia no registro. Status
+    nasce 'proposta'. Só N3 com confiança ≥ N3_CONFIANCA_MIN_PARA_N4 entra.
+    """
     out = []
-    por_forma = defaultdict(list)
-    for n3 in reg.nivel(3):
+    for n3 in sorted(reg.nivel(3), key=lambda r: r["id"]):
         if n3["confianca"] < N3_CONFIANCA_MIN_PARA_N4:
             continue
-        for bid in n3["base"]:
-            por_forma[reg.by_id[bid]["forma"]].append(n3)
-    for forma, n3s in sorted(por_forma.items()):
         if not orcamento.permitir("n4"):
             break
-        n_acoes = sum(n3.get("executores_da_base", {}).get("acoes", 0)
-                      for n3 in n3s)
-        n_agente = sum(n3.get("executores_da_base", {})
-                       .get("executadas_por_agente", 0) for n3 in n3s)
+        n_acoes = n3.get("executores_da_base", {}).get("acoes", 0)
+        n_agente = n3.get("executores_da_base", {}).get(
+            "executadas_por_agente", 0)
         prompt = (
-            "Você formula hipóteses de mentoria CONFIRMÁVEIS pelo "
-            "mentorado — a correção dele sempre vence. As inferências "
-            "abaixo são todo o insumo disponível; não peça mais contexto. "
-            f"Padrão observado: '{forma}'. Inferências:\n"
-            + "\n".join(f"- {n3['claim']} (confiança {n3['confianca']})"
-                        for n3 in n3s[:5])
+            "Você formula o PORQUÊ ESTRATÉGICO do objetivo imediato abaixo "
+            "— a hipótese falsificável do WHY, não do como. "
+            "NÃO critique. NÃO diagnostique estilo ou pedagogia. "
+            "NÃO escreva 'você é incremental-reativo' nem equivalentes. "
+            "A correção do mentorado sempre vence. As inferências abaixo "
+            "são todo o insumo; não peça mais contexto.\n"
+            f"Objetivo imediato (N3): {n3['claim']} "
+            f"(confiança {n3['confianca']})\n"
+            f"Falsificação N3: {n3.get('falsificacao') or '—'}\n"
             + _bloco_atribuicao(n_acoes, n_agente)
-            + "\nResponda SÓ JSON: {\"hipotese\": \"frase interrogativa "
-              "dirigida ao mentorado sobre COMO ELE TRABALHA, terminando "
-              "em ?\", \"falsificacao\": "
+            + "\nResponda SÓ JSON: {\"hipotese\": \"porquê estratégico "
+              "falsificável do objetivo imediato (não uma pergunta de "
+              "estilo)\", \"falsificacao\": "
               "\"que observação a derrubaria\"}")
         j = None
-        for tentativa in range(2):  # NEW-3: 1 regeneração; senão descarta
+        for tentativa in range(2):
             try:
-                resp = complete_fn(prompt if tentativa == 0 else (
-                    prompt + "\nSUA RESPOSTA ANTERIOR VIOLOU a regra de "
-                    "ATRIBUIÇÃO OBRIGATÓRIA acima. Reescreva respeitando-a "
-                    "à letra."))
+                extra = ""
+                if tentativa:
+                    extra = (
+                        "\nSUA RESPOSTA ANTERIOR VIOLOU: atribuição "
+                        "obrigatória OU crítica/estilo/pedagogia no "
+                        "registro. Reescreva o PORQUÊ ESTRATÉGICO sem crítica.")
+                resp = complete_fn(prompt + extra)
             except Exception:
                 j = None
                 break
@@ -2149,25 +2274,29 @@ def hipotetizar_n4(reg, complete_fn, orcamento, model="injetado",
             if not j or not j.get("hipotese") or not j.get("falsificacao"):
                 j = None
                 break
-            if not _atribuicao_invalida(str(j["hipotese"]), n_acoes,
-                                        n_agente):
-                break
-            if tentativa == 1 or not orcamento.permitir("n4-retry"):
-                if degradacoes is not None:
-                    degradacoes.append(
-                        f"N4 de '{forma}' descartado: texto incoerente com "
-                        "a base (atribuição indevida ou ação sem ação na "
-                        "base — NEW-3/NEWER-4), mesmo após regeneração")
-                j = None
+            if _atribuicao_invalida(str(j["hipotese"]), n_acoes, n_agente) \
+                    or _n4_tem_critica(str(j["hipotese"])):
+                if tentativa == 1 or not orcamento.permitir("n4-retry"):
+                    if degradacoes is not None:
+                        degradacoes.append(
+                            f"N4 de {n3['id']} descartado: texto incoerente "
+                            "com a base (atribuição indevida ou crítica/"
+                            "estilo/pedagogia no registro), mesmo após "
+                            "regeneração")
+                    j = None
+                continue
+            break
         if not j:
             continue
-        rec = {"id": _rid("n4", forma, *sorted(n3["id"] for n3 in n3s)),
+        rec = {"id": _rid("n4", n3["id"]),
                "nivel": 4,
+               "kind": "porque-estrategico",
+               "atividade_id": n3.get("atividade_id"),
                "hipotese": redigir(str(j["hipotese"]), entropia=True)[:400],
                "executores_da_base": {"acoes": n_acoes,
                                       "executadas_por_agente": n_agente},
                "falsificacao": redigir(str(j["falsificacao"]))[:300],
-               "base": sorted({n3["id"] for n3 in n3s}), "status": "proposta",
+               "base": [n3["id"]], "status": "proposta",
                "model": model,
                "criado_em": datetime.now(tz=timezone.utc).isoformat()}
         out.append(reg.add(rec))
@@ -3520,10 +3649,11 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
             degradacoes.append(
                 "formas sem selo `confiavel` no estágio 0 — N3/N4 NÃO "
                 f"gerados para: {', '.join(reprovadas)}")
+    _atribuir_n2_as_atividades(reg, atividades)
     if complete_fn is not None and formas_confiaveis:
-        inferir_n3(reg, complete_fn, orc, model=model,
-                   formas_permitidas=formas_confiaveis,
-                   degradacoes=degradacoes)
+        hipotetizar_n3(reg, complete_fn, orc, atividades, model=model,
+                       formas_permitidas=formas_confiaveis,
+                       degradacoes=degradacoes)
         hipotetizar_n4(reg, complete_fn, orc, model=model,
                        degradacoes=degradacoes)
         if orc.negadas:
@@ -4078,7 +4208,12 @@ def render_report(reg, projecao, eval_estagio0=None, recall=None):
     # GATE de render (finding R1 #2): N3/N4 cuja base toca forma sem selo
     # `confiavel` NÃO entram no relatório principal — declarados na contagem
     def _formas_de_n3(n3):
-        return {reg.by_id[b]["forma"] for b in n3["base"] if b in reg.by_id}
+        formas = set()
+        for b in n3["base"]:
+            alvo = reg.by_id.get(b)
+            if alvo and alvo.get("nivel") == 2 and alvo.get("forma"):
+                formas.add(alvo["forma"])
+        return formas
 
     def _n3_confiavel(n3):
         return all(veredicto(f) == "confiavel" for f in _formas_de_n3(n3))
@@ -4092,7 +4227,7 @@ def render_report(reg, projecao, eval_estagio0=None, recall=None):
 
     # N3
     if n3s_gate or n3s_fora:
-        H.append("<h2>Inferências (N3) — com incerteza declarada</h2>")
+        H.append("<h2>Objetivo imediato (N3) — hipótese por atividade viva</h2>")
         if n3s_fora:
             H.append(f"<p class='exp'>{n3s_fora} inferência(s) fora do "
                      "relatório principal: base em forma sem selo do "
@@ -4101,14 +4236,16 @@ def render_report(reg, projecao, eval_estagio0=None, recall=None):
         H.append("<ul>")
         for n3 in sorted(n3s_gate, key=lambda r: -r["confianca"]):
             alts = "; ".join(n3["alternativas"])
+            fals = n3.get("falsificacao") or "—"
             H.append(f"<li>{_esc(n3['claim'])} <i>(confiança "
                      f"{n3['confianca']:.2f}; alternativas inocentes: "
-                     f"{_esc(alts)}; base {_esc(', '.join(n3['base']))})</i></li>")
+                     f"{_esc(alts)}; falsificação: {_esc(fals)}; "
+                     f"base {_esc(', '.join(n3['base']))})</i></li>")
         H.append("</ul>")
 
     # N4 — SÓ perguntas quando proposta; gate idem
-    H.append("<h2>Perguntas ao operador (hipóteses N4 — a sua correção "
-             "vence)</h2>")
+    H.append("<h2>Porquê estratégico (N4) — hipótese falsificável, "
+             "sem crítica no registro; a sua correção vence</h2>")
     if n4s_fora:
         H.append(f"<p class='exp'>{n4s_fora} hipótese(s) fora do relatório "
                  "principal: base em forma sem selo do estágio 0.</p>")
@@ -4191,6 +4328,137 @@ def _linha_n2(reg, n2):
 # CLI
 # ---------------------------------------------------------------------------
 
+
+# ---------------------------------------------------------------------------
+# Sweep → direction.proposed  (unidade = atividade viva, corpo = par N3+N4)
+# ---------------------------------------------------------------------------
+
+def corpo_par_n3_n4(n3, n4):
+    """Corpo do direction.proposed: par N3 (objetivo) + N4 (porquê)."""
+    return (
+        f"Objetivo imediato (N3): {n3.get('claim') or n3.get('objetivo') or ''}\n"
+        f"Falsificação N3: {n3.get('falsificacao') or ''}\n"
+        f"Porquê estratégico (N4): {n4.get('hipotese') or ''}\n"
+        f"Falsificação N4: {n4.get('falsificacao') or ''}"
+    )
+
+
+def pares_abertos(reg, projecao):
+    """Uma tríade (atividade, n3, n4) por atividade aberta que tenha o par."""
+    n3_por_atv = defaultdict(list)
+    for n3 in reg.nivel(3):
+        aid = n3.get("atividade_id")
+        if aid:
+            n3_por_atv[aid].append(n3)
+    n4_por_n3 = defaultdict(list)
+    for n4 in reg.nivel(4):
+        for bid in n4.get("base") or []:
+            n4_por_n3[bid].append(n4)
+    pares = []
+    for atv in projecao.get("atividades") or []:
+        if atv.get("estado") not in ("aberta", "reaberta"):
+            continue
+        n3s = n3_por_atv.get(atv.get("ulid")) or []
+        if not n3s:
+            continue
+        n3 = max(n3s, key=lambda r: r.get("confianca", 0))
+        n4s = n4_por_n3.get(n3["id"]) or []
+        if not n4s:
+            continue
+        pares.append((atv, n3, n4s[0]))
+    return pares
+
+
+def _direction_status(log):
+    import eventlog
+    status = {}
+    for e in eventlog.read(types=eventlog.DIRECTION_TYPES, log=log):
+        payload = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        iid = payload.get("id")
+        if not isinstance(iid, str):
+            continue
+        typ = e.get("type")
+        if typ == "direction.proposed":
+            if status.get(iid, ("", ""))[0] != "set":
+                status[iid] = ("proposed", payload.get("body", ""))
+        elif typ == "direction.set":
+            sup = payload.get("supersedes")
+            if isinstance(sup, str) and sup != iid:
+                status[sup] = ("set", "")
+            status[iid] = ("set", payload.get("body", payload.get("plan", "")))
+        elif typ == "direction.dropped":
+            status[iid] = ("dropped", payload.get("reason", ""))
+    return status
+
+
+def propose_live_activity_directions(reg, projecao, log):
+    """Sweep: um direction.proposed por atividade aberta, corpo = par N3+N4.
+
+    Nunca promove a direction.set. Nunca reabre set/dropped. Idempotente
+    se o corpo não mudou. Sem par N3+N4, não inventa objetivo.
+    """
+    import eventlog
+    status = _direction_status(log)
+    written = 0
+    for atv, n3, n4 in pares_abertos(reg, projecao):
+        iid = f"atividade:{atv['ulid']}"
+        body = corpo_par_n3_n4(n3, n4)
+        if not (body and body.strip()):
+            continue
+        state, prev = status.get(iid, ("", ""))
+        if state in {"set", "dropped"}:
+            continue
+        if state == "proposed" and prev == body:
+            continue
+        title = (atv.get("nome") or "Atividade viva")[:80]
+        relates = [{"kind": "atividade", "id": atv["ulid"],
+                    "n3": n3["id"], "n4": n4["id"]}]
+        eventlog.propose(iid, body, kind="thread", title=title,
+                         relates_to=relates, log=log)
+        status[iid] = ("proposed", body)
+        written += 1
+    return written
+
+
+def carregar_estado(state_dir):
+    """Público: carrega registry + projeção persistidos (para o sweep)."""
+    return _carregar_estado(state_dir)
+
+
+def _espelhar_n4_no_eventlog(reg, projecao, n4, veredito, log):
+    """Confirmação que vira Direction passa pelo eventlog, não só o sidecar."""
+    import eventlog
+    aid = n4.get("atividade_id")
+    if not aid:
+        return
+    iid = f"atividade:{aid}"
+    n3 = None
+    for bid in n4.get("base") or []:
+        rec = reg.by_id.get(bid)
+        if rec and rec.get("nivel") == 3:
+            n3 = rec
+            break
+    atv = next((a for a in (projecao.get("atividades") or [])
+                if a.get("ulid") == aid), None)
+    title = ((atv or {}).get("nome") or "Atividade viva")[:80]
+    if veredito == "confirmo" and n3 is not None:
+        body = corpo_par_n3_n4(n3, n4)
+        if body.strip():
+            eventlog.set_direction(iid, body, kind="thread", title=title,
+                                   log=log)
+    elif veredito == "contesto":
+        eventlog.drop(iid, reason="n4 contestada pelo mentorado", log=log)
+
+
+def consolidar_n3_como_objetivo(n3, log, rationale=None):
+    """N3 confirmado → objective.set (objetivo do trabalho). Mentor, não sweep."""
+    import eventlog
+    body = (n3.get("claim") or n3.get("objetivo") or "").strip()
+    if not body:
+        return None
+    return eventlog.set_objective(body, rationale=rationale, log=log)
+
+
 def _complete_cmd_fn(cmd):
     def f(prompt):
         r = subprocess.run(cmd, shell=True, input=prompt,
@@ -4267,14 +4535,16 @@ def _cmd_eval(args):
         print(json.dumps(ev["por_forma"], ensure_ascii=False, indent=1))
 
 
-def responder_n4(state_dir, n4_id, veredito, nota=None, agora=None):
+def responder_n4(state_dir, n4_id, veredito, nota=None, agora=None, log=None):
     """R4 item 1: resposta do operador a uma hipótese N4 — their correction
     always wins. `veredito`: 'confirmo'|'contesto'. Transição
     proposta→confirmada|contestada; bi-temporal: contestada ganha
     `invalid_at`, NUNCA deleção. Idempotência: já respondida → erro (a
     resposta do operador não é sobrescrevível por ninguém). O desfecho vira
-    linha de `respostas.jsonl` (corpus rotulado pelo operador que alimenta
-    estágio-0 futuro)."""
+    linha de `respostas.jsonl` (corpus rotulado) E, se `log` for passado,
+    também eventlog.set_direction (confirmo) ou eventlog.drop (contesto) —
+    confirmação que vira Direction NÃO vive só no sidecar.
+    """
     if veredito not in ("confirmo", "contesto"):
         raise ValueError(f"veredito inválido: {veredito!r} "
                          "(use confirmo|contesto)")
@@ -4309,6 +4579,8 @@ def responder_n4(state_dir, n4_id, veredito, nota=None, agora=None):
           else projecao.get("eval_estagio0"))
     (state / "report.html").write_text(render_report(reg, projecao, ev),
                                        encoding="utf-8")
+    if log is not None:
+        _espelhar_n4_no_eventlog(reg, projecao, n4, veredito, log)
     return n4
 
 
