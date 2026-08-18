@@ -151,7 +151,6 @@ def check_genus(artefato: dict, attest=None) -> list[str]:
     violations += _check_visual_coverage(artefato.get("content", {}))
     violations += _check_evidence_anchors(artefato.get("content", {}))
     violations += _check_rich_rite(artefato)
-    violations += yaml_rite.check_yaml_rite(artefato, skill=artefato.get("skill"))
     r0_violations = _check_storytelling_floor(artefato.get("content", {}))  # R0 (S2): explain, don't label
     r0_violations += _check_structured_visual_values(artefato.get("content", {}))  # R0-for-values (S7): no
     #   number hides ONLY in a structured visual — same family as R0, so it likewise suppresses the floor.

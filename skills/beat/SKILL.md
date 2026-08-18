@@ -116,17 +116,6 @@ recently is the gradient the proposta follows; the beat's own picks are explorat
 
 ## Ato 2 — the branches: um agente por artefato, rounds próprios
 
-**Ato-2 report draft is YAML movements, not free markdown.** When the
-PROPOSTA `forma` is report, the branch writes a YAML document (`intent`,
-`cites`, `lineage`, `blocks`). First block type is lineage. Must include a
-substantive comparison or derivation (both sides), and a gap-marker /
-gap-table with nonblank text. Cites are `{ref, snippet}`. No free markdown.
-No required H2 names. Do not pin `forma: report` here — the Pauta still
-chooses the forma. The blind probe and final review read the rendered HTML
-the mentee sees (`yaml_rite.page_bytes`), not the YAML source. yaml-rite
-still checks the YAML. Import `rito` from `PYTHONPATH`. Do **not**
-`sys.path.insert(0, 'tools')` from the phenotype cwd.
-
 For each artefato in the proposal, dispatch **one artefato-agent** (parallel subagent calls in
 the SAME turn — blocking; the lei do turno above rules here too):
 

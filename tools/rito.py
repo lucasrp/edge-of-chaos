@@ -99,54 +99,9 @@ FORBIDDEN = {
 
 DEFAULT_PUBLISH = object()  # sentinel: use publisher.publish_rito (imported lazily)
 
-# Injected into the first authorial draft prompt so the producer cannot "forget"
-# the YAML contract even if the skill body is paraphrased away.
-YAML_DRAFT_CONTRACT = (
-    "## YAML authoring contract (runtime-injected)\n"
-    "The draft body is a YAML document with root fields `intent`, `cites`, "
-    "`lineage`, `blocks`. First block type is lineage. Must include a "
-    "substantive comparison OR derivation (BOTH sides of a comparison carry "
-    "payload), and a gap-marker / gap-table whose text is nonblank. "
-    "`cites` items are {ref, snippet} — both required; a bare ref is chrome. "
-    "No free markdown. No required H2 names. No word target.\n"
-    "The mentee never sees YAML. The reader probe and final reviewer "
-    "read the RENDERED HTML (`yaml_rite.page_bytes` / `render.spec_to_html`) "
-    "— the same page the publisher emits. Write payloads that teach; do not "
-    "gloss YAML keys for the probe. yaml-rite still checks this YAML source. "
-    "`intent` is one prose string (not a mapping). Block types use hyphens.\n"
-)
-
-YAML_KEEP_CONTRACT = (
-    "Keep the body a YAML document (`intent` as a prose string, `cites` as "
-    "[{ref, snippet}], `lineage`, `blocks` with hyphenated types). Do not "
-    "convert to free markdown. Do not turn intent into a mapping. The probe "
-    "and final review read the rendered HTML the mentee sees, not these keys.\n"
-)
-
 
 class StageFailure(RuntimeError):
     pass
-
-
-def _resolved_skill(skill) -> str:
-    return skill or "report"
-
-
-def _skill_owes_yaml(skill) -> bool:
-    return _resolved_skill(skill) in yaml_rite.REPORT_FORM_SKILLS
-
-
-def _require_yaml_draft(text, skill, run, manifest, *, failed_stage: str) -> None:
-    """Fail-closed: a report-form draft that is not YAML does not continue to close."""
-    if not _skill_owes_yaml(skill):
-        return
-    if yaml_rite.parse_authorial_draft(text) is not None:
-        return
-    exc = StageFailure("draft is not YAML")
-    manifest.update({"status": "failed", "failed_stage": failed_stage,
-                     "finished_at": now()})
-    run.save(manifest)
-    raise exc
 
 
 # --- sealing primitives (run.py pattern) ---------------------------------------------------
@@ -438,11 +393,8 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
 
         # 2 — first authorial draft, then the deterministic treatment scan (fail the run,
         # never silently clean: the FIRST draft must be treatment-blind by construction)
-        draft_prompt = prompts["first_authorial_draft"](outputs)
-        if _skill_owes_yaml(skill):
-            draft_prompt = f"{draft_prompt.rstrip()}\n\n{YAML_DRAFT_CONTRACT}"
         draft = _llm_stage(run, manifest, "first_authorial_draft",
-                           draft_prompt, complete_fn, outputs)
+                           prompts["first_authorial_draft"](outputs), complete_fn, outputs)
         first_leaks = treatment_leaks(draft)
         stage = _stage_record(manifest, "first_authorial_draft")
         stage["treatment_scan"] = {"checked_at": now(), "passed": not first_leaks,
@@ -456,18 +408,11 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             run.save(manifest)
             raise exc
         draft_sealed_sha = _stage_record(manifest, "first_authorial_draft")["output"]["sha256"]
-        _require_yaml_draft(draft, skill, run, manifest,
-                            failed_stage="first_authorial_draft")
 
         # 3–7 — critique, targeted grounding, rewrite, audit, correction
         for name in ("gap_critique", "grounding2_targeted", "provisional_rewrite",
                      "fact_audit", "author_correction"):
-            prompt = prompts[name](outputs)
-            if _skill_owes_yaml(skill) and name in {
-                "provisional_rewrite", "author_correction",
-            }:
-                prompt = f"{prompt.rstrip()}\n\n{YAML_KEEP_CONTRACT}"
-            _llm_stage(run, manifest, name, prompt, complete_fn, outputs)
+            _llm_stage(run, manifest, name, prompts[name](outputs), complete_fn, outputs)
 
         # 8 — treatment cleanup: deterministic byte-copy when the scan is clean, else the
         # SAME AUTHOR route rewrites (run.py's conditional stage, promoted as-is)
@@ -478,11 +423,8 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             blind_safe = _completed_output(run, manifest, "treatment_cleanup")
         elif cleanup_leaks:
             outputs["treatment_leaks"] = json.dumps(cleanup_leaks, ensure_ascii=False)
-            cleanup_prompt = prompts["treatment_cleanup"](outputs)
-            if _skill_owes_yaml(skill):
-                cleanup_prompt = f"{cleanup_prompt.rstrip()}\n\n{YAML_KEEP_CONTRACT}"
             blind_safe = _llm_stage(run, manifest, "treatment_cleanup",
-                                    cleanup_prompt, complete_fn, outputs)
+                                    prompts["treatment_cleanup"](outputs), complete_fn, outputs)
             _stage_record(manifest, "treatment_cleanup")["execution"] = {"mode": "same_author"}
         else:
             _begin(run, manifest, "treatment_cleanup")
@@ -505,27 +447,8 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             run.save(manifest)
             raise exc
 
-        # yaml-rite gate: a developed report-form synthesis owes typed YAML blocks.
-        # Maps/plans/terse drafts owe nothing. Always pass the run's skill (default report).
-        _require_yaml_draft(blind_safe, skill, run, manifest,
-                            failed_stage="treatment_cleanup")
-        meta = publish_meta or {}
-        yaml_art = yaml_rite.artefato_from_draft(
-            blind_safe, intent=intent, skill=_resolved_skill(skill),
-            cites=meta.get("cites"), lineage=meta.get("lineage"))
-        yaml_violations = yaml_rite.check_yaml_rite(
-            yaml_art, skill=_resolved_skill(skill))
-        cleanup_stage["yaml_rite"] = {"checked_at": now(), "passed": not yaml_violations,
-                                      "violations": yaml_violations}
-        run.save(manifest)
-        if yaml_violations:
-            exc = StageFailure(f"yaml-rite rejected the draft: {yaml_violations}")
-            manifest.update({"status": "failed", "failed_stage": "yaml_rite",
-                             "finished_at": now()})
-            run.save(manifest)
-            raise exc
-
-        # #585: probe/review consume the mentee page, not the YAML source.
+        # #585 / #647: probe/review consume the mentee page, not raw YAML keys.
+        # Markdown drafts stay the pinned renderer; leftover YAML still renders to HTML.
         reader_facing = yaml_rite.reader_facing_text(blind_safe)
         outputs["reader_facing"] = reader_facing
 
