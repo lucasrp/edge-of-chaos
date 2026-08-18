@@ -1128,34 +1128,68 @@ def _topic_direction_window_days():
     return val
 
 
-def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, grok_dir=None,
-                                    log=eventlog.LOG):
-    """Recent Voz -> topic threads -> Direction.proposed.
-
-    This is the automatic non-curated tier the wake can safely run before assemble reads Direction.
-    It never promotes to `set`, and it never reopens a dropped/set steer.
-    """
-    if os.environ.get("EDGE_TOPIC_DIRECTION", "1").lower() in {"0", "false", "no", "off"}:
-        return 0
+def _atividades_state_dir(explicit=None):
+    """Persisted 4-level register (N1–N4). Never invents a state path."""
+    if explicit:
+        return Path(explicit)
+    env = os.environ.get("EDGE_ATIVIDADES_STATE")
+    if env:
+        return Path(env)
     try:
-        import topic_threads
-        kwargs = dict(
-            window_days=_topic_direction_window_days(),
-            project_dir=project_dir,
-            codex_dir=codex_dir,
-            grok_dir=grok_dir,
-            all_stores=(project_dir is None),
-            log=log,
-        )
-        out = topic_threads.sync_recent_topic_memory(**kwargs)
-        if out.get("total"):
-            print(f"sweep: session topics indexed {out.get('topics', 0)}; "
-                  f"topic threads proposed {out.get('directions', 0)} Direction item(s)")
-        return out.get("total", 0)
+        cand = _identity.state_root() / "state" / "atividades"
+        if (cand / "atividades.json").is_file():
+            return cand
+    except Exception:
+        return None
+    return None
+
+
+def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, grok_dir=None,
+                                    log=eventlog.LOG, atividades_state=None):
+    """Wake-time Direction.proposed BEFORE assemble.
+
+    Primary engine: live activity N3+N4 pair (one proposed per open activity).
+    TOPIC_SPECS / topic-7d canned steers are NOT the proposed engine — session
+    topics stay as navigation index only. Never promotes to `set`. Never reopens
+    set/dropped. Without a persisted atividades state (or without an N3+N4 pair),
+    degrades declared — no silent invented objectives.
+    """
+    written = 0
+    if os.environ.get("EDGE_TOPIC_DIRECTION", "1").lower() not in {"0", "false", "no", "off"}:
+        try:
+            import topic_threads
+            kwargs = dict(
+                window_days=_topic_direction_window_days(),
+                project_dir=project_dir,
+                codex_dir=codex_dir,
+                grok_dir=grok_dir,
+                all_stores=(project_dir is None),
+                log=log,
+            )
+            # index only — sync_recent_topic_memory no longer emits topic-7d proposed
+            out = topic_threads.sync_recent_topic_memory(**kwargs)
+            if out.get("topics"):
+                print(f"sweep: session topics indexed {out.get('topics', 0)}")
+            written += int(out.get("topics") or 0)
+        except Exception as e:  # noqa: BLE001 — automatic inference must not gate the wake
+            print(f"sweep: session-topic index skipped ({type(e).__name__}: {e}) — "
+                  "wake continues")
+    try:
+        import atividades
+        state = _atividades_state_dir(atividades_state)
+        if state is None or not (Path(state) / "atividades.json").is_file():
+            return written
+        reg, proj = atividades.carregar_estado(state)
+        n = atividades.propose_live_activity_directions(reg, proj, log)
+        if n:
+            print(f"sweep: live-activity Direction proposed {n} item(s) "
+                  "(N3+N4 pair; not topic-7d)")
+        written += n
+        return written
     except Exception as e:  # noqa: BLE001 — automatic inference must not gate the wake
-        print(f"sweep: topic-thread Direction skipped ({type(e).__name__}: {e}) — "
+        print(f"sweep: activity Direction skipped ({type(e).__name__}: {e}) — "
               "wake continues; grill can still curate existing Direction")
-        return 0
+        return written
 
 
 def reproject():
@@ -1229,7 +1263,7 @@ def _acquire_cursors_lock(lk, wait_s=CURSORS_LOCK_WAIT_S, poll_s=CURSORS_LOCK_PO
 
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
         log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None,
-        grok_dir=None, cursors_lock_wait_s=None):
+        grok_dir=None, cursors_lock_wait_s=None, atividades_state=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
@@ -1282,7 +1316,8 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
             cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
-                                                       grok_dir=grok_dir, log=log)
+                                                       grok_dir=grok_dir, log=log,
+                                                       atividades_state=atividades_state)
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
 

@@ -4765,12 +4765,59 @@ def _direction_ids(events):
             if isinstance(p.get("id"), str)}
 
 
+def _live_atividade_keys(log=LOG):
+    """Refs/ulids of eventlog atividades currently aberta/reaberta."""
+    keys = set()
+    try:
+        folded = atividades_at(log=log)
+    except Exception:
+        return keys
+    for ref, item in (folded or {}).items():
+        if not isinstance(item, dict):
+            continue
+        if item.get("estado") not in ("aberta", "reaberta"):
+            continue
+        keys.add(ref)
+        if item.get("ref"):
+            keys.add(item["ref"])
+        if item.get("ulid"):
+            keys.add(item["ulid"])
+            keys.add(f"atividade:{item['ulid']}")
+    return keys
+
+
+def _proposal_activity_refs(cand):
+    refs = set()
+    if not isinstance(cand, dict):
+        return refs
+    for key in ("atividade", "atividade_id", "activity"):
+        val = cand.get(key)
+        if isinstance(val, str) and val.strip():
+            refs.add(val.strip())
+    relates = cand.get("relates_to")
+    if isinstance(relates, list):
+        for ref in relates:
+            if not isinstance(ref, dict):
+                continue
+            if ref.get("kind") in {"atividade", "activity"}:
+                for key in ("id", "ref", "atividade", "atividade_id"):
+                    val = ref.get(key)
+                    if isinstance(val, str) and val.strip():
+                        refs.add(val.strip())
+            for key in ("atividade", "atividade_id", "ref"):
+                val = ref.get(key)
+                if isinstance(val, str) and val.strip():
+                    refs.add(val.strip())
+    return refs
+
+
 def consolidate_artefato_proposals(log=LOG):
-    """Fan each `artefato.published` candidate into the non-curated `proposed` tier (ADR-0007: the
-    sweep populates, the grill curates). Idempotent via the deterministic id `<slug>:<i>` — a
-    candidate already in the log (proposed/set/dropped) is never re-added. Returns the count added."""
+    """Fan `artefato.published` candidates into proposed ONLY when attached to a
+    live activity. Orphan proposes[] do not auto-land. Idempotent via `<slug>:<i>`.
+    """
     evs = read(log=log)
     have = _direction_ids(evs)
+    live = _live_atividade_keys(log)
     n = 0
     for e in evs:
         if e.get("type") != "artefato.published":
@@ -4786,6 +4833,9 @@ def consolidate_artefato_proposals(log=LOG):
                 cand.get("text") if isinstance(cand, dict) else None) or ""
             if not (isinstance(body, str) and body.strip()):
                 continue
+            attached = _proposal_activity_refs(cand if isinstance(cand, dict) else {})
+            if not attached or not (attached & live):
+                continue  # orphan — skip; attach to a live activity or do not land
             # #632: this fan is the volume engine — every published artefato's candidate steers
             # become `proposed` items, which is most of the 788. It is a PROJECTION of an already
             # published payload, not a fresh authoring, so it cannot fail the way an authored write
