@@ -1863,8 +1863,10 @@ class TestRecall(Base):
         tabela = recall_seeded(work.parent, manifesto, host="seed")
         d1 = tabela["resposta-curta-seguida-de-acao"]
         self.assertEqual(d1["in-spec"]["detectadas"], 3)       # harness ok
-        # v2.1: o lexicon FECHA o buraco aceite-7-15 (era 0/3 no v2.0)
-        self.assertEqual(d1["aceite-7-15-chars"]["detectadas"], 3)
+        # R6.2 fix 1: classe agora usa aceites INÉDITOS (fora do lexicon —
+        # o controle não pode conter o gabarito); 0/3 é o número honesto:
+        # o lexicon não generaliza a aceites nunca vistos
+        self.assertEqual(d1["aceite-7-15-chars-ineditos"]["detectadas"], 0)
         self.assertEqual(d1["atraso-121-600s"]["detectadas"], 0)
         d3 = tabela["leituras-repetidas-de-estado-externo"]
         self.assertEqual(d3["in-spec"]["detectadas"], 3)
@@ -1963,7 +1965,8 @@ class TestRecallCirurgico(Base):
         self.assertIn("fora_do_escopo_por_construcao", fl)
         self.assertNotIn(
             "fora_do_escopo_por_construcao",
-            tabela["resposta-curta-seguida-de-acao"]["aceite-7-15-chars"])
+            tabela["resposta-curta-seguida-de-acao"][
+                "aceite-7-15-chars-ineditos"])
 
 
 class TestR61Tuning(Base):
@@ -2072,7 +2075,7 @@ class TestR61Positivas(Base):
         ])
         reg, _ = pipeline(work, "hostX")
         p1 = [r for r in reg.nivel(2)
-              if r["forma"] == "resposta-longa-em-voz-propria-apos-explicacao"]
+              if r["forma"] == "resposta-longa-nao-interrogativa-apos-explicacao"]
         self.assertEqual(len(p1), 1)
         self.assertGreaterEqual(p1[0]["params"]["chars_resposta"], 300)
 
@@ -2086,7 +2089,7 @@ class TestR61Positivas(Base):
         ])
         reg, _ = pipeline(work, "hostX")
         p2 = [r for r in reg.nivel(2)
-              if r["forma"] == "pergunta-de-aprofundamento-apos-explicacao"]
+              if r["forma"] == "pergunta-longa-apos-explicacao"]
         self.assertEqual(len(p2), 1)
 
     def test_retomada_de_entrega_com_vocabulario(self):
@@ -2098,12 +2101,13 @@ class TestR61Positivas(Base):
                     "baseline geometrico venceu no ranking parcial? como o "
                     "subespaco de calibracao muda o resultado?", "a1"),
             e_user(600, "sobre o autoteste: o baseline geometrico venceu "
-                        "porque o subespaco estava mal calibrado", "u2"),
+                        "porque o subespaco estava mal calibrado no treino "
+                        "da rodada anterior", "u2"),
         ])
         reg, _ = pipeline(work, "hostX")
         p3 = [r for r in reg.nivel(2)
               if r["forma"] ==
-              "retomada-de-entrega-com-vocabulario-da-entrega"]
+              "turno-com-tokens-em-comum-com-a-entrega"]
         self.assertEqual(len(p3), 1)
         self.assertGreaterEqual(p3[0]["params"]["tokens_compartilhados"], 3)
 
@@ -2114,10 +2118,122 @@ class TestR61Positivas(Base):
             e_assistant_text(10, "ok", "a1"),
         ])
         reg, proj = pipeline(work, "hostX")
-        for f in ("resposta-longa-em-voz-propria-apos-explicacao",
-                  "pergunta-de-aprofundamento-apos-explicacao",
-                  "retomada-de-entrega-com-vocabulario-da-entrega"):
+        for f in ("resposta-longa-nao-interrogativa-apos-explicacao",
+                  "pergunta-longa-apos-explicacao",
+                  "turno-com-tokens-em-comum-com-a-entrega"):
             self.assertIn(f, proj["formas_sem_instancias"])
+
+
+class TestR62(Base):
+    """R6.2 — um teste por MUST."""
+
+    def test_f1_controle_semeado_sem_gabarito(self):
+        from tools.atividades import _linhas_semente, D1_ACEITE_LEX
+        _linhas, manifesto = _linhas_semente(9, 3000000000.0)
+        self.assertIn("aceite-7-15-chars-ineditos",
+                      manifesto["resposta-curta-seguida-de-acao"])
+        # invariante: nenhuma string semeada de aceite está no lexicon
+        for txt in ("combinado", "ta valendo", "de acordo"):
+            self.assertNotIn(txt, D1_ACEITE_LEX)
+
+    def test_f2_recibo_versionado_nunca_sobrescrito(self):
+        from tools.atividades import gravar_recibo
+        state = self.tmp / "st"
+        state.mkdir()
+        p1 = gravar_recibo(state, "pre-registro", {"x": 1})
+        p2 = gravar_recibo(state, "pre-registro", {"x": 2})
+        self.assertNotEqual(p1, p2)
+        self.assertTrue(p1.exists() and p2.exists())
+        self.assertEqual(json.loads(p1.read_text())["x"], 1)  # imutável
+        self.assertEqual(json.loads(
+            (state / "pre-registro.json").read_text())["x"], 2)  # ponteiro
+
+    def _entrega(self, work, turno, t_turno=600):
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "fecha a entrega do experimento de ranking", "u1"),
+            e_assistant_text(
+                30, "Entrega pronta. Duas perguntas de autoteste: qual "
+                    "baseline geometrico venceu no ranking parcial? como o "
+                    "subespaco de calibracao muda o resultado?", "a1"),
+            e_user(t_turno, turno, "u2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        return [r for r in reg.nivel(2)
+                if r["forma"] == "turno-com-tokens-em-comum-com-a-entrega"]
+
+    def test_f4_probes_do_adversarial_nao_disparam(self):
+        probes = [
+            # reclamação citando a entrega
+            "cara, ficou muito ruim essa entrega do baseline geometrico "
+            "do ranking, refaz tudo",
+            # papagaio de jargão (zero tokens próprios)
+            "baseline geometrico subespaco calibracao ranking",
+            # descarte em português genérico
+            "pode apagar isso tudo depois, nao presta",
+            # o probe literal
+            "apaga o corpus... lixo.",
+        ]
+        for k, probe in enumerate(probes):
+            work = self.tmp / f"p{k}"
+            self.assertEqual(self._entrega(work, probe), [], probe)
+
+    def test_f4_retomada_genuina_ainda_dispara(self):
+        work = self.tmp / "gen"
+        p3 = self._entrega(
+            work, "sobre o autoteste: o baseline geometrico venceu porque "
+                  "o subespaco estava mal calibrado no treino da rodada "
+                  "anterior")
+        self.assertEqual(len(p3), 1)
+        self.assertGreaterEqual(p3[0]["params"]["razao_overlap"], 0.5)
+        self.assertGreaterEqual(p3[0]["params"]["tokens_proprios"], 2)
+
+    def test_f5_taxas_de_conversao_na_projecao(self):
+        work = self.tmp / "tx"
+        self._entrega(work, "ok")  # gera corpus qualquer
+        _, proj = pipeline(work, "hostX")
+        tx = proj["taxas_de_conversao"]["por_forma"]
+        self.assertIn("turno-com-tokens-em-comum-com-a-entrega", tx)
+        v = tx["turno-com-tokens-em-comum-com-a-entrega"]
+        self.assertEqual(v["oportunidades_do_gate"], 1)
+        self.assertEqual(v["disparos"], 0)
+
+    def test_f6_sessao_em_curso_declarada(self):
+        work = self.tmp / "sc"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "sessão viva sendo analisada agora", "u1"),
+            e_assistant_text(10, "ok", "a1"),
+        ])
+        reg, proj = pipeline(work, "hostX", sessao_em_curso=SID)
+        sc = proj["cobertura"]["sessao_em_curso"]
+        self.assertEqual(sc["session_id"], SID)
+        self.assertIn("PARCIAIS", sc["nota"])
+        html = render_report(reg, proj)
+        self.assertIn("valores PARCIAIS", html)
+
+    def test_f7_dispare_por_verbo_nao_por_argumento(self):
+        from tools.atividades import (_gatilho_aceite, D1_ACEITE_LEX,
+                                      THRESHOLDS)
+        p = THRESHOLDS["resposta-curta-seguida-de-acao"]
+        self.assertNotIn("dispara o 1", D1_ACEITE_LEX)
+        self.assertEqual(_gatilho_aceite("dispare o 1", p), "imperativo")
+        self.assertEqual(_gatilho_aceite("dispara o 7", p), "imperativo")
+
+    def test_f8_recusa_nunca_e_aceite(self):
+        work = self.tmp / "rec"
+        escrever(work / "proj" / f"{SID}.jsonl", [
+            e_user(0, "prepara a limpeza do diretório", "u1"),
+            e_assistant_text(30, "Proposta:\n" + "z" * 900, "a1"),
+            e_user(100, "nao", "u2"),
+            e_tool(110, "Write", {"file_path": "/x", "content": "y"},
+                   "t1", "a2"),
+        ])
+        reg, _ = pipeline(work, "hostX")
+        d1 = [r for r in reg.nivel(2)
+              if r["forma"] == "resposta-curta-seguida-de-acao"]
+        # "prepara…" (imperativo) pode disparar; "nao" NUNCA
+        for r in d1:
+            voz = reg.by_id[r["instancias"][0]]
+            self.assertNotEqual(voz["conteudo_redigido"]["texto"], "nao")
 
 
 class TestCwdModal(Base):

@@ -69,11 +69,22 @@ DETECTOR_VERSION_ANTERIOR = "n2-v2.0"
 # corpora (recall D1: p̂=1.0 no pool ≤20 chars — "blz manda", "pode mandar",
 # "perfeito" eram perdas do teto de 6 chars). Versionado com o detector.
 D1_ACEITE_LEX = frozenset((
+    # R6.2 fix 7: sem encaixe de argumento literal ("dispara o 1" saiu — o
+    # verbo real dispara/dispare entrou no _IMPERATIVO_V1)
     "ok", "sim", "vai", "blz", "bora", "dale", "isso", "show", "fechou",
     "perfeito", "pode", "manda", "faz", "roda", "dispara", "ok pode",
     "pode mandar", "blz manda", "manda ver", "manda bala", "pode ir",
     "vai la", "vai lá", "isso mesmo", "faz isso", "roda ai", "roda aí",
-    "dispara o 1", "pode rodar", "pode fazer", "segue", "toca"))
+    "pode rodar", "pode fazer", "segue", "toca"))
+# R6.2 fix 8: recusas/paradas NUNCA são aceite — "nao"→ação em 12s era FP
+# apontado pelo rotulador (item 42); classe de FP conhecida documentada:
+# "manda o link"/"manda mal" ainda disparam via imperativo-verbo-inicial
+# (diretiva genérica ≤30 chars) — racional: "manda X" É um comando de ação;
+# o FP residual ("manda mal" = crítica) fica DOCUMENTADO nos Limites e
+# aguarda ratificação (apertar exigiria ler semântica).
+_RECUSA_LEX = frozenset((
+    "nao", "não", "para", "pare", "espera", "peraí", "perai", "calma",
+    "cancela", "aborta", "deixa", "ainda nao", "ainda não"))
 CLUSTER_VERSION = "cluster-v2.0"
 MIN_ATIVOS_CAP_S = 300.0
 MIN_ATIVOS_SENSIBILIDADE_S = (120.0, 600.0)
@@ -166,14 +177,18 @@ THRESHOLDS = {
     "rajada-de-turnos-curtos": {"min_turnos": 3, "max_chars": 20, "janela_s": 600},
     # ----- Front B: catálogo POSITIVO (nomes descritivos; a re-elaboração
     # e o engajamento que o mentor QUER ver) -----
-    "resposta-longa-em-voz-propria-apos-explicacao": {
+    "resposta-longa-nao-interrogativa-apos-explicacao": {
         "min_chars_explicacao": 800, "min_chars_resposta": 300,
         "janela_s": 1800},
-    "pergunta-de-aprofundamento-apos-explicacao": {
+    "pergunta-longa-apos-explicacao": {
         "min_chars_explicacao": 800, "min_chars_pergunta": 40,
         "janela_s": 1800},
-    "retomada-de-entrega-com-vocabulario-da-entrega": {
-        "min_perguntas_entrega": 2, "min_tokens_compartilhados": 3,
+    # R6.2 fix 4 (endurecido): além de ≥3 tokens em comum, exige RAZÃO
+    # (comuns/conteúdo do turno) ≥0.4 — reclamação que cita a entrega fica
+    # abaixo — e ≥2 tokens PRÓPRIOS (papagaio de jargão tem 0)
+    "turno-com-tokens-em-comum-com-a-entrega": {
+        "min_perguntas_entrega": 2, "min_tokens_compartilhados": 4,
+        "razao_min": 0.5, "min_tokens_proprios": 2,
         "min_len_token": 4, "janela_s": 3600},
 }
 
@@ -213,9 +228,12 @@ _RE_SEGREDOS = [
                r"|(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}"
                r"|npm_[A-Za-z0-9]{36}"
                r"|eyJ[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,})"),
-    # blocos PEM (BEGIN…END na mesma linha lógica; em jsonl o \n vem escapado)
+    # blocos PEM (BEGIN…END na mesma linha lógica; em jsonl o \n vem
+    # escapado). R6.2: classe única no corpo — a alternância (?:.|\\n)*?
+    # era exponencial em linhas que CITAM o padrão sem END (o transcript
+    # deste próprio loop derrubou a redação por minutos)
     re.compile(r"-----BEGIN [A-Z ]{0,24}PRIVATE KEY-----"
-               r"(?:.|\\n)*?-----END [A-Z ]{0,24}PRIVATE KEY-----", re.S),
+               r"[\s\S]{0,10000}?-----END [A-Z ]{0,24}PRIVATE KEY-----"),
     re.compile(r"-----BEGIN [A-Z ]{0,24}PRIVATE KEY-----\S{0,4096}"),
     # valores de env com nome sensível (KEY/TOKEN/SECRET/PASS/CRED)
     re.compile(r"\b[A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASS|CRED)[A-Z0-9_]*"
@@ -314,6 +332,23 @@ def achados_de_segredo(texto):
 
 class EscritaProibida(Exception):
     pass
+
+
+def gravar_recibo(state, nome_base, dados):
+    """R6.2 fix 2: recibos de pré-registro VERSIONADOS — grava o imutável
+    `<nome_base>-<ts>.json` E o ponteiro `<nome_base>.json` (compat).
+    Nenhum recibo é jamais sobrescrito de novo."""
+    state = _guard_estado(state)
+    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
+    corpo = json.dumps(dados, ensure_ascii=False, indent=1)
+    imutavel = state / f"{nome_base}-{ts}.json"
+    n = 0
+    while imutavel.exists():  # colisão de segundo: sufixo
+        n += 1
+        imutavel = state / f"{nome_base}-{ts}-{n}.json"
+    imutavel.write_text(corpo, encoding="utf-8")
+    (state / f"{nome_base}.json").write_text(corpo, encoding="utf-8")
+    return imutavel
 
 
 def _guard_estado(path):
@@ -714,7 +749,7 @@ _IMPERATIVO_V1 = frozenset((
     "refaz", "refaça", "conserta", "conserte", "implementa", "implemente",
     "run", "make", "create", "write", "push", "apply", "fix", "add",
     "update", "install", "generate", "deploy", "refactor", "build", "start",
-    "stop", "merge", "rebase", "revert"))
+    "stop", "merge", "rebase", "revert", "dispara", "dispare"))
 
 
 def _normalizar_voz(texto):
@@ -1247,9 +1282,9 @@ def _gatilho_aceite(texto, p):
     t = _normalizar_voz(texto)
     if not t:
         return None
-    if t in _GREETING_LEX:
-        # correção pós-rotulagem v2.1: "iae" disparava D1 via gatilho curto
-        # — saudação nunca é aceite (a mesma lição da agência, R2 finding 6)
+    if t in _GREETING_LEX or t in _RECUSA_LEX:
+        # "iae" (saudação) e "nao" (recusa) nunca são aceite — lições das
+        # rodadas de rotulagem (R2 f6; R6.2 fix 8)
         return None
     if len(t) <= p["max_chars_voz"]:
         return "curto"
@@ -1515,8 +1550,8 @@ def detectar_sessao(sessao, reg):
     # P1/P2: explicação substantiva (≥800) → PRÓXIMO turno humano é
     # re-elaboração longa em voz própria (≥300, não-interrogativo) ou
     # pergunta de aprofundamento (≥40, interrogativa)
-    p1 = th["resposta-longa-em-voz-propria-apos-explicacao"]
-    p2 = th["pergunta-de-aprofundamento-apos-explicacao"]
+    p1 = th["resposta-longa-nao-interrogativa-apos-explicacao"]
+    p2 = th["pergunta-longa-apos-explicacao"]
     for i, (ts, texto, vid, _l, _a) in enumerate(vozes):
         ts_ant = vozes[i - 1][0] if i > 0 else None
         expl = next((a for a in reversed(ats)
@@ -1529,7 +1564,7 @@ def detectar_sessao(sessao, reg):
         if not interrog and len(texto) >= p1["min_chars_resposta"] \
                 and ts - expl["ts"] <= p1["janela_s"]:
             out.append(_mk_n2(
-                reg, "resposta-longa-em-voz-propria-apos-explicacao", [vid],
+                reg, "resposta-longa-nao-interrogativa-apos-explicacao", [vid],
                 {"chars_resposta": len(texto),
                  "assistant_linha": expl["linha"],
                  "assistant_chars": expl["chars"]},
@@ -1537,7 +1572,7 @@ def detectar_sessao(sessao, reg):
         elif interrog and len(texto) >= p2["min_chars_pergunta"] \
                 and ts - expl["ts"] <= p2["janela_s"]:
             out.append(_mk_n2(
-                reg, "pergunta-de-aprofundamento-apos-explicacao", [vid],
+                reg, "pergunta-longa-apos-explicacao", [vid],
                 {"chars_pergunta": len(texto),
                  "assistant_linha": expl["linha"],
                  "assistant_chars": expl["chars"]},
@@ -1545,7 +1580,7 @@ def detectar_sessao(sessao, reg):
 
     # P3: entrega com ≥2 perguntas → turno humano posterior que RETOMA o
     # vocabulário da entrega (sobreposição lexical mecânica)
-    p3 = th["retomada-de-entrega-com-vocabulario-da-entrega"]
+    p3 = th["turno-com-tokens-em-comum-com-a-entrega"]
     vistos_p3 = set()  # um n2 por turno de retomada (id = hash de [vid])
     for a in ats:
         if a["n_perguntas"] < p3["min_perguntas_entrega"]:
@@ -1558,16 +1593,23 @@ def detectar_sessao(sessao, reg):
         for ts, texto, vid, _l, _ant in vozes:
             if not (0 < ts - a["ts"] <= p3["janela_s"]):
                 continue
-            comuns = {t for t in _tokens(texto)
-                      if len(t) >= p3["min_len_token"]
-                      and t not in _STOPWORDS_OVERLAP} & toks_a
+            conteudo = {t for t in _tokens(texto)
+                        if len(t) >= p3["min_len_token"]
+                        and t not in _STOPWORDS_OVERLAP}
+            comuns = conteudo & toks_a
+            proprios = conteudo - toks_a
+            razao = (len(comuns) / len(conteudo)) if conteudo else 0.0
             if len(comuns) >= p3["min_tokens_compartilhados"] \
+                    and razao >= p3["razao_min"] \
+                    and len(proprios) >= p3["min_tokens_proprios"] \
                     and vid not in vistos_p3:
                 vistos_p3.add(vid)
                 out.append(_mk_n2(
-                    reg, "retomada-de-entrega-com-vocabulario-da-entrega",
+                    reg, "turno-com-tokens-em-comum-com-a-entrega",
                     [vid],
                     {"tokens_compartilhados": len(comuns),
+                     "razao_overlap": round(razao, 2),
+                     "tokens_proprios": len(proprios),
                      "entrega_linha": a["linha"],
                      "amostra_tokens": sorted(
                          redigir(t, entropia=True) for t in comuns)[:5]},
@@ -1588,7 +1630,16 @@ _STOPWORDS_OVERLAP = frozenset((
     "aqui depois antes ainda entre cada qual quando quanto seria estava "
     "tinha tambem também porque então entao mesmo mesma muito mais menos "
     "onde tudo nada alguma algum fazer feito being have that this with "
-    "from what your").split())
+    "from what your "
+    # R6.2 fix 4: stoplist maior (verbos/função frequentes do português
+    # coloquial que inflavam a sobreposição)
+    "coisa coisas tempo agora acho precisa pode devem deve vamos olha "
+    "veja apaga lixo esta estao estão ficou ficar fica sendo foram pois "
+    "assim outro outra depois desse dessa deste desta nesse nessa neste "
+    "nesta aquele aquela tenho temos vou vai eles elas voce você "
+    # meta-palavras de entrega (aparecem em qualquer turno que MENCIONE a
+    # entrega, engajado ou não — não são evidência de retomada)
+    "entrega pronta perguntas pergunta resposta").split())
 
 
 def _jaccard(a, b):
@@ -2159,15 +2210,15 @@ _DESCRICOES_MECANICAS = {
     "rajada-de-turnos-curtos": lambda p:
         f">= {p['min_turnos']} turnos humanos com <= {p['max_chars']} chars "
         f"em <= {p['janela_s']}s",
-    "resposta-longa-em-voz-propria-apos-explicacao": lambda p:
+    "resposta-longa-nao-interrogativa-apos-explicacao": lambda p:
         f"entrada assistant com >= {p['min_chars_explicacao']} chars "
         f"seguida (proximo turno humano, <= {p['janela_s']}s) de turno "
         f"humano NAO-interrogativo com >= {p['min_chars_resposta']} chars",
-    "pergunta-de-aprofundamento-apos-explicacao": lambda p:
+    "pergunta-longa-apos-explicacao": lambda p:
         f"entrada assistant com >= {p['min_chars_explicacao']} chars "
         f"seguida (proximo turno humano, <= {p['janela_s']}s) de turno "
         f"humano INTERROGATIVO com >= {p['min_chars_pergunta']} chars",
-    "retomada-de-entrega-com-vocabulario-da-entrega": lambda p:
+    "turno-com-tokens-em-comum-com-a-entrega": lambda p:
         f"entrada assistant com >= {p['min_perguntas_entrega']} '?' seguida "
         f"(<= {p['janela_s']}s) de turno humano compartilhando >= "
         f"{p['min_tokens_compartilhados']} tokens (>= {p['min_len_token']} "
@@ -2624,12 +2675,12 @@ RECALL_FORMAS_FORA = {
     "entrega-com-perguntas-sem-turno-de-resposta-observado":
         "1 candidato possível por sessão (o fim dela) — censo trivial, sem "
         "pool relaxável",
-    "resposta-longa-em-voz-propria-apos-explicacao":
+    "resposta-longa-nao-interrogativa-apos-explicacao":
         "forma nova (v2.1): estágio-0 nesta rodada; entra no harness de "
         "recall numa rodada futura",
-    "pergunta-de-aprofundamento-apos-explicacao":
+    "pergunta-longa-apos-explicacao":
         "forma nova (v2.1): estágio-0 nesta rodada; recall em rodada futura",
-    "retomada-de-entrega-com-vocabulario-da-entrega":
+    "turno-com-tokens-em-comum-com-a-entrega":
         "forma nova (v2.1): estágio-0 nesta rodada; recall em rodada futura"}
 
 
@@ -2864,8 +2915,13 @@ def _linhas_semente(seed_base, t0):
     # D1 — resposta-curta-seguida-de-acao
     d1 = {
         "in-spec": [("ok", 15), ("sim", 20), ("vai", 30)],
-        "aceite-7-15-chars": [("blz manda", 15), ("pode mandar", 20),
-                              ("perfeito", 30)],
+        # R6.2 fix 1 (CRÍT): o controle NÃO pode conter o gabarito — as
+        # strings desta classe eram verbatim do D1_ACEITE_LEX (train-on-
+        # test). Agora são INÉDITAS com forma de aceite (7-15 chars, fora
+        # do lexicon E fora dos pools medidos E não-imperativas): medem a
+        # generalização do detector a aceites NUNCA vistos.
+        "aceite-7-15-chars-ineditos": [("combinado", 15), ("ta valendo", 20),
+                                       ("de acordo", 30)],
         "atraso-121-600s": [("ok", 180), ("sim", 300), ("vai", 480)],
         "frase-longa-de-aceite": [
             ("pode mandar ver, ta otimo assim", 15),
@@ -3367,7 +3423,8 @@ def _scan_corpus(workdir, host):
 
 
 def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
-             model="injetado", eval_estagio0=None, diff_referencia=None):
+             model="injetado", eval_estagio0=None, diff_referencia=None,
+             sessao_em_curso=None):
     """Cópia de trabalho (já redigida) → registry + projeção completa.
 
     `eval_estagio0` (resultado de eval_ingerir): GATE dos N3/N4 (finding R1
@@ -3492,12 +3549,48 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
                 "dissolvidos": len(antes - depois),
                 "novos": len(depois - antes)})
 
+    # R6.2 fix 5: LARGURA DE PORTÃO — os detectores têm gates de larguras
+    # diferentes; comparar formas exige a taxa candidatos→disparos, nunca
+    # contagens nuas
+    oportunidades = Counter()
+    p_d1 = THRESHOLDS["resposta-curta-seguida-de-acao"]
+    for s in sessoes:
+        for _tsv, t, _v, _l, _a in s["vozes"]:
+            if _gatilho_aceite(t, p_d1):
+                oportunidades["resposta-curta-seguida-de-acao"] += 1
+            if t.rstrip().endswith("?"):
+                oportunidades["pergunta-explicacao-resposta-curta"] += 1
+        for a in s["assistant_turnos"]:
+            if a["chars"] >= 800:
+                oportunidades[
+                    "resposta-longa-nao-interrogativa-apos-explicacao"] += 1
+                oportunidades["pergunta-longa-apos-explicacao"] += 1
+            if a["n_perguntas"] >= 2:
+                oportunidades["turno-com-tokens-em-comum-com-a-entrega"] += 1
+    n2_contagem = Counter(n2["forma"] for n2 in reg.nivel(2))
+    taxas = {}
+    for f in sorted(set(oportunidades) | set(n2_contagem)):
+        op = oportunidades.get(f, 0)
+        taxas[f] = {"oportunidades_do_gate": op,
+                    "disparos": n2_contagem.get(f, 0),
+                    "taxa": round(n2_contagem.get(f, 0) / op, 3)
+                    if op else None}
+
     agora_ts = agora_ts or datetime.now(tz=timezone.utc).timestamp()
     ts_all = [t for s in sessoes for t in s["ts_todos"]]
     janela = {"de": _iso(min(ts_all)) if ts_all else None,
               "ate": _iso(max(ts_all)) if ts_all else None,
               "criterio": f"mtime nos últimos {janela_dias} dias"}
     cobertura = montar_cobertura([host], len(sessoes), puladas, janela)
+    if sessao_em_curso:
+        # R6.2 fix 6: sessão viva declarada NO CÓDIGO, com T de varredura
+        cobertura["sessao_em_curso"] = {
+            "session_id": sessao_em_curso,
+            "varrida_ate": datetime.now(tz=timezone.utc).isoformat(),
+            "nota": "SESSÃO EM CURSO — valores PARCIAIS; eventos após o T "
+                    "de varredura ficam fora"}
+        cobertura["nota"] += (f" | sessão em curso: {sessao_em_curso[:8]} — "
+                              "valores parciais")
     padroes, formas_sem_instancias = fold_padroes(reg, agora_ts, cobertura)
 
     # índice N2 → atividade pelo TRECHO-DONO (R5.2 finding 3: dono único —
@@ -3551,6 +3644,10 @@ def pipeline(workdir, host, complete_fn=None, janela_dias=7, agora_ts=None,
         "atividades": atividades,
         "cluster_log": cluster_log,
         "padroes": padroes,
+        "taxas_de_conversao": {
+            "nota": "portões de larguras diferentes: comparar formas exige "
+                    "a TAXA candidatos→disparos, nunca contagens nuas",
+            "por_forma": taxas},
         "padroes_diff": padroes_diff,
         "formas_sem_instancias": formas_sem_instancias,
         "contagens": {f"n{n}": len(reg.nivel(n)) for n in (1, 2, 3, 4)},
@@ -3814,6 +3911,24 @@ def render_report(reg, projecao, eval_estagio0=None, recall=None):
     H.append("</table>")
     if not projecao["padroes"]:
         H.append(f"<p>Padrões: {_esc(aus)}.</p>")
+    tx = (projecao.get("taxas_de_conversao") or {}).get("por_forma")
+    if tx:
+        H.append(f"<p>Taxas de conversão por portão — "
+                 f"{_esc(projecao['taxas_de_conversao']['nota'])}:</p>")
+        H.append("<table><tr><th>forma</th><th>oportunidades do gate</th>"
+                 "<th>disparos</th><th>taxa</th></tr>")
+        for f, v in tx.items():
+            H.append(f"<tr><td>{_esc(f)}</td>"
+                     f"<td>{v['oportunidades_do_gate']}</td>"
+                     f"<td>{v['disparos']}</td>"
+                     f"<td>{v['taxa'] if v['taxa'] is not None else '—'}"
+                     f"</td></tr>")
+        H.append("</table>")
+    if (projecao.get("cobertura") or {}).get("sessao_em_curso"):
+        sc = projecao["cobertura"]["sessao_em_curso"]
+        H.append(f"<p class='aviso'>{_esc(sc['nota'])} "
+                 f"(sessão {_esc(sc['session_id'][:8])}, varrida até "
+                 f"{_esc(sc['varrida_ate'][:16])}Z).</p>")
     pd_diff = projecao.get("padroes_diff")
     if pd_diff:
         H.append(f"<p>Recibo de diff do n (vs {_esc(pd_diff['referencia'])})"
@@ -4102,7 +4217,8 @@ def _cmd_backfill(args):
                              janela_dias=args.janela_dias,
                              model=args.complete_cmd or "nenhum",
                              eval_estagio0=ev,
-                             diff_referencia=args.diff_referencia)
+                             diff_referencia=args.diff_referencia,
+                             sessao_em_curso=args.sessao_em_curso)
     state = persistir(args.state, reg, projecao)
     html = render_report(reg, projecao, ev)
     (state / "report.html").write_text(html, encoding="utf-8")
@@ -4121,11 +4237,9 @@ def _cmd_eval(args):
         amostra, pre_registro = eval_preparar(reg, args.workdir,
                                               max_amostra=args.max)
         # recibo de pré-registro gravado ANTES de qualquer rótulo (finding
-        # R1 #14); NÃO entregar aos rotuladores (contém o gold dos catch)
-        _guard_estado(state)
-        (state / "pre-registro.json").write_text(
-            json.dumps(pre_registro, ensure_ascii=False, indent=1),
-            encoding="utf-8")
+        # R1 #14), VERSIONADO (fix R6.2 #2 — nunca sobrescrito); NÃO
+        # entregar aos rotuladores (contém o gold dos catch)
+        gravar_recibo(state, "pre-registro", pre_registro)
         Path(args.out).write_text(redigir(json.dumps(
             amostra, ensure_ascii=False, indent=1)), encoding="utf-8")
         print(f"amostra: {len(amostra['itens'])} itens → {args.out}; "
@@ -4204,10 +4318,9 @@ def _cmd_eval_recall(args):
             sessoes, reg_estado, args.workdir, dict(tp),
             max_por_forma=args.max, k_fundo=args.k_fundo, seed=args.seed)
         _guard_estado(state)
-        # cadeia de mtime: recibo PRIMEIRO, amostra DEPOIS, rótulos por
-        # último; nenhum campo pós-rótulo no recibo
-        (state / "recall-pre-registro.json").write_text(
-            json.dumps(pre, ensure_ascii=False, indent=1), encoding="utf-8")
+        # cadeia de mtime: recibo PRIMEIRO (versionado — fix R6.2 #2),
+        # amostra DEPOIS, rótulos por último
+        gravar_recibo(state, "recall-pre-registro", pre)
         Path(args.out).write_text(redigir(json.dumps(
             amostra, ensure_ascii=False, indent=1)), encoding="utf-8")
         print(json.dumps({"pool_por_forma": pre["pool_por_forma"],
@@ -4375,6 +4488,9 @@ def main(argv=None):
     p.add_argument("--diff-referencia", dest="diff_referencia", default=None,
                    help="atividades.jsonl ou amostra antiga — gera o recibo "
                         "de diff do n dos padrões (R5.2 finding 4)")
+    p.add_argument("--sessao-em-curso", dest="sessao_em_curso", default=None,
+                   help="session_id de sessão VIVA no corpus — declara "
+                        "varredura parcial na cobertura (R6.2 fix 6)")
     p.set_defaults(fn=_cmd_backfill)
 
     p = sub.add_parser("eval", help="estágio 0 — avaliação cega")
