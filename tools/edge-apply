@@ -175,6 +175,12 @@ def main() -> None:
         (home / d).mkdir(parents=True, exist_ok=True)
 
     _provision.place_file(REPO / "blog" / "server.py", home / "blog" / "server.py")
+    # rq na casa: um symlink para o do genótipo, não uma cópia — o script precisa achar
+    # tools/ ao lado de si mesmo, e resolve o próprio symlink para isso. Sem esta linha
+    # `$EDGE_HOME/rq` simplesmente não existia num install de árvores separadas.
+    rq_link = home / "rq"
+    if (REPO / "rq").exists() and not rq_link.exists() and (REPO / "rq") != rq_link:
+        rq_link.symlink_to(REPO / "rq")
     if (REPO / "blog" / "static").exists():
         _provision.place_tree(REPO / "blog" / "static", home / "blog" / "static")
     if (REPO / "skills").exists():

@@ -41,8 +41,12 @@ def render_codex_skill(*, slug: str, prefix: str, canonical_skill: Path) -> str:
     return (
         "---\n"
         f"name: {name}\n"
-        f"description: \"Edge `{slug}` (`/{name}` / `@{name}`). Use when the user invokes "
-        f"`/{name}`, `@{name}`, or asks for Edge {slug} (wake, mentor, beat, report, …). "
+        # O Codex invoca skill por `@nome`, NUNCA por slash (palavra do operador, 2026-08-16).
+        # Anunciar `/nome` aqui ensina o modelo a sugerir um comando que não existe nesta
+        # superfície — e a description é justamente o que decide quando a skill ativa. O grok é
+        # o oposto (barra), e por isso os dois provisionadores divergem de propósito.
+        f"description: \"Edge `{slug}` (`@{name}`). Use when the user invokes "
+        f"`@{name}` or asks for Edge {slug} (wake, mentor, beat, report, …). "
         f"Then read `{canonical}` completely and follow that contract.\"\n"
         "---\n"
         f"You are running the Edge skill **{name}**.\n\n"

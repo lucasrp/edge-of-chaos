@@ -22,6 +22,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -43,6 +44,7 @@ class _DirectionBase(unittest.TestCase):
         entries.mkdir()
         self.log = root / "log.jsonl"
         self.log.write_text("\n".join(self.LOG_LINES) + ("\n" if self.LOG_LINES else ""))
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(entries)
         os.environ["EDGE_BLOG_STATIC"] = str(root)
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
@@ -574,7 +576,8 @@ class TestDirectionLiveRoundTrip(_DirectionBase):
         folds it to direction.set. NO LLM call (a live one would spend the edge's OpenAI API)."""
         def gen(comment):
             return {"reply": "folding this into a curated steer",
-                    "directive": True, "direction_body": "standing: " + comment["body"]}
+                    "directive": True, "direction_title": "standing steer",
+                    "direction_body": "standing: " + comment["body"]}
         return gen
 
     def test_a_new_directive_lands_as_a_set_steer_linked_to_its_comment(self):

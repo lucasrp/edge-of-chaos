@@ -636,3 +636,82 @@ ponte nomeada ao trabalho vivo em UMA linha, e os pisos valem inteiros — liber
 olhar, **nunca de olhar pra nada nem de recontar**. Peso uniforme lançado; se ~36% de
 batidas-com-coringa for demais, o dial é o peso (§7).
 *Avoid*: random-como-desculpa (pisos valem), lazer (outro genus), os-dois-comuns-com-rótulo-ser
+
+## Language / Idiom — as entidades do vocabulário
+
+_Restauradas em 2026-08-16 (issue #620). Estas 13 definições foram apagadas por
+`d547442` ("CONTEXT.md as 9-module self-model — Idiom removed") e o merge `9221924` do dia
+seguinte devolveu só 32 dos 45 cabeçalhos. Ficaram fora por seis semanas enquanto este
+mesmo documento usava `mentee` 54 vezes, `artefato` 26 e `cortex` 17 — o glossário de
+referência não definia nenhum dos termos centrais do sistema. A seção original chamava-se
+`## Language` e não existe mais na estrutura de 9 módulos; elas voltam agrupadas aqui._
+
+**Mentee**:
+The person the edge serves — their real work is the subject. The edge knows them from
+what they do (code, docs, words), not from supposition.
+*Avoid*: user, client, operator
+
+**Cortex**:
+The edge's whole navigable knowledge as one connected graph — the **mind** it thinks *in*. Everything
+projects into it: intake → episodes/clusters (extracted), plus the **asserted** edges (Direction, curated,
+
+**Artefato / Artifact**:
+A beat's **published deliverable**, in whatever form the producing skill yields — a prose
+synthesis (`ed-report`), an interactive page (`prototype`), and others. The genus, not one
+form. Carries Worthwhile content; bears the comment field (consolidation surface).
+
+**Hypothesis**:
+Something the edge supposed (mined or inferred) and not yet confirmed (`assumed`). The
+edge **works naturally** with hypotheses — the abundant, cheap tier.
+*Avoid*: guess, draft
+
+**Consolidação de hipóteses / Hypothesis consolidation**:
+Promoting hypothesis → curated. The **inward** half of what `/grill-me` (active) and the
+per-report comment (async) do — it keeps the edge's model accurate, but is not the whole of
+the grill, which also **generates outward orientation** for the mentee (see Convergence).
+Does not drain the hypothesis tier; consolidates what carries **harm potential**.
+"Afinamento" is the same loop when the object is the mentee's **language** (Idiom).
+*Avoid*: approval, review, afinamento (as a separate concept)
+
+**Domain**:
+The field the mentee works in. The edge must know it deeply to have substance.
+*Avoid*: area, topic, field
+
+**Recall**:
+The **memory-salient brief** — a noun, the yield of recalling (the act stays a lowercase verb,
+exactly as Delta is the yield of updating): the salient subgraph of the **Cortex**, rooted at
+
+**Worthwhile content**:
+The intersection: deep domain insight **applied to the mentee's live work**. Domain
+alone is generic; mentee alone is shallow.
+*Avoid*: report, output, post
+
+**Medium / Meio**:
+A channel through which the mentee and the edge **address each other** — Claude Code is just
+one; Telegram, a shared Slack, a web chat are others. The **pipe, not the content**: it carries
+
+**Usage signal**:
+The **implicit, non-authoritative** record of which Cortex nodes the edge READ while working —
+appended to `state/cortex/usage.jsonl` (behind `EDGE_CORTEX_USAGE`), EXCLUDED from log replay and
+every fold. It drives an **ephemeral read-time re-rank only** (recency+frequency), never a graph write:
+it is NOT self-state (the log stays truth — ADR-0006). Distinct from **value feedback** (`cites`/
+`distills` at close) and **correction** (node-targeted Voz / Earmarked), both curated and authoritative.
+*Avoid*: salience, reinforcement, memory store
+
+**Curated**:
+Knowledge consolidated by the mentee (`confirmed`/`corrected`). **Prioritized** over a
+hypothesis in every read-model. **Exempt from passive aging** (it does not cool by going unread
+or unreinforced) but **actively retirable by Voz** — a strategic realignment can supersede it.
+Only the mentee retires curated; passive forgetting never does.
+*Avoid*: validated, final, approved
+
+**Harm potential**:
+The consolidation priority: source ambiguity × cost of acting wrong. Decides what spends
+the mentee's scarce attention.
+*Avoid*: urgency, score
+
+**llm-wiki**:
+The edge's knowledge, held as two kinds of durable page — **Knowledge clusters** (emergent,
+grown) and a few **Standing pages** (declared then refined: Direction, Idiom, Source roadmap)
+— plus cross-references, holding both hypothesis and curated. An **Artefato** is a transient
+delivery (a Query result), never a page. Read **in full when small** (the briefing's entry read);

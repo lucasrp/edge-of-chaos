@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 # rq — probe rápido do cortex deste host (env pré-sourced, driver pronto). Ver tools/_probe.py.
-#   cypher:  ~/edge/rq 'MATCH (c:Community {group_id:$g}) RETURN count(c) AS n'
-#   python:  ~/edge/rq < snip.py     (globais C, d, q(cypher,**p), G já prontos)
-cd ~/edge || exit 1
-set -a; for f in secrets/*.env; do . "$f" 2>/dev/null; done; set +a
+#   cypher:  rq 'MATCH (c:Community {group_id:$g}) RETURN count(c) AS n'   (use $g pro group)
+#   python:  rq < snip.py    (globais C, d, q(cypher,**p), G já prontos)
+#
+# Host-agnóstico (ADR-0015, #21): NENHUM caminho de install aparece aqui. O genótipo é o
+# diretório deste arquivo com symlink resolvido — então funciona tanto chamado no clone quanto
+# pelo link em <home>/rq. A casa vem de _identity.state_root(): EDGE_HOME -> agent.yaml
+# `edge_home` -> genótipo. A versão anterior fazia `cd ~/edge` e `./tools/...`, o que embutia um
+# tenant no genótipo E assumia home == repo — quebrado no layout de árvores separadas.
+set -uo pipefail
+self="$(readlink -f "${BASH_SOURCE[0]}")"
+repo="$(cd "$(dirname "$self")" && pwd)"
+cd "$repo" || exit 1
+
+home="$(./tools/edge-python -c "import sys; sys.path.insert(0, '$repo/tools'); import _identity; print(_identity.state_root())" 2>/dev/null)"
+home="${home:-${EDGE_HOME:-$HOME/edge}}"
+
+set -a; for f in "$home"/secrets/*.env; do [ -r "$f" ] && . "$f"; done; set +a
 exec ./tools/edge-python tools/_probe.py "$@"

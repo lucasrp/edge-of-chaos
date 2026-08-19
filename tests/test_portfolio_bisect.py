@@ -95,7 +95,26 @@ class PortfolioBisect(unittest.TestCase):
             _write_seven_node_tree(log, "alpha")
             output = {
                 "operacoes": ["beta"],
-                "stitch": {"goal": "Comparar", "acao": "Medir", "entidades": []},
+                # attribution passou a ser obrigatório no validador (_validated_attribution);
+                # esta fixture não acompanhou e o teste ficou vermelho por contrato, não por
+                # comportamento. É o ÚNICO teste deste arquivo que atravessa rationalize() de
+                # verdade — os outros escrevem o evento direto e por isso não sentiram a mudança.
+                "stitch": {
+                    "goal": "Comparar", "acao": "Medir", "entidades": [],
+                    "attribution": {
+                        "human_purpose": "comparar os resultados dos dois braços",
+                        "edge_execution": "medir e tabular o que cada braço produziu",
+                        "shared_outcome": "saber qual braço sustenta a decisão",
+                        # a atribuição aponta o turno humano de onde ela sai; a sessão
+                        # deste teste tem um único turno
+                        "human_turn_indexes": [0],
+                        # False de propósito: este teste é sobre pertencimento de presunção a
+                        # operação, não sobre atividade. Com True o rationalize também abre e
+                        # toca uma Atividade (3 eventos), o que mudaria a asserção sem que o
+                        # comportamento sob teste tivesse mudado.
+                        "activity_relevant": False,
+                    },
+                },
                 "epistemico": {"presuncoes": [{
                     "texto": "Presunção beta ligada a evidência alpha",
                     "confirmaria": "evidência C", "refutaria": "evidência D",

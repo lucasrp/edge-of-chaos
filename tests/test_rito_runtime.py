@@ -32,6 +32,7 @@ import eventlog  # noqa: E402
 import publisher  # noqa: E402
 import render  # noqa: E402
 import rito  # noqa: E402
+import yaml_rite  # noqa: E402
 
 SLUG = "exp-teste-rito"
 INTENT = "provar que o rito inteiro roda, do dossier a publicacao"
@@ -40,8 +41,128 @@ APPROVED_GENERATOR = Path(
     "/home/vboxuser/edge/drafts/exp072-report-quality/post-gate-grounding-arm/"
     "generate_post_gate_grounding_arm.py")
 
+
+def _approved_generator_present():
+    """The pinned generator lives in ONE operator's draft folder — it is not part of the genotype.
+    Probing it must never decide the fate of this module: on a host where the path's parent is
+    another user's home, `Path.is_file()` RAISES PermissionError (py<3.13) at import time and the
+    WHOLE module fails to load, taking every other rito test — and tests.test_publisher, which
+    drives `_green_run` from here — down with it. Any OSError means "not on this host" → skip."""
+    try:
+        return APPROVED_GENERATOR.is_file()
+    except OSError:
+        return False
+
+YAML_AUTHORIAL_DRAFT = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "O relato anterior nomeou o buraco do indice; este deriva o placar."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_PROVISIONAL = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "O relato anterior nomeou o buraco do indice; este deriva o placar."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "versao revisada: a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_AUTHOR_CORRECTION = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "O relato anterior nomeou o buraco do indice; este deriva o placar."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "versao final auditada. A rodada 3 mostra o mecanismo."]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_LEAKY_CORRECTION = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "Neste rascunho eu explico o mecanismo da rodada 3."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+YAML_CLEAN_CLEANUP = """intent: "open: o buscador sem indice; bet: o indice muda o placar"
+cites:
+  - ref: exp072
+    kind: atividade
+    snippet: "29 vitorias com o indice"
+lineage:
+  - type: builds_on
+    slug: prior-recall-report
+blocks:
+  - type: lineage
+    text: "Aqui eu explico o mecanismo da rodada 3."
+  - type: comparison
+    before:
+      title: raw
+      bullets: ["8", "sem estrutura"]
+    after:
+      title: indice
+      bullets: ["29", "a rodada 3 mostra o mecanismo"]
+  - type: gap-marker
+    text: "unknown: whether the next round repeats the lift"
+"""
+
 # Canned cognitive outputs — scan-clean (no draft/grounding/prompt/harness vocabulary), so the
 # deterministic treatment gates pass and treatment_cleanup takes the deterministic-copy branch.
+# Default canned outputs are Markdown (3aeb049 producer). YAML_* fixtures
+# remain for the leftover-YAML HTML-probe tests (#647 / #585).
 CANNED = {
     "first_authorial_draft": (
         "# Relatorio exp-teste\n\nA pergunta viva: o buscador melhora com o indice?\n\n"
@@ -55,6 +176,18 @@ CANNED = {
     "author_correction": (
         "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
         "> o indice vence onde a estrutura importa."),
+    "final_review": (
+        "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
+        "Revisao qualitativa: util por si so."),
+}
+
+YAML_CANNED = {
+    "first_authorial_draft": YAML_AUTHORIAL_DRAFT,
+    "gap_critique": "# Lacunas\n\nFaltou o caso concreto da rodada 3.",
+    "grounding2_targeted": "# Memo dirigido\n\nEvidencia adicional sobre a rodada 3.",
+    "provisional_rewrite": YAML_PROVISIONAL,
+    "fact_audit": "# Fact audit\n\n## Verdict\nPASS\n\n## Claim ledger\ntudo sustentado.",
+    "author_correction": YAML_AUTHOR_CORRECTION,
     "final_review": (
         "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
         "Revisao qualitativa: util por si so."),
@@ -167,7 +300,7 @@ class RendererPromotionTest(unittest.TestCase):
     def test_renderer_id_is_pinned(self):
         self.assertEqual(render.RENDERER_ID, "exp072-neutral-markdown/v1")
 
-    @unittest.skipUnless(APPROVED_GENERATOR.is_file(), "approved generator not on this host")
+    @unittest.skipUnless(_approved_generator_present(), "approved generator not on this host")
     def test_promoted_renderer_is_byte_identical_to_the_approved_one(self):
         spec = importlib.util.spec_from_file_location("approved_gen", APPROVED_GENERATOR)
         approved = importlib.util.module_from_spec(spec)
@@ -207,7 +340,7 @@ class FullRiteTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             _, run_dir, log, blog = _green_run(tmp)
             sealed_md = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
-            expected = render.markdown_page_bytes(sealed_md)
+            expected = yaml_rite.page_bytes(sealed_md)
             self.assertEqual((blog / f"{SLUG}.html").read_bytes(), expected)
             self.assertEqual((run_dir / "09_FINAL.html").read_bytes(), expected)
 
@@ -598,6 +731,57 @@ class DetectorCliTest(unittest.TestCase):
             bad = rito.main(["verify", str(run_dir), "--log", str(log),
                              "--blog-dir", str(blog)])
             self.assertEqual(bad, 1)
+
+
+    def test_report_markdown_first_draft_completes(self):
+        """3aeb049: a report-form first draft is Markdown. YAML is not required."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest, run_dir, log, blog = _green_run(tmp)
+            self.assertEqual(manifest["status"], "completed")
+            sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
+            self.assertFalse(yaml_rite.is_yaml_draft(sealed))
+            self.assertTrue((blog / f"{SLUG}.html").is_file())
+
+
+class ReaderFacingProbeReviewTest(unittest.TestCase):
+    """#585 / #647: leftover YAML is reviewed as published HTML, not keys."""
+
+    def test_final_review_prompt_is_rendered_html(self):
+        def prompts():
+            base = _prompts()
+            base["final_review"] = (
+                lambda o: "<strict review>\n\n"
+                + (o.get("reader_facing") or o["treatment_cleanup"]))
+            return base
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
+            did = _stamp_wake(log)
+            rito.run_rito(
+                SLUG, run_dir=run_dir,
+                grounding1_fn=lambda: "# Dossier factual\n\nFatos: 29-8-3 em 40 rodadas.",
+                prompts=prompts(),
+                complete_fn=_complete_fn(YAML_CANNED, LLM_ORDER),
+                intent=INTENT, skill="report", dispatch_id=did,
+                log=log, blog_dir=blog,
+            )
+            review_prompt = (run_dir / "prompts" / "10_final_review.md").read_text()
+            sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
+            self.assertTrue(yaml_rite.is_yaml_draft(sealed))
+            self.assertIn("rodada 3", review_prompt)
+            self.assertIn("comparison-grid", review_prompt)
+            self.assertNotIn("type: lineage", review_prompt)
+            self.assertNotIn("type: comparison", review_prompt)
+            self.assertIn("type: lineage", sealed)
+
+    def test_yaml_source_is_not_the_probe_body(self):
+        """The probe facing text is HTML, never raw YAML keys."""
+        facing = yaml_rite.reader_facing_text(YAML_AUTHOR_CORRECTION)
+        self.assertIn("rodada 3", facing)
+        self.assertNotIn("type: comparison", facing)
+        self.assertTrue(facing.lstrip().startswith("<!doctype html>")
+                        or "<main>" in facing)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
-"""topic_threads - infer recent Voz topic threads into Direction proposals.
+"""topic_threads - index recent Voz into session.topic navigation records.
 
-This is the automatic, non-curated leg: recent operator-authored turns are
-grouped into coarse topic threads, then only decision-bearing threads become
-`direction.proposed`. Grill/Voz still owns promotion to `set`.
+TOPIC_SPECS remain a navigation lexicon (session.topic). They are NOT the
+primary Direction.proposed engine — that is the live-activity N3+N4 pair
+written by sweep via ferramentas/atividades.propose_live_activity_directions.
 """
 from __future__ import annotations
 
@@ -500,25 +500,10 @@ def propose_recent_topic_directions(
     min_fragments: int = MIN_FRAGMENTS,
     min_score: int = MIN_SCORE,
 ) -> int:
-    fragments = collect_voice_fragments(window_days=window_days, project_dir=project_dir,
-                                        codex_dir=codex_dir, grok_dir=grok_dir,
-                                        claude_root=claude_root,
-                                        all_stores=all_stores, now=now)
-    directions = infer_topic_directions(fragments, window_days=window_days,
-                                        min_fragments=min_fragments, min_score=min_score)
-    status = _direction_status(log)
-    written = 0
-    for direction in directions:
-        state, body = status.get(direction.id, ("", ""))
-        if state in {"set", "dropped"}:
-            continue
-        if state == "proposed" and body == direction.body:
-            continue
-        eventlog.propose(direction.id, direction.body, kind="thread",
-                         relates_to=direction.relates_to, log=log)
-        status[direction.id] = ("proposed", direction.body)
-        written += 1
-    return written
+    # STOP: TOPIC_SPECS / topic-7d is not the proposed engine. Kept as a
+    # no-op so leftover callers cannot land canned steers. Sweep writes
+    # activity-based proposed instead.
+    return 0
 
 
 def sync_recent_topic_memory(
@@ -537,9 +522,8 @@ def sync_recent_topic_memory(
 ) -> dict[str, int]:
     """One wake-time pass for the automatic Voz memory layer.
 
-    The same recent fragments feed two read models:
-    - session.topic events, broad and navigable, preserving session/turn anchors;
-    - direction.proposed events, narrower and decision-bearing, for the mentor to curate.
+    Indexes session.topic events (navigable). Does NOT emit direction.proposed
+    from TOPIC_SPECS — that wire is the live-activity N3+N4 pair.
     """
     fragments = collect_voice_fragments(window_days=window_days, project_dir=project_dir,
                                         codex_dir=codex_dir, grok_dir=grok_dir,
@@ -548,19 +532,7 @@ def sync_recent_topic_memory(
     topics_written = index_session_topics(fragments, window_days=window_days,
                                           min_score=index_min_score,
                                           authoritative=(all_stores is True), log=log)
-    directions = infer_topic_directions(fragments, window_days=window_days,
-                                        min_fragments=min_fragments, min_score=min_score)
-    status = _direction_status(log)
-    directions_written = 0
-    for direction in directions:
-        state, body = status.get(direction.id, ("", ""))
-        if state in {"set", "dropped"}:
-            continue
-        if state == "proposed" and body == direction.body:
-            continue
-        eventlog.propose(direction.id, direction.body, kind="thread",
-                         relates_to=direction.relates_to, log=log)
-        status[direction.id] = ("proposed", direction.body)
-        directions_written += 1
-    return {"topics": topics_written, "directions": directions_written,
-            "total": topics_written + directions_written}
+    # Direction.proposed is the live-activity N3+N4 wire (atividades /
+    # sweep). TOPIC_SPECS must not emit topic-7d canned steers.
+    return {"topics": topics_written, "directions": 0,
+            "total": topics_written}

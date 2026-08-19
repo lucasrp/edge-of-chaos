@@ -42,6 +42,87 @@ class IdentityFromOvo(unittest.TestCase):
                 if old is not None:
                     os.environ["EDGE_GROUP"] = old
 
+    def test_ovo_is_found_through_real_resolution_when_home_is_not_the_repo(self):
+        """The regression: the two tests above inject agent_yaml= and so never exercise
+        identity_path(), which is where the ovo was actually being lost. In the documented
+        geno/home-separated layout, pre-phenotype identity_path() falls back to REPO (it only
+        honours EDGE_HOME when agent.yaml is ALREADY there) while the ovo lives in the HOME —
+        so the fallback was unreachable exactly when it is the only identity there is, and no
+        separated-home install could ever reach the mentor that emits the phenotype."""
+        if (_identity.REPO / "agent.yaml").exists():
+            self.skipTest("this tree is itself a home==repo install; resolution case N/A")
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "state").mkdir()
+            (home / "state" / "bootstrap.json").write_text(
+                json.dumps({"name": "regressao", "edge_home": str(home)}))
+            old_home = os.environ.get("EDGE_HOME")
+            old_group = os.environ.pop("EDGE_GROUP", None)
+            os.environ["EDGE_HOME"] = str(home)
+            try:
+                resolved = _identity.identity_path("agent.yaml")
+                self.assertEqual(resolved, _identity.REPO / "agent.yaml",
+                                 "pre-phenotype identity_path must fall back to the genotype")
+                self.assertEqual(_identity.group(agent_yaml=resolved), "regressao")
+                self.assertEqual(_identity.edge_home(agent_yaml=resolved), home)
+            finally:
+                if old_home is None:
+                    os.environ.pop("EDGE_HOME", None)
+                else:
+                    os.environ["EDGE_HOME"] = old_home
+                if old_group is not None:
+                    os.environ["EDGE_GROUP"] = old_group
+
+    def test_explicit_path_wins_over_edge_home(self):
+        """The HOME leg must never override a tree a caller named outright."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other:
+            named, home = Path(tmp), Path(other)
+            for root, name in ((named, "nomeado"), (home, "do-home")):
+                (root / "state").mkdir()
+                (root / "state" / "bootstrap.json").write_text(json.dumps({"name": name}))
+            old_home = os.environ.get("EDGE_HOME")
+            old_group = os.environ.pop("EDGE_GROUP", None)
+            os.environ["EDGE_HOME"] = str(home)
+            try:
+                self.assertEqual(_identity.group(agent_yaml=named / "agent.yaml"), "nomeado")
+            finally:
+                if old_home is None:
+                    os.environ.pop("EDGE_HOME", None)
+                else:
+                    os.environ["EDGE_HOME"] = old_home
+                if old_group is not None:
+                    os.environ["EDGE_GROUP"] = old_group
+
+    def test_named_tree_never_borrows_the_launchers_home(self):
+        """Regressão do próprio ovo-fallback: perguntar pela identidade de OUTRA árvore.
+
+        Quando o chamador passa um agent.yaml explícito (cortex_config perguntando pelo home
+        ALVO), a perna do EDGE_HOME não pode valer — senão a árvore sem identidade recebe o grupo
+        do LANÇADOR, que é exatamente o vazamento cross-tenant da ADR-0015 (#154). A perna do HOME
+        só existe para o caso em que ninguém nomeou árvore nenhuma e identity_path caiu no
+        genótipo."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as casa:
+            alheia = Path(tmp)                    # árvore nomeada: sem agent.yaml e sem ovo
+            lancador = Path(casa)                 # a casa de QUEM chama, com identidade própria
+            (lancador / "state").mkdir()
+            (lancador / "state" / "bootstrap.json").write_text(
+                json.dumps({"name": "do-lancador", "edge_home": str(lancador)}))
+            old_home = os.environ.get("EDGE_HOME")
+            old_group = os.environ.pop("EDGE_GROUP", None)
+            os.environ["EDGE_HOME"] = str(lancador)
+            try:
+                self.assertIsNone(
+                    _identity.group(agent_yaml=alheia / "agent.yaml"),
+                    "uma árvore nomeada sem identidade resolve para NADA — nunca para o grupo "
+                    "do lançador")
+            finally:
+                if old_home is None:
+                    os.environ.pop("EDGE_HOME", None)
+                else:
+                    os.environ["EDGE_HOME"] = old_home
+                if old_group is not None:
+                    os.environ["EDGE_GROUP"] = old_group
+
 
 if __name__ == "__main__":
     unittest.main()

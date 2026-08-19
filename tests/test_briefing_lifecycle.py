@@ -9,10 +9,17 @@ the corpus it should.
 
 Each stage builds from a THROWAWAY tree (CONTRACT C1 — never the real `state/`): a fresh temp log,
 a temp `agent.yaml` (identity + a non-empty `sources` list + `ground_truth.documents` pointing at
-temp CONTEXT glossaries), and the REAL `memory/` doctrine COPIED into a temp `memory/` (so the
-content is the genuine personality/method doctrine while `state_dir` resolves to the temp tree, not
-real `state/idiom.md`). Offline: `clusters=None` (no graph), the roster is read from the real
-`agent.yaml` read-only (the REAL declared roster the audit's stage-(i) row 4 demands).
+temp CONTEXT glossaries), and the CANONICAL `seeds/memory/` doctrine COPIED into a temp `memory/`
+(so the content is the genuine personality/method/canone doctrine while `state_dir` resolves to the
+temp tree, not real `state/idiom.md`). Offline: `clusters=None` (no graph), the roster is read from
+the versioned `tests/fixtures/roster.agent.yaml` (the DECLARED roster the audit's stage-(i) row 4
+demands).
+
+Host-independence: the genotype has, BY CONTRACT, no `agent.yaml` and no `memory/` — both are
+outputs of onboarding. Reading them at import time made this whole module fail to LOAD on a
+genotype (`unittest.loader._FailedTest`, hiding every test here). `seeds/memory/` is the versioned
+seed the install's `memory/` is provisioned FROM, and `tests/fixtures/roster.agent.yaml` the
+versioned declared phenotype — same doctrine, same roster, on any host.
 """
 import shutil
 import sys
@@ -27,17 +34,22 @@ import eventlog    # noqa: E402
 import briefing    # noqa: E402
 import grill_gate  # noqa: E402
 
-# The REAL declared source roster, read from the real agent.yaml READ-ONLY (never state/). The
-# audit's stage-(i) row 4 requires the briefing inject the REAL roster, not a generic inference.
-REAL_ROSTER = briefing.source_roster(agent_yaml=REPO / "agent.yaml")
+ROSTER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "roster.agent.yaml"
+SEEDS_MEMORY = REPO / "seeds" / "memory"
+
+# The DECLARED source roster, read READ-ONLY from the versioned fixture (never state/, never the
+# host's agent.yaml). The audit's stage-(i) row 4 requires the briefing inject the DECLARED roster,
+# not a generic inference — the fixture is that declaration, identical on every host.
+REAL_ROSTER = briefing.source_roster(agent_yaml=ROSTER_FIXTURE)
 
 
 def _genotype(tmp):
     """Build a throwaway genotype tree under `tmp` and return (agent_yaml, memory, log).
 
-    - memory/: the REAL doctrine (personality.md.tpl + method.md) COPIED in, so the briefing's
-      tattoos carry the genuine content while `state_dir` (memory.parent/state) stays the temp
-      tree — no read of the real `state/idiom.md` (CONTRACT C1).
+    - memory/: the canonical doctrine from `seeds/memory/` (personality + method + canone) COPIED
+      in, so the briefing's tattoos carry the genuine content while `state_dir`
+      (memory.parent/state) stays the temp tree — no read of the real `state/idiom.md`
+      (CONTRACT C1).
     - agent.yaml: full identity (name/mission/voice — the personality `.tpl` substitutes them),
       a non-empty `sources` list, and `ground_truth.documents` pointing at a temp CONTEXT glossary.
     - log: a path under tmp (the fresh, empty log each stage starts from).
@@ -45,9 +57,8 @@ def _genotype(tmp):
     tmp = Path(tmp)
     memory = tmp / "memory"
     memory.mkdir(parents=True, exist_ok=True)
-    shutil.copy(REPO / "memory" / "personality.md.tpl", memory / "personality.md.tpl")
-    shutil.copy(REPO / "memory" / "method.md", memory / "method.md")
-    shutil.copy(REPO / "memory" / "canone.md", memory / "canone.md")
+    for doc in ("personality.md", "method.md", "canone.md"):
+        shutil.copy(SEEDS_MEMORY / doc, memory / doc)
     (tmp / "state").mkdir(parents=True, exist_ok=True)  # temp state_dir; intentionally no idiom.md
 
     glossary = tmp / "project-CONTEXT.md"
@@ -98,7 +109,12 @@ class StageIFreshInstall(unittest.TestCase):
             self.assertIn("### Personality", out)
             self.assertIn("distrust the rationality, not the person", out)  # real personality doctrine
             self.assertIn("### Method", out)
-            self.assertIn("Feynman Method", out)                            # real method doctrine
+            # the method doctrine is anchored by its SUBSTANCE, not by a label: e4db5de rewrote
+            # seeds/memory/method.md from "Feynman Method" to "The Method — o abate". The two
+            # engines identify the text; the old bigram identified only the old heading
+            # (same anchor test_briefing.py already uses).
+            self.assertIn("Feynman", out)                                   # o motor de derivação
+            self.assertIn("o abate", out)                                   # o motor de abate
             # Idiom glossary FLOOR — the temp ground_truth.documents content is injected
             self.assertIn("## Idiom", out)
             self.assertIn("the act that yields a decision", out)            # the temp CONTEXT glossary
@@ -129,13 +145,18 @@ class StageIIAfterGrill(unittest.TestCase):
             # simulate the grill — steers + leveling-state floor land on the temp log
             eventlog.set_objective("ship the durable steer before tuning the grill",
                                    rationale="says mission A, behavior shows B", log=log)
-            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log)
-            eventlog.propose("d2", "explore the source-feedback loop", log=log)
+            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log, title="tighten the close path")
+            eventlog.propose("d2", "explore the source-feedback loop", log=log, title="explore the source-feedback loop")
             eventlog.report_direction("the live steer: anchor on the close, defer the loop", log=log)
             import grill_writeback
             grill_writeback.leveling(
                 "diario", "sem update de persona; residual = lifecycle audit",
                 root=Path(tmp) / "leveling", log=log)
+            # the wayfind MAPA — grill_gate's fifth stage-(ii) piece (operator 2026-07-28):
+            # Direction is the direção, the map is the MAPA, and every mentor updates both.
+            eventlog.open_map(operacao="edge", titulo="Mapa do close",
+                              rationale="o mapa que acompanha o steer do close",
+                              dispatch_id="lifecycle-map", author="grill", log=log)
 
             # the post-grill gate confirms no stage-(ii) gap remains
             self.assertEqual(grill_gate.grill_complete(log=log), [])
@@ -168,7 +189,7 @@ class StageIIIAfterTwoBeats(unittest.TestCase):
             agent_yaml, memory, log = _genotype(tmp)
             # a grill first (the realistic order), so the steer is present going into the beats
             eventlog.set_objective("ship the durable steer", log=log)
-            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log)
+            eventlog.set_direction("d1", "tighten the close path", kind="priority", log=log, title="tighten the close path")
             eventlog.report_direction("the live steer", log=log)
 
             # two beats — each an Artefato + its kernel (atomic, zero C3 debt)

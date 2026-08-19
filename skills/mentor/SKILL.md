@@ -114,15 +114,23 @@ specific dark leg; never convert an unattempted graph read into “insufficient 
    (harm-ranked, a delta past the grilled mark). It is **ammunition the questions draw on, never
    the opening line** — funnel it; a low-relevance item, however high its harm tier, is backlog.
 
-**Direction proposed from wake/topic-thread is normal input, not ratification.** The wake sweep
-may now infer recent Voz topic threads over the last 7 days and land them as
-`direction.proposed` before assemble reads the briefing. Treat these as the mentor's live
-costura queue: useful because they show the path the system sees, dangerous if mistaken for Voz.
-Before asking, inspect each proposal's `relates_to` evidence in the event log (Voz fragments,
-sessions, turns); resolve anything the evidence already resolves. In the grill, do one of four
-things explicitly: promote to `direction.set` only when the mentee ratifies it, drop it when it is
-wrong or stale, split/merge it when the topic cluster conflates threads, or leave it proposed with
-a sharper falsifiable inscription. Never promote an inferred topic just because it recurs.
+**Observe-first reads the live activity, not a topic-7d canned steer.** Before speaking, read
+the open activity's N1–N3 (events, mechanical correlations, immediate-objective hypothesis) and
+the sweep's `direction.proposed` pair (body = N3 objetivo imediato + N4 porquê estratégico).
+That pair is the wake's non-curated read of the live work — useful, dangerous if mistaken for
+Voz. TOPIC_SPECS / `topic-7d:…` is not the proposed engine.
+
+**Consolidation (mentor, never sweep):**
+- N3 confirmed → `eventlog.set_objective` — that is the objective of the work.
+- N4 confirmed → `eventlog.set_direction` on the same `atividade:{ulid}` id.
+- Contested stays visible (`eventlog.drop` retires the proposed; the N4 record keeps
+  `status=contestada` / `invalid_at`). Confirmation that becomes Direction goes through
+  `eventlog.propose` / `set_direction` / `drop` — not only the sidecar `respostas.jsonl`.
+- Critique and "how to help" happen **here**, in mentor. They do **not** enter the N4 record
+  (no style/pedagogy, no "você é incremental-reativo"). Persona stays in leveling.
+
+Never promote to `direction.set` in sweep. Never reopen set/dropped. Never promote a pair just
+because it recurred.
 
 **Direction e wayfind são complementares — e AMBOS se atualizam em todo mentor (operador
 2026-07-28).** A Direction é a direção; o wayfind é o MAPA. O gate de fechamento recusa

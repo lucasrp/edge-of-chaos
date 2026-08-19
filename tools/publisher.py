@@ -694,7 +694,8 @@ def _render_page(slug, spec, *, skill, date):
     pinned renderer's output — no legacy `_page` shell, no base.css — so a reprojection from
     the logged spec re-derives the EXACT bytes `publish_rito` wrote and sealed."""
     if isinstance(spec, dict) and spec.get("format") == "edge-markdown/v1":
-        page = render.markdown_spec_to_page(spec)
+        import yaml_rite
+        page = yaml_rite.page_text(spec.get("markdown") or "")
         return page, page
     body_html = render.spec_to_html(spec)
     css = BASE_CSS.read_text()
@@ -1051,8 +1052,11 @@ def _project_artefato_asset(s, g, asset):
               "MERGE (p)-[r:HAS_ASSET]->(a) "
               "SET r.provenance_class='asserted', r.role=$role",
               g=g, parent=parent, slug=asset_slug, role=asset.get("role"))
-    s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
-          "MERGE (a)-[:SERVES]->(o)", g=g, slug=asset_slug)
+    # #633 — SERVES targets the SPINE Objective, never an `operacao` hub.
+    obj_key = spine_objective_key(g)
+    s.run(f"MATCH (a:Artefato {{group_id:$g, slug:$slug}}) MATCH (o:Objective) "
+          f"WHERE {_spine_where(obj_key)} MERGE (a)-[:SERVES]->(o)",
+          g=g, slug=asset_slug, **obj_key)
 
 
 def project_artefato_asset(asset_slug, *, path, kind, sha256, skill=None, parent_slug=None,
@@ -1090,28 +1094,88 @@ def project_artefato_asset(asset_slug, *, path, kind, sha256, skill=None, parent
             pass
 
 
+SESSION_TOPIC_CAP_DEFAULT = 3
+
+
+def _session_topic_cap():
+    """Quantos Topics uma sessão pode ancorar no grafo. `EDGE_TOPIC_MAX_PER_SESSION`; <=0 desliga.
+
+    O vocabulário de Topic é GLOBAL e pequeno (topic_threads.TOPIC_SPECS + o genérico
+    `session-voice`), e `infer_session_topics` indexa com `min_score=1`: UM fragmento que cita um
+    termo já abre um Topic para a sessão inteira. Sem teto, cada sessão acaba ancorando na maioria
+    do vocabulário — a frota mediu 21357 arestas HAS_TOPIC contra ~15400 nós — e um grafo em que
+    toda sessão é sobre quase todo tópico não aponta para lugar nenhum: "tudo é sobre tudo" (#635).
+    O teto é do lado da ESCRITA e a projeção é wipe-rebuild por sessão, então a próxima projeção
+    conserta um grafo já inchado sem migração destrutiva.
+
+    O 3 sai do critério de frota, não do gosto: `group_health.HAS_TOPIC_DEGREE_CEILING` (#638)
+    reprova acima de 1.2 arestas HAS_TOPIC por NÓ do group, e a frota está em 21357/15400 = 1.39.
+    Medido sobre o fold real, o grau por sessão cai de 5.72 para 3.00 — as arestas caem para ~52%
+    e, sobre a MESMA contagem de nós da frota (o teto corta aresta, não nó), 1.39 vira ~0.73. Um
+    teto de 4 daria ~0.97: passa, mas sem margem para o vocabulário crescer. O denominador do
+    critério é o grafo inteiro e esta projeção não o controla — o que o teto garante é o
+    numerador."""
+    raw = os.environ.get("EDGE_TOPIC_MAX_PER_SESSION")
+    if raw is None:
+        return SESSION_TOPIC_CAP_DEFAULT
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        print(f"publisher: EDGE_TOPIC_MAX_PER_SESSION={raw!r} não é inteiro — usando "
+              f"{SESSION_TOPIC_CAP_DEFAULT}")
+        return SESSION_TOPIC_CAP_DEFAULT
+
+
+def _ranked_session_topics(session, topics, cap):
+    """Os Topics que ESTA sessão ancora, os mais fortes primeiro, cortados no teto.
+
+    A força é por sessão, nunca global: quantos fragmentos DESTA sessão o fold listou sob o tópico
+    (a interseção entre `session["fragments"]` e `topic["fragments"]`). Ordenar pelo `score` global
+    daria a MESMA cabeça de lista para toda sessão do install — trocaria "tudo é sobre tudo" por
+    "tudo é sobre os mesmos três". O score global e o topic_id só desempatam, para a projeção ser
+    determinística. Devolve na ordem ordenada do fold (estabilidade do wipe-rebuild)."""
+    ids = [t for t in (session.get("topics") or []) if isinstance(t, str)]
+    if cap <= 0 or len(ids) <= cap:
+        return ids
+    own = set(session.get("fragments") or [])
+
+    def rank(tid):
+        topic = topics.get(tid) or {}
+        mine = len(own.intersection(topic.get("fragments") or ()))
+        score = topic.get("score") if isinstance(topic.get("score"), (int, float)) else 0
+        return (-mine, -score, tid)
+
+    return sorted(sorted(ids, key=rank)[:cap])
+
+
 def _project_session_topic_index(s, g, index, log=eventlog.LOG):
     """Project the automatic Voz/session topic index.
 
     The log is the source of truth; these nodes are navigational hypotheses. Rebuild the owned
     Session->Topic/Fragment edges for sessions present in the fold so a changed topic extraction does
     not strand stale fragments.
+
+    Only the session's strongest `_session_topic_cap()` topics reach the graph — the fold keeps
+    every one of them, and the log is still the truth; the graph is the NAVIGATION, and navigation
+    dies of too many edges before it dies of too few.
     """
     if not isinstance(index, dict):
         return
     topics = index.get("topics") or {}
     fragments = index.get("fragments") or {}
+    cap = _session_topic_cap()
     for session in (index.get("sessions") or {}).values():
         sid = session.get("session_id")
         if not sid:
             continue
+        kept = _ranked_session_topics(session, topics, cap)
         s.run(
             "MERGE (se:Episodic {group_id:$g, session_id:$sid}) "
             "SET se.name=$sid, se.key=$sid, se.uuid=$uuid, se.surface=$surface, se.path=$path, "
             "se.summary=$summary, se.medium_tier='low', se.projected_at=$pat",
             g=g, sid=sid, uuid=f"session:{sid}", surface=session.get("surface"),
             path=session.get("path"),
-            summary=f"session topic index: {len(session.get('topics') or [])} topic(s)",
+            summary=f"session topic index: {len(kept)} topic(s)",
             pat=session.get("latest_ts") or _dt.now(_tz.utc).isoformat())
         s.run(
             "MATCH (se:Episodic {group_id:$g, session_id:$sid})-[r:HAS_TOPIC]->(:Topic) DELETE r",
@@ -1120,7 +1184,7 @@ def _project_session_topic_index(s, g, index, log=eventlog.LOG):
             "MATCH (se:Episodic {group_id:$g, session_id:$sid})-[:HAS_FRAGMENT]->"
             "(vf:VozFragment {group_id:$g}) DETACH DELETE vf",
             g=g, sid=sid)
-        for topic_id in session.get("topics") or []:
+        for topic_id in kept:
             topic = topics.get(topic_id) or {}
             s.run(
                 "MERGE (t:Topic {group_id:$g, topic_id:$tid}) "
@@ -1152,7 +1216,10 @@ def _project_session_topic_index(s, g, index, log=eventlog.LOG):
                 "(vf:VozFragment {group_id:$g, fragment_id:$fid}) "
                 "MERGE (se)-[r:HAS_FRAGMENT]->(vf) SET r.provenance_class='extracted'",
                 g=g, sid=sid, fid=fid)
-            if topic_id:
+            # o fragmento só aponta para um Topic que a sessão ancorou: um ABOUT sobrevivente de
+            # um tópico cortado reabriria pela porta de trás exatamente o grau que o teto fecha,
+            # e ainda seguraria vivo um Topic que a limpeza de órfãos deveria apagar.
+            if topic_id and topic_id in kept:
                 s.run(
                     "MATCH (vf:VozFragment {group_id:$g, fragment_id:$fid}),"
                     "(t:Topic {group_id:$g, topic_id:$tid}) "
@@ -1173,9 +1240,11 @@ def _project_session_topic_index(s, g, index, log=eventlog.LOG):
         s.run(
             "MATCH (t:Topic {group_id:$g, topic_id:$tid}) "
             "MERGE (d:Direction {group_id:$g, body:$body}) "
-            "SET d.id=$id, d.kind=$kind "
+            "SET d.id=$id, d.kind=$kind, d.title=coalesce($title,d.title), "
+            "d.expires_at=coalesce($expires,d.expires_at) "
             "MERGE (t)-[r:PROPOSES]->(d) SET r.provenance_class='extracted'",
-            g=g, tid=topic_id, body=body, id=iid, kind=item.get("kind") or "thread")
+            g=g, tid=topic_id, body=body, id=iid, kind=item.get("kind") or "thread",
+            title=item.get("title"), expires=item.get("expires_at"))
     s.run(
         "MATCH (t:Topic {group_id:$g}) "
         "WHERE NOT (()-[:HAS_TOPIC]->(t)) AND NOT (()-[:ABOUT]->(t)) "
@@ -1403,6 +1472,100 @@ def _project_parceiros(s, g, log):
               g=g, name=p["name"])
 
 
+# --- the spine :Objective is a SINGLETON (#633) ------------------------------------------------
+# The rite promises ONE Objective per group; the fleet's `petertosh` carried SIX, all with the
+# identical body. The append was NOT in the eventlog — `objective.set` is latest-wins and
+# `cortex.objective_at` folds it to one record. It was in the PROJECTION, where two writers shared
+# one label:
+#
+#   * project_lentes minted one `:Objective` per `operacao` (keyed {group_id, ref}) as the MARCO_OF
+#     hub — an operation is NOT the group's north, it only borrowed the label; and
+#   * _project_backbone wrote the spine with a bare `MERGE (o:Objective {group_id:$g})`.
+#
+# A bare MERGE has no discriminating key: it MATCHED those hubs instead of creating the spine node,
+# and `SET o.body=$b` stamped the SAME body on EVERY one of them. The SERVES fan then hung every
+# Artefato off all of them — "aligned with any of the six".
+#
+# The spine is told apart by `spine=true` (what this module writes) OR by `ref IS NULL` (nodes
+# written before the stamp existed — read compat per install, no backfill required); the operation
+# hub always carries a `ref`, because graph_store.merge_node puts it in the MERGE key.
+
+
+OPERACAO_LABEL = "Operacao"
+
+
+def spine_predicate(alias="o"):
+    """The Cypher predicate that tells the spine Objective apart from an operation hub."""
+    return f"({alias}.spine = true OR {alias}.ref IS NULL)"
+
+
+# The identity of the singleton. #578 (corpus N×N, open) pins Genesis/Objective/Direction as
+# {group_id, agent}; when it lands, unicity becomes per-(group_id, agent) — flip THIS TUPLE and the
+# write, the guard and tools/migrate_objective_singleton.py all follow. It is a parameter, not a
+# rewrite: nothing below spells `group_id` on its own.
+OBJECTIVE_SINGLETON_KEY = ("group_id",)
+
+
+def spine_objective_key(group_id, agent=None):
+    """The property map that identifies THE spine Objective, per OBJECTIVE_SINGLETON_KEY."""
+    values = {"group_id": group_id, "agent": agent}
+    return {field: values[field] for field in OBJECTIVE_SINGLETON_KEY}
+
+
+def _spine_where(key, alias="o"):
+    """WHERE fragment pinning `alias` to the singleton key AND to the spine. Field names come from
+    OBJECTIVE_SINGLETON_KEY — a fixed module tuple, never caller input."""
+    pinned = " AND ".join(f"{alias}.{field} = ${field}" for field in key)
+    return f"{pinned} AND {spine_predicate(alias)}"
+
+
+def spine_objectives(s, group_id, agent=None):
+    """Every node that IS (or reads as) the spine Objective for this key, OLDEST FIRST — the view
+    the guard and the migration share. More than one row is the #633 violation."""
+    key = spine_objective_key(group_id, agent)
+    rows = s.run(f"MATCH (o:Objective) WHERE {_spine_where(key)} "
+                 "RETURN elementId(o) AS id, o.body AS body, "
+                 "coalesce(o.created_at, '') AS created_at "
+                 "ORDER BY created_at, id", **key)
+    return [dict(r) for r in rows]
+
+
+def objective_singleton_violation(s, group_id, agent=None):
+    """The guard: at most ONE live spine :Objective per singleton key. Returns the EXTRA nodes
+    (empty == healthy). It REPORTS — it never deletes and never raises into a sweep: an install
+    that already duplicated must keep projecting (CONTRACT C1, fail-dark not fail-stop), and node
+    deletion only ever runs behind the migration's --dry-run/--apply gate."""
+    return spine_objectives(s, group_id, agent)[1:]
+
+
+def merge_spine_objective(s, group_id, body, agent=None):
+    """IDEMPOTENT singleton write of the spine :Objective. Same body → the node is reused as-is.
+    NEW body → superseded IN PLACE (same node, previous text kept in `superseded_body`) — never a
+    CREATE. Returns the elementId of the live spine Objective, or None when there is no body.
+
+    Pre-existing duplicates are NOT collapsed here (that is destructive): the write targets the
+    OLDEST survivor, so it can neither widen the damage nor stamp an operation hub."""
+    if not body:
+        return None
+    key = spine_objective_key(group_id, agent)
+    rows = spine_objectives(s, group_id, agent)
+    if not rows:
+        # MERGE (not CREATE) on the full key + the spine stamp: two sweeps racing converge on one
+        # node instead of each minting its own — the other way a group grows identical copies.
+        props = ", ".join(f"{field}:${field}" for field in key)
+        rec = s.run(f"MERGE (o:Objective {{{props}, spine:true}}) "
+                    "SET o.body = $body RETURN elementId(o) AS id", body=body, **key).single()
+        return rec["id"]
+    live = rows[0]
+    if live["body"] != body:
+        s.run("MATCH (o) WHERE elementId(o) = $id "
+              "SET o.superseded_body = o.body, o.body = $body, o.spine = true",
+              id=live["id"], body=body)
+    else:
+        s.run("MATCH (o) WHERE elementId(o) = $id SET o.spine = true", id=live["id"])
+    return live["id"]
+
+
 def _project_backbone(s, g, log):
     """Project the canonical SPINE BACKBONE on an open session `s`: :Genesis (space-0) -GROUNDS->
     :Objective + the ANCHORS rebuild (the active steers, DESTRUCTIVE DELETE-then-readd from the
@@ -1410,35 +1573,87 @@ def _project_backbone(s, g, log):
     ANCHORS stay current with the log every canonical sync, regardless of which artefatos exist."""
     import yaml
     try:
-        cfg = yaml.safe_load((REPO / "agent.yaml").read_text()) or {}
+        cfg = yaml.safe_load(_identity.identity_path("agent.yaml").read_text()) or {}
     except Exception:  # noqa: BLE001 — agent.yaml read is best-effort
         cfg = {}
     s.run("MERGE (gen:Genesis {group_id:$g}) SET gen.space=0, gen.codename=$c, gen.voice=$v, "
           "gen.method='memory/method.md', gen.personality='memory/personality.md'",
           g=g, c=cfg.get("codename") or cfg.get("name"), v=cfg.get("voice"))
     obj = cortex.objective_at(log=log) or {}
+    key = spine_objective_key(g)
+    spine = _spine_where(key)
     if obj.get("body"):
-        s.run("MERGE (o:Objective {group_id:$g}) SET o.body=$b", g=g, b=obj["body"])
-        s.run("MATCH (gen:Genesis {group_id:$g}),(o:Objective {group_id:$g}) "
-              "MERGE (gen)-[:GROUNDS]->(o)", g=g)
+        merge_spine_objective(s, g, obj["body"])
+        s.run(f"MATCH (gen:Genesis {{group_id:$g}}) MATCH (o:Objective) WHERE {spine} "
+              "MERGE (gen)-[:GROUNDS]->(o)", g=g, **key)
         # ENSURE every Artefato SERVES the objective (Codex P2): an Artefato published BEFORE the
         # Objective existed had its SERVES no-op at projection time; the backbone (run every canonical
         # sweep, once an Objective exists) guarantees the hub link so it is reachable from space-0 —
         # cheap idempotent MERGEs, no embeddings, independent of the per-slug skip-present recovery.
-        s.run("MATCH (a:Artefato {group_id:$g}),(o:Objective {group_id:$g}) "
-              "MERGE (a)-[:SERVES]->(o)", g=g)
+        # #633: pinned to the SPINE — the fan used to hang every Artefato off every operation hub too.
+        s.run(f"MATCH (a:Artefato {{group_id:$g}}) MATCH (o:Objective) WHERE {spine} "
+              "MERGE (a)-[:SERVES]->(o)", g=g, **key)
+        extras = objective_singleton_violation(s, g)
+        if extras:
+            print(f"publisher: {len(extras) + 1} live :Objective in group {g} — the spine must be a "
+                  "singleton (#633). Wrote the oldest only; collapse the rest with "
+                  f"`tools/edge-python tools/migrate_objective_singleton.py --group {g}` "
+                  "(dry-run first).")
     # ANCHORS = the CURRENTLY active steers — REBUILD each sync (DESTRUCTIVE) so a dropped/superseded
     # Direction stops being anchored (recall from space-0 must match the log).
     dirs = cortex.direction_at(log=log) or {}
-    s.run("MATCH (o:Objective {group_id:$g})-[r:ANCHORS]->(:Direction) DELETE r", g=g)
+    s.run(f"MATCH (o:Objective)-[r:ANCHORS]->(:Direction) WHERE {spine} DELETE r", **key)
     for it in dirs.get("set", []) + dirs.get("proposed", []):
-        s.run("MERGE (d:Direction {group_id:$g, body:$b})", g=g, b=it["body"])
-        s.run("MATCH (o:Objective {group_id:$g}),(d:Direction {group_id:$g, body:$b}) "
-              "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"])
+        # The node used to be keyed by body ALONE and carried nothing else — so the fold's `id`,
+        # the only stable name a Direction has, never reached the graph (this host's single
+        # Direction had keys ['body','group_id'] and no id at all). That is how a group ends up
+        # with 788 of them: reword the body, get a new node, forever, with nothing to reconcile
+        # against. MERGE stays on body for compatibility with the nodes already out there — the
+        # dedupe by id belongs to the migration (tools/direction_backfill.py), not to a silent
+        # rewrite here — but the handle, the id and the declared end now ride along. `coalesce`
+        # so a re-projection never WIPES a backfilled title with a null (#632).
+        # `title`/`expires_at`/`supersedes` are the three fields tools/group_health.py reads to
+        # answer "is this group navigable?" — it counts a Direction as handled only when
+        # coalesce(title,name) is set, and as having lifecycle only when expires_at or supersedes
+        # is. Projecting them here is what turns the fix into a measurable one (#632/#636).
+        s.run("MERGE (d:Direction {group_id:$g, body:$b}) "
+              "SET d.id=coalesce($id,d.id), d.kind=coalesce($k,d.kind), "
+              "d.title=coalesce($t,d.title), d.expires_at=coalesce($x,d.expires_at), "
+              "d.supersedes=coalesce($sup,d.supersedes), "
+              "d.title_generated=coalesce($tg,d.title_generated)",
+              g=g, b=it["body"], id=it.get("id"), k=it.get("kind"),
+              t=it.get("title"), x=it.get("expires_at"), sup=it.get("supersedes"),
+              tg=True if it.get("title_generated") else None)
+        # ANCHORS casa com a ESPINHA, não com qualquer :Objective do group (#633): os hubs
+        # de `operacao` usam o mesmo rótulo, e um MATCH sem a chave da espinha pendurava
+        # a Direction em todos eles. A chave vem de OBJECTIVE_SINGLETON_KEY.
+        s.run(f"MATCH (o:Objective) WHERE {spine} "
+              "MATCH (d:Direction {group_id:$g, body:$b}) "
+              "MERGE (o)-[:ANCHORS]->(d)", g=g, b=it["body"], **key)
     # Ticket A — the episteme spine rides the same canonical sync: :Hypothesis nodes fold from
     # hypothesis.declared/superseded; the §6 parceiro mark folds from parceiro.promoted.
     _project_hypotheses(s, g, log)
     _project_parceiros(s, g, log)
+
+
+def _announce_new_tenant(s, g):
+    """SAY IT when this sweep is about to mint the identity root of a NEW tenant (#634).
+
+    `_project_backbone` MERGEs `(:Genesis {group_id:$g})` unconditionally — correct for a fresh
+    install, and exactly how a renamed agent.yaml forks its own memory into a second tenant while
+    the old one goes quiet. Nobody can fix what nobody was told, so the birth of a second root on
+    a Bolt that already has one is ANNOUNCED, with the migrate offered. Announce only: the beat
+    must never die on a gardening problem, and the refusal belongs at install time
+    (`_validate.check_tenant`), where the operator is present to answer.
+
+    Best-effort and silent on any failure — this is a print, not a gate."""
+    try:
+        import group_admin
+        v = group_admin.tenant_verdict(s, g)
+        if v["status"] in ("fork_suspect", "forked"):
+            print("backbone: %s — %s" % (v["status"].upper(), v["detail"]))
+    except Exception:  # noqa: BLE001 — a notice must never break the sweep
+        pass
 
 
 def project_backbone(log=eventlog.LOG):
@@ -1458,6 +1673,7 @@ def project_backbone(log=eventlog.LOG):
         return
     try:
         with drv.session() as s:
+            _announce_new_tenant(s, g)
             _project_backbone(s, g, log)
     except Exception as ex:  # noqa: BLE001 — best-effort, never fatal
         print("backbone sync failed (best-effort):", ex)
@@ -1622,8 +1838,11 @@ def project_artefato(slug, intent, *, skill, distills=None, proposes=None, cites
                 s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}) SET a += $props",
                       g=g, slug=slug, props=gate_props)
             # every Artefato SERVES the objective — the hub keeping it reachable from space-0.
-            s.run("MATCH (a:Artefato {group_id:$g, slug:$slug}),(o:Objective {group_id:$g}) "
-                  "MERGE (a)-[:SERVES]->(o)", g=g, slug=slug)
+            # #633 — the SPINE objective only, never an `operacao` hub.
+            obj_key = spine_objective_key(g)
+            s.run(f"MATCH (a:Artefato {{group_id:$g, slug:$slug}}) MATCH (o:Objective) "
+                  f"WHERE {_spine_where(obj_key)} MERGE (a)-[:SERVES]->(o)",
+                  g=g, slug=slug, **obj_key)
             # embed the CONTENT (Codex P2): a concept in the body but not the kernel must still be
             # semantically recallable over a.embedding. Re-embed only when the EMBED INPUT CHANGED
             # (Codex P2): store a hash of (slug+intent+spec_text); a republish with changed
@@ -2012,18 +2231,21 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
 
     # THE PIN: recompute the approved renderer's bytes; refuse any mismatch with the sealed
     # final_html receipt (pinning the pipeline, not scoring the artifact).
-    page_bytes = render.markdown_page_bytes(markdown)
+    # YAML sealed drafts use yaml_rite.page_bytes / edge-yaml-spec/v1; markdown stays pinned.
+    import yaml_rite
+    page_bytes = yaml_rite.page_bytes(markdown)
     page_sha = hashlib.sha256(page_bytes).hexdigest()
     sealed_html_sha = (stages.get("final_html") or {}).get("output", {}).get("sha256")
+    renderer_id = yaml_rite.renderer_id_for(markdown)
     if page_sha != sealed_html_sha:
         raise ValueError(
             f"pinned renderer mismatch: recomputed page sha {page_sha} != sealed final_html "
-            f"receipt {sealed_html_sha} ({render.RENDERER_ID}) — refusing to publish")
+            f"receipt {sealed_html_sha} ({renderer_id}) — refusing to publish")
 
     out = _safe_target(slug, blog_dir)
     core = rito.manifest_core_hash(manifest)
     spec = {"format": "edge-markdown/v1", "markdown": markdown,
-            "renderer_id": render.RENDERER_ID, "rito_manifest_sha256": core,
+            "renderer_id": renderer_id, "rito_manifest_sha256": core,
             "page_sha256": page_sha}
 
     # IDEMPOTENT RESUME (codex [high]): the event is the commit point (ADR-0006), the page a
@@ -2074,7 +2296,7 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
             reports_on=reports_on)
     return {"event_seq": published_ev["seq"], "event_ts": published_ev["ts"],
             "page_path": str(out), "page_sha256": page_sha,
-            "rito_manifest_sha256": core, "renderer_id": render.RENDERER_ID}
+            "rito_manifest_sha256": core, "renderer_id": renderer_id}
 
 
 def promote_artefato_to_source(slug, reviewer, note="", log=eventlog.LOG):
@@ -2259,8 +2481,13 @@ def project_lentes(log, store):
     })
     for operation_name in operation_names:
         ref = f"operacao:{operation_name}"
+        # #633 — an `operacao` is the MARCO_OF hub, NOT the group's north. It used to borrow the
+        # :Objective label, which is why `MATCH (o:Objective {group_id:$g})` counted six of them on
+        # petertosh, why the bare spine MERGE stamped its body onto every one, and why #638's
+        # group_health (which counts the label) reports the group as duplicated. Existing graphs are
+        # relabelled by tools/migrate_objective_singleton.py.
         operations.append((ref, lambda ref=ref, operation_name=operation_name:
-                           store.merge_node(ref, "Objective", {"operacao": operation_name})))
+                           store.merge_node(ref, OPERACAO_LABEL, {"operacao": operation_name})))
 
     edge_sets = {}
 
@@ -2505,7 +2732,14 @@ def _graph_present_slugs():
     ONLY as project_artefato's last step) OR STALE (its `projected_at` is older than the log's latest
     published ts for that slug — a republish whose projection never reached the graph). Returns a dict
     `{slug: projected_at}`, or None on a degrade (no group / no driver / unreachable) — the caller then
-    skips the replay entirely (there is nothing to recover into a graph it cannot read)."""
+    skips the replay entirely (there is nothing to recover into a graph it cannot read).
+
+    A node with `pending_distills` is ALSO withheld from the present set. Distills are soft since the
+    projection stopped stranding `projection_complete=false` on an unresolved ref (that hid Artefatos
+    from recall); the promise that replaced the hard gate is "retried on reproject", and that promise
+    is only real if the sweep still VISITS the slug. Filtered in PYTHON, not in the Cypher WHERE, so
+    the rule is provable offline. The mark is REMOVEd as soon as every ref resolves, so a settled
+    slug drops straight back out of the sweep."""
     try:
         import _identity
         from neo4j import GraphDatabase
@@ -2518,7 +2752,9 @@ def _graph_present_slugs():
         with drv.session() as s:
             return {r["slug"]: r["pat"] for r in s.run(
                 "MATCH (a:Artefato {group_id:$g}) WHERE a.projection_complete = true "
-                "RETURN a.slug AS slug, a.projected_at AS pat", g=g)}
+                "RETURN a.slug AS slug, a.projected_at AS pat, "
+                "a.pending_distills AS pending", g=g)
+                if not r["pending"]}
     except Exception:  # noqa: BLE001
         return None
     finally:

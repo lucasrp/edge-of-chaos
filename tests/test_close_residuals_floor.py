@@ -27,6 +27,10 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+# two tests below reuse test_harvest's golden transcript shapes (`from test_harvest import …`).
+# That import only resolves when the tests dir is importable, which `-m unittest tests.<mod>`
+# does NOT arrange — same fix test_publisher_floor_split.py already carries for the same reuse.
+sys.path.insert(0, str(REPO / "tests"))
 import close      # noqa: E402
 import harvest    # noqa: E402
 import eventlog   # noqa: E402
@@ -306,6 +310,22 @@ class CloseFloorWrapperKnobLogic(unittest.TestCase):
             p.write_text(json.dumps(line) + "\n")
         return store
 
+    def _fixture_recognizers(self):
+        """O roster DECLARADO deste teste — a fixture versionada, nunca o agent.yaml do host.
+
+        `harvest.close_floor` cai em `build_recognizers()` sem argumento, que lê
+        `sources.load_sources()` — o agent.yaml de quem roda a suíte. Num genótipo (que POR
+        CONTRATO não tem agent.yaml) a tabela nasce VAZIA, o X_CMD do transcript golden não é
+        reconhecido e o teste do caminho "themed COM leitura reconhecida" falha por instalação,
+        não por código. Mesma injeção que test_harvest._seam_sources já faz."""
+        import sources as sources_mod
+        import harvest as harvest_mod
+        srcs, findings = sources_mod.load_sources(
+            Path(__file__).resolve().parent / "fixtures" / "roster.agent.yaml")
+        errors = [f for f in findings if f.get("level") == "error"]
+        assert srcs and not errors, f"fixture de roster inválida: {errors}"
+        return harvest_mod.build_recognizers(sources=srcs)
+
     def _log_with_open(self, tmp, session_id, geometry):
         log = Path(tmp) / "log.jsonl"
         if geometry is not None:
@@ -330,7 +350,8 @@ class CloseFloorWrapperKnobLogic(unittest.TestCase):
             log = self._log_with_open(tmp, "sT", "themed")
             store = self._store_with_transcript(tmp, "sT", recognized=False)
             out = harvest.close_floor(log=log, store_root=store, session_id="sT",
-                                      child_session="")
+                                      child_session="",
+                                      recognizers=self._fixture_recognizers())
             self.assertEqual(out, [harvest.FLOOR_VIOLATION])
 
     def test_gate_passes_themed_dispatch_with_a_recognized_read(self):
@@ -338,7 +359,8 @@ class CloseFloorWrapperKnobLogic(unittest.TestCase):
             log = self._log_with_open(tmp, "sR", "themed")
             store = self._store_with_transcript(tmp, "sR", recognized=True)
             out = harvest.close_floor(log=log, store_root=store, session_id="sR",
-                                      child_session="")
+                                      child_session="",
+                                      recognizers=self._fixture_recognizers())
             self.assertEqual(out, [])
 
     def test_observe_counts_the_would_be_violation_but_never_blocks(self):

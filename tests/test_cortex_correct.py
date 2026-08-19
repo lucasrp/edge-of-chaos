@@ -67,6 +67,7 @@ class _Base(unittest.TestCase):
             _ev(2, "2026-06-10T09:00:01+00:00", "intent.kernel", "alpha-post",
                 {"intent": "open: alpha."}),
         ]) + "\n")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(entries)
         os.environ["EDGE_BLOG_STATIC"] = str(root)
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
@@ -323,6 +324,7 @@ def _load_server(env):
 
 import shutil
 import subprocess
+from _blog_env import guard_blog_env
 
 NODE = shutil.which("node")
 CORTEX_JS = BLOG / "static" / "cortex.js"
@@ -662,6 +664,7 @@ class TestCorrectionRoundTrip(_Base):
         # the stub classifies it a STANDING Directive → the drain folds it to a curated steer
         stub = lambda comment: {"reply": "agreed — retiring that trust.",
                                 "directive": True,
+                                "direction_title": "distrust the flagged source",
                                 "direction_body": "Distrust the unsafe source flagged on the node."}
         drain.drain(self.log, stub, grill_run_id="g2")
         # the terminal outcome carries the fold provenance: origin_comment_id == the correction comment

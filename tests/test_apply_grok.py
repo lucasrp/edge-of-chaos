@@ -9,7 +9,11 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 APPLY = REPO / "tools" / "edge-apply"
-YAML = REPO / "agent.yaml"
+# O fenotipo NAO existe no genotipo (contrato: agent.yaml e output do onboarding, e
+# gitignored). Apontar para REPO/agent.yaml fazia estes testes falharem por construcao com
+# FileNotFoundError — sobre o edge-apply, nada. A fixture versionada e um agent.yaml completo
+# e igual em qualquer host.
+YAML = REPO / "tests" / "fixtures" / "roster.agent.yaml"
 sys.path.insert(0, str(REPO / "tools"))
 from _grok_provision import grok_prefixes  # noqa: E402
 
@@ -54,7 +58,9 @@ class ApplyGrok(unittest.TestCase):
             self.assertIn(f"name: {name}", text)
             self.assertIn(f"@{name}", text)
             self.assertIn(str(self.edge_home / "skills" / "wake" / "SKILL.md"), text)
-            self.assertNotIn(f"/{name}", text)
+            # O Grok invoca skill por SLASH — ao contrário do Codex, que é @ (palavra do
+            # operador, 2026-08-16). Este assertNotIn exigia o contrário do produto.
+            self.assertIn(f"/{name}", text)
 
     def test_stdout_reports_grok_home(self):
         self.assertIn("provisionando Grok skills", self.res.stdout)

@@ -47,7 +47,32 @@ def recognize_fixture(name, recognizers=None):
     return rows
 
 
-_RECS = harvest.build_recognizers()   # derived from THIS repo's agent.yaml (S3 seam)
+ROSTER_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "roster.agent.yaml"
+
+
+def _seam_sources():
+    """O roster DECLARADO deste módulo — sempre a fixture, nunca o agent.yaml do host.
+
+    Este módulo testa o CÓDIGO do harvest: dado um roster, a tabela de recognizers sai certa e o
+    reconhecimento dobra as invocações certas. Para isso o roster tem que ser conhecido e fixo.
+
+    Antes ele vinha de `sources.load_sources()`, isto é, do agent.yaml de quem estivesse rodando
+    a suíte. O resultado dependia do host: num genótipo (que POR CONTRATO não tem agent.yaml) a
+    tabela nascia vazia e 90 dos 226 testes falhavam; num install de roster mínimo, 89. Nenhum
+    desses números dizia nada sobre o harvest — diziam quem apertou enter.
+
+    Validar o roster REAL de um install é outra coisa, e tem dono: test_sources.RealAgentYaml."""
+    srcs, findings = sources.load_sources(ROSTER_FIXTURE)
+    errors = [f for f in findings if f.get("level") == "error"]
+    assert srcs and not errors, f"fixture de roster inválida: {errors}"
+    return srcs
+
+
+def _seam_recognizers():
+    return harvest.build_recognizers(sources=_seam_sources())
+
+
+_RECS = _seam_recognizers()
 
 
 class RecognizersDeriveFromTheS3Seam(unittest.TestCase):
@@ -409,7 +434,7 @@ class HarvestWalksTheStore(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store, log = self._store(tmp), self._log(tmp)
             cursors = Path(tmp) / "cursors.json"
-            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertEqual(n, 5)   # a1 a2 a3 + subagent + sessB websearch
             g = eventlog.grounding_at(log=log)
             attempts = sum(c["attempts"] for c in g["cells"].values())
@@ -423,7 +448,7 @@ class HarvestWalksTheStore(unittest.TestCase):
     def test_dispatch_interval_mapping_never_last_open(self):
         with tempfile.TemporaryDirectory() as tmp:
             store, log = self._store(tmp), self._log(tmp)
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             rows = {tuple(e["payload"]["raw_ref"])[2]: e["payload"]
                     for e in eventlog.read(types=["grounding.manifest"], log=log)}
             self.assertEqual(rows["toolu_a1"]["dispatch_id"], "d1")
@@ -442,7 +467,7 @@ class HarvestWalksTheStore(unittest.TestCase):
     def test_subagent_rows_are_mapped_tier(self):
         with tempfile.TemporaryDirectory() as tmp:
             store, log = self._store(tmp), self._log(tmp)
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             rows = {tuple(e["payload"]["raw_ref"])[2]: e["payload"]
                     for e in eventlog.read(types=["grounding.manifest"], log=log)}
             sub = rows["toolu_s1"]
@@ -454,17 +479,17 @@ class HarvestWalksTheStore(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store, log = self._store(tmp), self._log(tmp)
             cursors = Path(tmp) / "c.json"
-            harvest.harvest(log=log, cursors_path=cursors, store_root=store)
-            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store), 0)
+            harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
+            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS), 0)
 
     def test_retro_harvest_cursor_reset_emits_zero_and_fold_dedups(self):
         with tempfile.TemporaryDirectory() as tmp:
             store, log = self._store(tmp), self._log(tmp)
             cursors = Path(tmp) / "c.json"
-            harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+            harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             before = eventlog.grounding_at(log=log)
             cursors.unlink()   # retro-harvest: cursor reset re-reads the whole store
-            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertEqual(n, 0, "already-emitted raw_refs are never re-emitted")
             after = eventlog.grounding_at(log=log)
             self.assertEqual(
@@ -478,7 +503,7 @@ class HarvestWalksTheStore(unittest.TestCase):
                    _tool_pair("s1", "t1", "2026-07-01T10:00:00.000Z", X_CMD,
                               stdout="truncated — no result_count here"))
             log = Path(tmp) / "log.jsonl"
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             g = eventlog.grounding_at(log=log)
             cell = list(g["cells"].values())[0]
             self.assertIsNone(cell["hits"])
@@ -491,7 +516,7 @@ class HarvestWalksTheStore(unittest.TestCase):
                    _tool_pair("s1", "t1", "2026-07-01T10:00:00.000Z",
                               'curl -s "https://unknown-api.example.com/v1/search?q=x"'))
             log = Path(tmp) / "log.jsonl"
-            n = harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            n = harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             self.assertEqual(n, 0)
             evs = eventlog.read(types=["grounding.unmanifested"], log=log)
             self.assertEqual(len(evs), 1)
@@ -499,7 +524,7 @@ class HarvestWalksTheStore(unittest.TestCase):
             self.assertIn("unknown-api.example.com", evs[0]["payload"]["by_host"])
             # retro-run does not re-tally the same occurrence
             Path(tmp, "c.json").unlink()
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             evs = eventlog.read(types=["grounding.unmanifested"], log=log)
             self.assertEqual(sum(e["payload"]["count"] for e in evs), 1)
 
@@ -511,11 +536,11 @@ class HarvestWalksTheStore(unittest.TestCase):
             _write(f, pair[:1])                        # tool_use flushed, result not yet
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
-                                             store_root=store), 0)
+                                             store_root=store, recognizers=_RECS), 0)
             with f.open("a") as fh:                    # the writer completes the pair
                 fh.write(json.dumps(pair[1]) + "\n")
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
-                                             store_root=store), 1)
+                                             store_root=store, recognizers=_RECS), 1)
             row = eventlog.read(types=["grounding.manifest"], log=log)[0]["payload"]
             self.assertEqual(row["hits"], 4)           # emitted WITH its result, never early-frozen
 
@@ -535,7 +560,7 @@ class HarvestWalksTheStore(unittest.TestCase):
             raw = f.read_text()
             f.write_text('{"type": "assistant", "message": TRUNCATED\n' + raw)
             log = Path(tmp) / "log.jsonl"
-            n = harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            n = harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             self.assertEqual(n, 1, "the valid pair around the corrupt line still harvests")
 
 
@@ -561,7 +586,7 @@ class RetroSupersedeVersionsTheInterpretation(unittest.TestCase):
             n1, log = self._run(tmp, _RECS)
             self.assertEqual(n1, 1)
             # rev+1 AND a corrected interpretation (the lens was wrong, say)
-            recs2 = harvest.build_recognizers()
+            recs2 = _seam_recognizers()
             recs2["rev"] = harvest.RECOGNIZER_REV + 1
             for r in recs2["url"]:
                 if r["source"] == "x":
@@ -588,7 +613,7 @@ class RetroSupersedeVersionsTheInterpretation(unittest.TestCase):
 
     def test_lower_rev_never_downgrades(self):
         with tempfile.TemporaryDirectory() as tmp:
-            recs_hi = harvest.build_recognizers()
+            recs_hi = _seam_recognizers()
             recs_hi["rev"] = harvest.RECOGNIZER_REV + 5
             self._run(tmp, recs_hi)
             n2, log = self._run(tmp, _RECS)   # older recognizer re-run over reset cursor
@@ -608,7 +633,7 @@ class UnmanifestedTallyIsDurableAndBounded(unittest.TestCase):
             _write(store / "-p" / "s1.jsonl",
                    _tool_pair("s1", "t1", "2026-07-01T10:00:00.000Z", cmd))
             log = Path(tmp) / "log.jsonl"
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             evs = eventlog.read(log=log)
             types = [e["type"] for e in evs]
             self.assertIn("grounding.manifest", types)
@@ -626,7 +651,7 @@ class UnmanifestedTallyIsDurableAndBounded(unittest.TestCase):
                    _tool_pair("s1", "t1", "2026-07-01T10:00:00.000Z",
                               'curl -s "https://unknown-api.example.com/a?q=1"'))
             log = Path(tmp) / "log.jsonl"
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             evs = eventlog.read(types=["grounding.unmanifested"], log=log)
             self.assertEqual(len(evs), 1)
 
@@ -641,7 +666,7 @@ class UnmanifestedTallyIsDurableAndBounded(unittest.TestCase):
                 _write(store / "-p" / "s1.jsonl",
                        _tool_pair("s1", "t1", "2026-07-01T10:00:00.000Z", cmd))
                 log = Path(tmp) / "log.jsonl"
-                harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+                harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
                 evs = eventlog.read(types=["grounding.unmanifested"], log=log)
                 self.assertEqual(len(evs), 3)                       # ceil(7/3)
                 self.assertEqual(sum(e["payload"]["count"] for e in evs), 7)
@@ -726,7 +751,7 @@ class ExpiredUnpairedToolUseDoesNotPinTheCursor(unittest.TestCase):
             f = store / "-p" / "s1.jsonl"
             _write(f, cancelled + complete)
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
-            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertEqual(n, 1, "the later complete call still emits")
             rows = eventlog.read(types=["grounding.manifest"], log=log)
             self.assertEqual(rows[0]["payload"]["raw_ref"][2], "t_live")
@@ -735,7 +760,7 @@ class ExpiredUnpairedToolUseDoesNotPinTheCursor(unittest.TestCase):
             saved = json.loads(cursors.read_text())
             self.assertEqual(saved[str(f)]["lines"], 3)
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
-                                             store_root=store), 0)
+                                             store_root=store, recognizers=_RECS), 0)
 
     def test_live_tail_unpaired_still_holds(self):
         # the pre-existing behavior stays: NO activity after the unpaired use = a writer
@@ -747,7 +772,7 @@ class ExpiredUnpairedToolUseDoesNotPinTheCursor(unittest.TestCase):
             _write(f, pair[:1])
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
-                                             store_root=store), 0)
+                                             store_root=store, recognizers=_RECS), 0)
             self.assertEqual(json.loads(cursors.read_text())[str(f)]["lines"], 0)
 
     def test_cancelled_then_plain_line_expires_without_any_later_result(self):
@@ -765,7 +790,7 @@ class ExpiredUnpairedToolUseDoesNotPinTheCursor(unittest.TestCase):
             _write(f, cancelled + plain)
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             self.assertEqual(harvest.harvest(log=log, cursors_path=cursors,
-                                             store_root=store), 0)
+                                             store_root=store, recognizers=_RECS), 0)
             self.assertEqual(json.loads(cursors.read_text())[str(f)]["lines"], 2,
                              "the cursor advances past the cancelled call")
 
@@ -783,7 +808,7 @@ class SessionFloorLocatesByIndex(unittest.TestCase):
             sub = store / "-some-other-slug" / "sessF" / "subagents"
             _write(sub / "agent-z.jsonl",
                    _tool_pair("sessF", "t2", "2026-07-01T10:05:00.000Z", X_CMD))
-            floor = harvest.session_floor("sessF", store_root=store)
+            floor = harvest.session_floor("sessF", recognizers=_RECS, store_root=store)
             self.assertFalse(floor["dark"])
             self.assertEqual(floor["reads"], 2)
             self.assertEqual(len(floor["recognized"]), 2)
@@ -1624,10 +1649,10 @@ class CorruptCursorIsVisibleDegradationNotACrash(unittest.TestCase):
             _write(store / "-p" / "s1.jsonl",
                    _tool_pair("s1", "t1", "2026-07-01T10:00:00.000Z", X_CMD))
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
-            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store), 1)
+            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS), 1)
             cursors.write_text("{ this is not: valid json ]]]")   # a corrupt cursor lands
             # no crash; resets to {}, re-reads the whole store, dedup absorbs it → 0 new rows
-            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store), 0)
+            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS), 0)
             self.assertEqual(len(eventlog.read(types=["grounding.manifest"], log=log)), 1)
             # and a valid cursor was written back
             self.assertIsInstance(json.loads(cursors.read_text()), dict)
@@ -1645,9 +1670,9 @@ class CorruptCursorValuesAreClampedNotCrashed(unittest.TestCase):
             f = store / "-p" / "s1.jsonl"
             _write(f, _tool_pair("s1", "t1", "2026-07-01T10:00:00.000Z", X_CMD))
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
-            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store), 1)
+            self.assertEqual(harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS), 1)
             cursors.write_text(json.dumps({str(f): value}))   # valid JSON, corrupt VALUE
-            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store)
+            n = harvest.harvest(log=log, cursors_path=cursors, store_root=store, recognizers=_RECS)
             self.assertEqual(n, 0, f"clamped re-scan with cursor value {value!r} must dedup to 0")
             self.assertEqual(len(eventlog.read(types=["grounding.manifest"], log=log)), 1)
             saved = json.loads(cursors.read_text())[str(f)]   # #62: the value is a stat triple now
@@ -1756,7 +1781,7 @@ class ConsumedDispatchClosesWithoutUsableTs(unittest.TestCase):
                            "theme": "t", "intent": "why"})
                 + _log_line(2, publish_ts, "artefato.published",
                             {"slug": "artP", "dispatch_id": "dP"}))
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             return eventlog.read(types=["grounding.manifest"], log=log)[0]["payload"]
 
     def test_publish_with_missing_ts_still_closes_by_seq_and_identity(self):
@@ -1779,7 +1804,7 @@ class ConsumedDispatchClosesWithoutUsableTs(unittest.TestCase):
             log.write_text(_log_line(1, "2026-07-01T10:00:00+00:00", "dispatch.open",
                                      {"dispatch_id": "dP", "session_id": "sessP",
                                       "theme": "t", "intent": "why"}))
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             row = eventlog.read(types=["grounding.manifest"], log=log)[0]["payload"]
             self.assertEqual(row["dispatch_id"], "dP")
 
@@ -1797,7 +1822,7 @@ class ContractSignatureTakesProjectDirs(unittest.TestCase):
                    _tool_pair("s2", "t2", "2026-07-01T10:00:00.000Z", X_CMD))
             log, cursors = Path(tmp) / "log.jsonl", Path(tmp) / "c.json"
             # contract signature, positional: only -proj-x is swept
-            n = harvest.harvest(log, cursors, [store / "-proj-x"])
+            n = harvest.harvest(log, cursors, [store / "-proj-x"], recognizers=_RECS)
             self.assertEqual(n, 1)
             refs = {tuple(e["payload"]["raw_ref"])[2]
                     for e in eventlog.read(types=["grounding.manifest"], log=log)}
@@ -1830,7 +1855,7 @@ class StaleMetaFallsBackFromMapped(unittest.TestCase):
             log.write_text(_log_line(1, "2026-07-01T10:00:00+00:00", "dispatch.open",
                                      {"dispatch_id": "dM", "session_id": "sessM",
                                       "theme": "t", "intent": "why"}))
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store)
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", store_root=store, recognizers=_RECS)
             rows = {tuple(e["payload"]["raw_ref"])[2]: e["payload"]
                     for e in eventlog.read(types=["grounding.manifest"], log=log)}
             sub_row = rows["toolu_s"]
@@ -1877,7 +1902,7 @@ class GoldenTwoDispatchInterleaved(unittest.TestCase):
     def test_end_to_end_mapping(self):
         with tempfile.TemporaryDirectory() as tmp:
             store, proj, log = _lay_golden_store(tmp)
-            n = harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", project_dirs=[proj])
+            n = harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", project_dirs=[proj], recognizers=_RECS)
             self.assertEqual(n, 5)   # r1, s1(subagent), r2, r3×2 duplicate queries
             rows = self._rows_by_tuid(log)
             # r1 read inside dG1 — the dispatch declared theme/intent → declared, anchor-mapped
@@ -1895,7 +1920,7 @@ class GoldenTwoDispatchInterleaved(unittest.TestCase):
     def test_duplicate_queries_are_distinct_occurrence_indexes(self):
         with tempfile.TemporaryDirectory() as tmp:
             store, proj, log = _lay_golden_store(tmp)
-            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", project_dirs=[proj])
+            harvest.harvest(log=log, cursors_path=Path(tmp) / "c.json", project_dirs=[proj], recognizers=_RECS)
             r3 = [e["payload"] for e in eventlog.read(types=["grounding.manifest"], log=log)
                   if e["payload"]["raw_ref"][2] == "toolu_r3"]
             self.assertEqual(len(r3), 2)   # ONE tool call, TWO duplicate queries → TWO rows (E2b)
@@ -1907,12 +1932,12 @@ class GoldenTwoDispatchInterleaved(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store, proj, log = _lay_golden_store(tmp)
             cursors = Path(tmp) / "c.json"
-            harvest.harvest(log=log, cursors_path=cursors, project_dirs=[proj])
+            harvest.harvest(log=log, cursors_path=cursors, project_dirs=[proj], recognizers=_RECS)
             g = eventlog.grounding_at(log=log)
             self.assertEqual(g["corrupt"], 0, "every golden row folds cleanly (E2b shape)")
             cursors.write_text("]] corrupt [[")
             self.assertEqual(
-                harvest.harvest(log=log, cursors_path=cursors, project_dirs=[proj]), 0,
+                harvest.harvest(log=log, cursors_path=cursors, project_dirs=[proj], recognizers=_RECS), 0,
                 "corrupt cursor resets, dedup absorbs the whole re-read")
 
 
@@ -2002,7 +2027,7 @@ class HarvestKnowsNoSourceByName(unittest.TestCase):
         # forbidden identity = every declared source's URL host (straight from agent.yaml — self-
         # maintaining) + the concrete host/script literals this slice removed from the code
         forbidden = {"api.twitter.com", "export.arxiv.org", "hn.algolia.com", "edge-x", "api.x.ai"}
-        srcs, _ = sources.load_sources()
+        srcs = _seam_sources()
         for s in srcs:
             for iface in s.get("interfaces", []) or []:
                 # R5-2: the via is operator data — parse it with the VIA grammar, not the shell's
@@ -2021,7 +2046,7 @@ class HarvestKnowsNoSourceByName(unittest.TestCase):
         # a declared source name / interface_id would special-case that source in logic
         lit_values = set(self._code_literals())
         declared = set()
-        srcs, _ = sources.load_sources()
+        srcs = _seam_sources()
         for s in srcs:
             declared.add(s.get("name"))
             for iface in s.get("interfaces", []) or []:

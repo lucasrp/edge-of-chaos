@@ -1,16 +1,17 @@
 """_probe — probe rápido do cortex pro loop de deploy (env pré-sourced pelo wrapper `rq`).
 Cypher:  rq 'MATCH (c:Community {group_id:$g}) RETURN count(c) AS n'   (use $g pro group)
 Python:  rq < snip.py    (globais: C=communities, d=driver, q(cypher,**p)->[dict], G=group)
-Host-agnóstico: G vem do _identity do host (roberto->roberto, ed->edge-next)."""
+Host-agnóstico: G vem SEMPRE do _identity do host — nunca de um literal de install (#21)."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import communities as C
 
-try:
-    import _identity
-    G = _identity.group()
-except Exception:
-    G = os.environ.get("EDGE_GROUP", "roberto")
+import _identity
+
+# FAIL-LOUD, sem fallback (ADR-0015 / #21): q() injeta g=G em todo cypher, então um default
+# embutido faz este probe LER E ESCREVER no grupo de outro tenant sempre que a identidade não
+# resolver — em silêncio, que é o pior modo possível para uma ferramenta de query interativa.
+G = _identity.require_group()
 
 d = C._driver()
 

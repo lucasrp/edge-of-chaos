@@ -32,6 +32,8 @@ _ASSERTED_LABELS = {
     "Genesis", "Objective", "Direction", "Artefato", "Experiment",
     # Structured Activity/Direction lenses: every node is a deterministic log fold (A40).
     "Atividade", "Run", "Fato", "Arco", "Map", "Ticket", "Move", "Claim",
+    # #633 — the per-`operacao` MARCO_OF hub, which used to borrow the :Objective label.
+    "Operacao",
 }
 _EXTRACTED_LABELS = {"Entity", "Source", "Episodic", "Topic", "VozFragment"}
 

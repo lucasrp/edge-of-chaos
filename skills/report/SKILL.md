@@ -167,7 +167,7 @@ that becomes the canonical reading; omit when no experiment closes).
         'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+        'final_review':          lambda o: f"<strict review of the READER-FACING page (rendered HTML if the sealed draft is YAML; markdown as-is); begin with the 3-line ACCEPTANCE header>\n\n{o.get('reader_facing') or o['treatment_cleanup']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

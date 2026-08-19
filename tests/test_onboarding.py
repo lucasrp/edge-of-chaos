@@ -361,7 +361,7 @@ class OnboardingCompletePath(unittest.TestCase):
         onboarding.run_bootstrap(home=home, name="ed", backfill_days=14, provision_skills=False)
         onboarding.emit_phenotype(home, mission="learn", voice="direct")
         eventlog.set_objective("learn well", log=log)
-        eventlog.propose("d1", "first direction", log=log)
+        eventlog.propose("d1", "first direction", log=log, title="first direction")
         eventlog.report_direction("steer body", log=log)
         grill_writeback.leveling(
             "diario",
@@ -539,11 +539,19 @@ class FinishOnboarding(unittest.TestCase):
                 home=home, name="ed", backfill_days=14, provision_skills=False
             )
             eventlog.set_objective("learn", log=log)
-            eventlog.propose("d1", "direction body", log=log)
+            eventlog.propose("d1", "direction body", log=log, title="direction body")
             eventlog.report_direction("steer", log=log)
             grill_writeback.leveling(
                 "diario", "sem update de persona; residual = x",
                 root=home / "lv", log=log,
+            )
+            # o wayfind: direção e MAPA são complementares e ambos têm que ter se movido
+            # (plano do operador 2026-07-13). O gate cobra isso desde então; esta fixture
+            # não acompanhou, e o teste do passo que EMITE o fenótipo ficou vermelho.
+            eventlog.open_map(
+                operacao="onboarding", titulo="mapa do wayfind",
+                rationale="o que o mentor entendeu e os buracos que sabe que não sabe",
+                dispatch_id="d1", author="mentor", log=log,
             )
             path = onboarding.finish_onboarding(
                 home, log=log, mission="learn", voice="direct", enable_heartbeat=False
@@ -551,6 +559,31 @@ class FinishOnboarding(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertTrue(onboarding.is_onboarding_complete(home, log=log))
             onboarding.assert_production_allowed(home, log=log)
+
+    def test_finish_refuses_when_only_the_wayfind_is_missing(self):
+        """A peça que fez este arquivo ficar vermelho merece teste próprio.
+
+        Sem ela, a única cobertura do wayfind era um efeito colateral do caminho feliz — e um
+        caminho feliz que envelhece não acusa a peça que faltou, só fica vermelho por inteiro."""
+        import eventlog
+        import grill_writeback
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            log = home / "log.jsonl"
+            (home / "secrets").mkdir()
+            onboarding.run_bootstrap(
+                home=home, name="ed", backfill_days=14, provision_skills=False
+            )
+            eventlog.set_objective("learn", log=log)
+            eventlog.propose("d1", "direction body", log=log, title="direction body")
+            eventlog.report_direction("steer", log=log)
+            grill_writeback.leveling(
+                "diario", "sem update de persona", root=home / "lv", log=log
+            )
+            # tudo menos o mapa
+            with self.assertRaisesRegex(ValueError, "wayfind"):
+                onboarding.finish_onboarding(home, log=log, mission="m", voice="v")
 
     def test_finish_refuses_without_grill(self):
         with tempfile.TemporaryDirectory() as td:

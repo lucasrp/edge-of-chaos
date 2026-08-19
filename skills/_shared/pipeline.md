@@ -10,7 +10,8 @@ cognition, the pipeline supplies the spine.
 This is the modern, **de-YAML'd, publish-only rewrite** of the legacy `consolidate-state` +
 the `_shared/` trio (`report-template` / `state-protocol` / `workflow-conventions`). The legacy
 mandated report-sections and emitted YAML; this pipeline mandates none and publishes HTML
-directly.
+directly. The reader probe and final review judge the rendered HTML page the mentee
+sees, not raw authoring source (if a leftover draft is still YAML, they never score the keys).
 
 ## The three phases
 

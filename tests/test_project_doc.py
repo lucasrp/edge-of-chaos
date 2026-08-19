@@ -27,10 +27,11 @@ class _Result:
 
 
 class _State:
-    def __init__(self, clusters=()):
+    def __init__(self, clusters=(), communities=()):
         self.nodes = {}
         self.distills = set()
-        self.clusters = list(clusters)
+        self.clusters = list(clusters)        # Entity.curated_cluster (grill attach)
+        self.communities = list(communities)  # Community.name (communities.consolidate)
 
 
 class _Session:
@@ -57,6 +58,11 @@ class _Session:
             return _Result()
         if "RETURN DISTINCT e.curated_cluster AS l" in query:
             return _Result([{"l": label} for label in state.clusters])
+        # the SECOND catalog the resolution reads (publisher._distill_catalog): automatic
+        # Communities. communities.consolidate never stamps `curated_cluster`, so without this
+        # catalog a Community-only thread could never resolve. Group-scoped, no slug param.
+        if "RETURN c.name AS n" in query:
+            return _Result([{"n": name} for name in state.communities])
         node = state.nodes[(params["g"], params["slug"])]
         if "RETURN d.embedding IS NOT NULL" in query:
             return _Result([{
@@ -70,8 +76,14 @@ class _Session:
         if "[r:DISTILLS]" in query and "DELETE r" in query:
             state.distills.clear()
             return _Result()
-        if "MERGE (d)-[:DISTILLS]->(e)" in query:
+        if "MERGE (d)-[:DISTILLS]->" in query:
             state.distills.add(params["label"])
+            return _Result()
+        if "SET d.pending_distills=$p" in query:
+            node["pending_distills"] = list(params["p"])
+            return _Result()
+        if "REMOVE d.pending_distills" in query:
+            node.pop("pending_distills", None)
             return _Result()
         if "SET d.projection_complete=true" in query:
             node["projection_complete"] = True
@@ -157,6 +169,28 @@ class ProjectDocContract(unittest.TestCase):
         self.assertEqual(state.distills, {"Alpha"})
         self.assertEqual(len(embed_calls), 1)
         self.assertTrue(all(driver.closed for driver in drivers))
+
+    def test_thread_resolves_against_an_automatic_community(self):
+        # the catalog the aged double was blind to: a thread whose cluster exists only as an
+        # automatic Community (never stamped `curated_cluster`) still links, and nothing pends.
+        state = _State(communities=["Alpha"])
+        publisher.project_doc(
+            self._payload(), driver_factory=lambda _uri, *, auth: _Driver(state),
+            identity=_Identity, embed_fn=lambda _text: [0.25],
+        )
+        self.assertEqual(state.distills, {"Alpha"})
+        self.assertNotIn("pending_distills", state.nodes[("edge-test", "doc-v10")])
+
+    def test_unresolved_thread_is_recorded_pending_never_fabricated(self):
+        # no Entity, no Community: the ref is recorded for the next sweep, never invented.
+        state = _State()
+        publisher.project_doc(
+            self._payload(), driver_factory=lambda _uri, *, auth: _Driver(state),
+            identity=_Identity, embed_fn=lambda _text: [0.25],
+        )
+        self.assertEqual(state.distills, set())
+        self.assertEqual(state.nodes[("edge-test", "doc-v10")]["pending_distills"],
+                         ["cluster:alpha"])
 
     def test_malformed_payloads_degrade_before_opening_a_driver(self):
         valid = self._payload()

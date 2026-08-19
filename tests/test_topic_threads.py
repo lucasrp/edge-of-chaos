@@ -70,6 +70,7 @@ class TopicThreadsProjectDirection(unittest.TestCase):
                             "snippet": "arbitrary delegated content"}], log=log)
             eventlog.propose(
                 "topic-7d:implementation-noise", "automatic proposal",
+                title="implementation noise",
                 relates_to=[{"kind": "voz.fragment", "session": "grok:delegated"}], log=log)
             eventlog.append("sessao.excluded", "sessao:grok:delegated", {
                 "sessao_id": "grok:delegated", "surface": "grok",
@@ -147,6 +148,7 @@ class TopicThreadsProjectDirection(unittest.TestCase):
             self.assertNotIn("old-session", eventlog.session_topics_at(log=log)["sessions"])
 
     def test_recent_voice_topics_become_direction_proposed_with_evidence_refs(self):
+        """TOPIC_SPECS is not the proposed engine — topic-7d must not land."""
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             log = Path(st) / "log.jsonl"
             _write_claude_session(Path(proj) / "s1.jsonl", [
@@ -158,21 +160,11 @@ class TopicThreadsProjectDirection(unittest.TestCase):
                 project_dir=proj, codex_dir=False, grok_dir=False, all_stores=False, log=log,
             )
 
-            self.assertEqual(written, 1)
+            self.assertEqual(written, 0)
             d = eventlog.direction_at(log=log)
-            item = d["proposed"][0]
-            self.assertEqual(item["id"], "topic-7d:topic-thread-direction")
-            self.assertIn("wake", item["body"].lower())
-            self.assertIn("grill", item["body"].lower())
-            self.assertEqual(len(item["relates_to"]), 2)
-            self.assertEqual(item["relates_to"][0]["kind"], "voz.fragment")
-            self.assertEqual(
-                topic_threads.propose_recent_topic_directions(
-                    project_dir=proj, codex_dir=False, grok_dir=False, all_stores=False, log=log,
-                ),
-                0,
-                "same current body must not append duplicate proposals",
-            )
+            self.assertTrue(d is None or d.get("proposed") == [])
+            ids = [i["id"] for i in (d or {}).get("proposed", [])]
+            self.assertFalse(any(i.startswith("topic-7d:") for i in ids))
 
     def test_set_direction_is_not_reopened_by_automatic_topic_projection(self):
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
@@ -184,6 +176,7 @@ class TopicThreadsProjectDirection(unittest.TestCase):
             eventlog.set_direction(
                 "topic-7d:topic-thread-direction",
                 "Ratified direction already owns this thread",
+                title="Topics -> Threads -> Direction",
                 log=log,
             )
 
@@ -197,6 +190,8 @@ class TopicThreadsProjectDirection(unittest.TestCase):
             self.assertEqual(d["proposed"], [])
 
     def test_sweep_reprojects_when_only_topic_direction_changes(self):
+        """Sweep from an atividades fixture writes activity proposed, not topic-7d."""
+        import atividades
         with tempfile.TemporaryDirectory() as proj, tempfile.TemporaryDirectory() as st:
             path = _write_claude_session(Path(proj) / "s1.jsonl", [
                 "direction proposed deve rodar no wake junto com assemble",
@@ -208,6 +203,47 @@ class TopicThreadsProjectDirection(unittest.TestCase):
             log = Path(st) / "log.jsonl"
             reprojected = []
 
+            # fixture: one open activity with N3+N4 pair (no live LLM)
+            atv_ulid = "atv-fixture0001"
+            n1 = {"id": "n1-fx", "nivel": 1, "session_id": "s1", "host": "h",
+                  "ts": "2026-08-18T00:00:00Z", "kind": "voz-turno",
+                  "conteudo_redigido": {"texto": "fecha o resumo"},
+                  "evidencia": {"arquivo_jsonl": "s1.jsonl", "linha": 1,
+                                "sha1_arquivo_no_momento_da_leitura": "s"}}
+            n3 = {"id": "n3-fx", "nivel": 3, "kind": "objetivo-imediato",
+                  "atividade_id": atv_ulid, "claim": "fechar o resumo agora",
+                  "confianca": 0.7, "alternativas": ["só revisar"],
+                  "falsificacao": "N1s posteriores com outro alvo",
+                  "base": ["n1-fx"], "detector_version": "t", "model": "t"}
+            n4 = {"id": "n4-fx", "nivel": 4, "kind": "porque-estrategico",
+                  "atividade_id": atv_ulid,
+                  "hipotese": "O resumo vira ancora do proximo arco",
+                  "falsificacao": "N1s pedindo outro entregavel",
+                  "base": ["n3-fx"], "status": "proposta"}
+            reg = atividades.Registry()
+            reg.add(n1)
+            reg.add(n3)
+            reg.add(n4)
+            projecao = {
+                "gerado_em": "2026-08-18T00:00:00Z",
+                "detector_version": "t",
+                "cluster_version": "t",
+                "cobertura": {"hosts_varridos": ["h"], "sessoes_parseadas": 1,
+                              "sessoes_puladas": [],
+                              "janela": {"de": "", "ate": "", "criterio": "t"}},
+                "degradacoes": [],
+                "atividades": [{
+                    "ulid": atv_ulid, "nome": "Fechamento do resumo",
+                    "estado": "aberta", "hosts": ["h"], "cwd": "/x",
+                    "session_ids": ["s1"], "trecho_ids": [], "n2_ids": [],
+                    "sessions": [],
+                    "voz_acao": {"voz": 1, "acao": 0, "unidade": "eventos",
+                                 "nota": "t"},
+                }],
+            }
+            state = Path(st) / "atividades"
+            atividades.persistir(state, reg, projecao)
+
             n = sweep.run(
                 proj,
                 ingest_fn=lambda items: None,
@@ -218,14 +254,18 @@ class TopicThreadsProjectDirection(unittest.TestCase):
                 group="test-group",
                 codex_dir=False,
                 grok_dir=False,
+                atividades_state=state,
             )
 
             self.assertEqual(n, 0)
             self.assertEqual(reprojected, [True])
-            self.assertEqual(
-                eventlog.direction_at(log=log)["proposed"][0]["id"],
-                "topic-7d:topic-thread-direction",
-            )
+            d = eventlog.direction_at(log=log)
+            self.assertEqual(len(d["proposed"]), 1)
+            self.assertEqual(d["proposed"][0]["id"], f"atividade:{atv_ulid}")
+            self.assertIn("Objetivo imediato (N3)", d["proposed"][0]["body"])
+            self.assertIn("Porquê estratégico (N4)", d["proposed"][0]["body"])
+            self.assertFalse(any(i["id"].startswith("topic-7d:")
+                                 for i in d["proposed"]))
 
 
 class TopicThreadsSurfaceDiscovery(unittest.TestCase):

@@ -150,6 +150,65 @@ def check_graph(home, repo_tools):
     return ("graph", False, "unreachable: " + line[:70])
 
 
+def _tenant_from_probe(line):
+    """Turn one `group_admin.tenant_verdict` JSON line into a (name, ok, detail) check (#634).
+
+    Split out from `check_tenant` so the JUDGEMENT is testable without a graph: the probe is the
+    only part that needs Neo4j, and it is the part that carries no decisions."""
+    import json
+    try:
+        v = json.loads(line)
+    except ValueError:
+        return ("tenant", None, "could not parse probe: " + str(line)[:70])
+    ok, detail = v.get("ok"), v.get("detail") or v.get("status") or "?"
+    if v.get("new_tenant_declared") and ok is False:
+        # EDGE_NEW_TENANT=1 — the operator has DECLARED this is a new tenant, not a rename. That
+        # downgrades the refusal to advisory but never to silence: the foreign tenants stay named,
+        # because a second :Genesis minted without anyone reading this line is exactly #634.
+        return ("tenant", None,
+                "NEW TENANT DECLARED (EDGE_NEW_TENANT=1) beside %s — %s"
+                % (", ".join(repr(c) for c in v.get("candidates") or []) or "no other tenant",
+                   detail))
+    return ("tenant", ok, detail)
+
+
+def check_tenant(home, repo_tools):
+    """The FORK GUARD (#634): does this install's resolved group own this Bolt's identity root?
+
+    `group_id` is identity, and renaming it in agent.yaml migrates nothing — the fence stops
+    matching the past and the next backbone projection MERGEs a SECOND `:Genesis` under the new
+    name. That is how one agent came to live in two tenants (`peter tosh` 269 / `petertosh`
+    2490). The graph cannot distinguish a rename from a genuinely new tenant, so an empty group
+    beside a rooted one FAILS the install: refusing is recoverable, a silent second root is not.
+    `EDGE_NEW_TENANT=1` declares the new tenant and downgrades the check to a loud advisory.
+
+    Best-effort like `check_graph`: runs under the venv python (it has the driver), and anything
+    it cannot determine is advisory (`ok=None`), never a fabricated pass."""
+    py = _venv_python(home)
+    if not py.exists():
+        return ("tenant", None, "skipped — no venv")
+    probe = (
+        "import json, os, sys; sys.path.insert(0, %r)\n"
+        "import _identity, group_admin\n"
+        "from neo4j import GraphDatabase\n"
+        "uri, user, pw = _identity.neo4j_conn(); g = _identity.group()\n"
+        "if not pw or not g: print(json.dumps({'ok': None, 'detail': "
+        "'skipped — no password/group resolves'})); raise SystemExit\n"
+        "d = GraphDatabase.driver(uri, auth=(user, pw))\n"
+        "with d.session() as s: v = group_admin.tenant_verdict(s, g)\n"
+        "v['new_tenant_declared'] = os.environ.get('EDGE_NEW_TENANT') not in (None, '', '0')\n"
+        "print(json.dumps(v))\n"
+    ) % str(repo_tools)
+    try:
+        res = subprocess.run([str(py), "-c", probe], capture_output=True, text=True, timeout=30)
+    except Exception as e:
+        return ("tenant", None, "could not probe: " + str(e)[:60])
+    out = (res.stdout or "").strip().splitlines()
+    if not out:
+        return ("tenant", None, "graph unreachable: " + (res.stderr or "").strip()[:70])
+    return _tenant_from_probe(out[-1])
+
+
 def _assert_identity_sections(text):
     """The assert leg of the identity gate: a composed briefing that DID NOT raise must still carry
     the stage-(i) REQUIRED genotype-identity sections (Personality, Method, the Idiom glossary floor,
@@ -230,6 +289,7 @@ def validate_install(home, cfg, env_dir, provisioned=True, repo_tools=None,
     if provisioned:
         checks.append(check_venv(home))
         checks.append(check_graph(home, repo_tools or (Path(home) / "tools")))
+        checks.append(check_tenant(home, repo_tools or (Path(home) / "tools")))
     return checks
 
 

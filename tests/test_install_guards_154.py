@@ -44,11 +44,31 @@ class BootstrapRefusesOccupiedHome(unittest.TestCase):
 
 class ProvisionRefusesForeignHarness(unittest.TestCase):
     def test_foreign_claude_md_refuses(self):
+        """Um CLAUDE.md gerenciado por OUTRO install não é sobrescrito (#154).
+
+        A fixture tem que carregar o marcador que templates/CLAUDE.md.tpl renderiza
+        ('Codename: **…**'); sem ele o guarda entra pelo ramo 'não é gerenciado pelo edge'
+        e o teste passaria pelo motivo errado — foi o que aconteceu enquanto ele esteve
+        vermelho, com o regex 'ed' casando no 'edge' da OUTRA mensagem."""
         with tempfile.TemporaryDirectory() as tmp:
             ch = Path(tmp) / ".claude"
             ch.mkdir()
-            (ch / "CLAUDE.md").write_text("# ed\n\n## Identity\n\n**My name is ed.**\n")
-            with self.assertRaisesRegex(RuntimeError, "ed"):
+            (ch / "CLAUDE.md").write_text(
+                "# ed\n\n## Identity\n\n**My name is ed.** Codename: **ed**.\n")
+            with self.assertRaisesRegex(RuntimeError, r"pertence ao install 'ed'"):
+                _claude_provision.provision_claude(
+                    {"name": "turing", "codename": "turing"}, REPO, ch)
+
+    def test_unmanaged_claude_md_refuses_with_its_own_reason(self):
+        """O CLAUDE.md do próprio operador (sem marcador) tem recusa DISTINTA da de dono alheio.
+
+        Confundir as duas foi o falso positivo do #154: '# CLAUDE.md' virava owner='CLAUDE.md'
+        e travava todo install num host com CLAUDE.md próprio."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ch = Path(tmp) / ".claude"
+            ch.mkdir()
+            (ch / "CLAUDE.md").write_text("# CLAUDE.md\n\nminhas regras\n")
+            with self.assertRaisesRegex(RuntimeError, "não é gerenciado pelo edge"):
                 _claude_provision.provision_claude(
                     {"name": "turing", "codename": "turing"}, REPO, ch)
 
@@ -56,7 +76,8 @@ class ProvisionRefusesForeignHarness(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ch = Path(tmp) / ".claude"
             ch.mkdir()
-            (ch / "CLAUDE.md").write_text("# turing\n\nvelho\n")
+            (ch / "CLAUDE.md").write_text(
+                "# turing\n\n**My name is turing.** Codename: **turing**.\n\nvelho\n")
             rows = _claude_provision.provision_claude(
                 {"name": "turing", "codename": "turing"}, REPO, ch)
             self.assertTrue(any("CLAUDE.md" in r for r in rows))
@@ -68,7 +89,8 @@ class ProvisionRefusesForeignHarness(unittest.TestCase):
             ch = Path(tmp) / ".claude"
             ch.mkdir()
             (ch / "CLAUDE.md").write_text(
-                "# peter tosh\n\n## Identity\n\n**My name is peter tosh.**\n")
+                "# peter tosh\n\n## Identity\n\n"
+                "**My name is peter tosh.** Codename: **peter tosh**.\n")
             rows = _claude_provision.provision_claude(
                 {"name": "peter tosh", "codename": "petertosh"}, REPO, ch)
             self.assertTrue(any("CLAUDE.md" in r for r in rows))

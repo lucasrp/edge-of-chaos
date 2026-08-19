@@ -6,6 +6,7 @@ Secrets are read from <home>/secrets/ (or EDGE_SECRETS_DIR); values never logged
 from __future__ import annotations
 
 import json
+import _identity
 import os
 import re
 from pathlib import Path
@@ -351,7 +352,7 @@ def _adversarials_for_cfg(cast: dict, primary: str) -> dict:
             out["codex"] = {
                 "route": "review",
                 "auth": "subscription",
-                "model": "gpt-5.5",
+                "model": "gpt-5.6-luna",
                 "directive": (
                     "Refute-first. Strike what does not survive; the 0-5 score is advisory."
                 ),
@@ -397,7 +398,7 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
     if primary in ("claude", "opus", "fable"):
         routers["chat"] = {"provider": "claude", "model": "opus" if primary == "claude" else primary}
     elif primary == "codex":
-        routers["chat"] = {"provider": "codex", "model": "gpt-5.5"}
+        routers["chat"] = {"provider": "codex", "model": "gpt-5.6-luna"}
     elif primary == "grok":
         routers["chat"] = {"provider": "grok", "model": "grok-4.5"}
     elif primary == "hermes":
@@ -408,7 +409,7 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
     else:
         for m in cast.get("members") or []:
             if m == "codex":
-                routers["review"] = {"provider": "codex", "model": "gpt-5.5"}
+                routers["review"] = {"provider": "codex", "model": "gpt-5.6-luna"}
             elif m == "grok":
                 routers["review_grok"] = {"provider": "grok", "model": "grok-4.5"}
             elif m == "hermes":
@@ -436,8 +437,77 @@ _KNOWN_SECRET_SOURCES = (
 )
 
 
-def _sources_from_inventory(inventory: Optional[dict]) -> list[dict]:
-    """Declare sources only when the matching secret file/var is present in secrets/."""
+# Como PERGUNTAR a cada fonte se ela responde. Presença de chave não é chave viva: uma fonte
+# declarada sem teste transforma um delta silenciosamente vazio em "nada novo no mundo" — o pior
+# modo de falha possível para um órgão cuja função é notar o que mudou.
+_SOURCE_PROBES = {
+    "exa": ("POST", "https://api.exa.ai/search", lambda k: {"x-api-key": k},
+            b'{"query":"probe","numResults":1}'),
+    "x": ("GET", "https://api.x.ai/v1/models", lambda k: {"Authorization": f"Bearer {k}"}, None),
+    "github": ("GET", "https://api.github.com/user",
+               lambda k: {"Authorization": f"Bearer {k}", "Accept": "application/vnd.github+json"},
+               None),
+}
+
+
+def _secret_value(secrets: Path | str, filename: str, var: str) -> Optional[str]:
+    """O valor de um secret, lido do arquivo. NUNCA é logado, impresso ou devolvido ao operador —
+    só entregue ao probe. (CONTRACT C4: o instalador verifica, jamais inventa ou exibe chave.)"""
+    path = Path(secrets) / filename
+    if not path.is_file():
+        return None
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):].strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if name.strip() == var:
+            return value.strip().strip('"').strip("'") or None
+    return None
+
+
+def probe_source(name: str, secrets: Path | str, *, timeout: float = 6.0,
+                 opener=None) -> Optional[bool]:
+    """A fonte RESPONDE? True/False, ou None quando não há como perguntar.
+
+    None é honesto e DISTINTO de False: "não sei perguntar" / "a rede caiu" não é "está morta".
+    Condenar uma fonte viva por um problema do host seria trocar um erro por outro."""
+    spec = _SOURCE_PROBES.get(name)
+    if spec is None:
+        return None
+    method, url, headers_fn, body = spec
+    entry = next((e for e in _KNOWN_SECRET_SOURCES if e[2] == name), None)
+    if entry is None:
+        return None
+    key = _secret_value(secrets, entry[0], entry[1])
+    if not key:
+        return False
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, data=body, method=method)
+    for h, v in headers_fn(key).items():
+        req.add_header(h, v)
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
+    try:
+        open_fn = opener or urllib.request.urlopen
+        with open_fn(req, timeout=timeout) as resp:
+            return 200 <= getattr(resp, "status", 200) < 300
+    except urllib.error.HTTPError:
+        return False
+    except Exception:                       # noqa: BLE001 — rede indisponível não é chave morta
+        return None
+
+
+def _sources_from_inventory(inventory: Optional[dict], probe=None) -> list[dict]:
+    """Declare sources only when the matching secret file/var is present in secrets/.
+
+    Com `probe` (callable(name) -> True/False/None), cada fonte candidata é PERGUNTADA antes de
+    entrar no roster e recebe `status`: "on" quando respondeu, "dark" quando a chave existe e não
+    responde, "unverified" quando não houve como perguntar. Sem probe o comportamento é o
+    histórico — os chamadores é que decidem verificar."""
     if not inventory:
         return []
     files = set(inventory.get("files") or [])
@@ -460,6 +530,10 @@ def _sources_from_inventory(inventory: Optional[dict]) -> list[dict]:
         }
         if kind == "api":
             entry["secret_ref"] = f"{secret_file}:{var}"
+        if probe is not None:
+            answered = probe(sname)
+            entry["status"] = ("on" if answered is True
+                               else "dark" if answered is False else "unverified")
         out.append(entry)
     return out
 
@@ -547,7 +621,7 @@ def bootstrap_cfg(
     cfg: dict[str, Any] = {
         "name": name,
         "codename": name,
-        "graph_group": os.environ.get("EDGE_GROUP") or name,
+        "graph_group": _identity.group_env_override() or name,
         "edge_home": home_s,
         # CONTRACT C4 — secrets live here; installer verifies, never invents keys
         "env_dir": env_dir_s,
@@ -783,8 +857,12 @@ def emit_phenotype(
     project_dir: Optional[str] = None,
     sources: Optional[list] = None,
     language: Optional[str] = None,
+    probe=None,
 ) -> Path:
-    """Write agent.yaml as onboarding output (atomic)."""
+    """Write agent.yaml as onboarding output (atomic).
+
+    `probe` é callable(nome)->True/False/None; None monta o probe real contra os secrets desta
+    casa. O fenótipo só carrega fonte que JÁ SENTIU — presença de chave não é chave viva."""
     import yaml
     import _provision
 
@@ -842,7 +920,11 @@ def emit_phenotype(
             "files": list(inv.get("files") or []),
             "vars": list(inv.get("vars") or []),
         }
-        cfg["sources"] = _sources_from_inventory(inv)
+        if probe is None:
+            _sdir = secrets_dir(home)
+            def probe(name, _d=_sdir):      # noqa: E306 — probe real desta casa
+                return probe_source(name, _d)
+        cfg["sources"] = _sources_from_inventory(inv, probe=probe)
     if sources:
         # mentor-authorized roster wins by name; secrets-derived entries the mentor did not
         # mention stay (a real key is a real source) — sources exist beyond secrets (pasta

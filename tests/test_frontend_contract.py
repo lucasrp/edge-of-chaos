@@ -9,10 +9,12 @@ the templates emit the same markers).
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 BLOG = Path(__file__).resolve().parent.parent / "blog"
 sys.path.insert(0, str(BLOG))
@@ -61,13 +63,30 @@ class FlaskUsesJinja(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
+        # /ux-catalog parseia os tokens AO VIVO de <static>/style.css, e `_static()` resolve
+        # por EDGE_BLOG_STATIC. Dez módulos de teste setam essa variável e NENHUM a limpa
+        # (`grep -rn 'pop("EDGE_BLOG_STATIC"' tests/` não retorna nada), então rodando a suíte
+        # inteira este teste herdava o tmpdir JÁ APAGADO do último módulo a rodar: sem
+        # style.css, zero tokens, `--accent` ausente. Isolado passava; no discover, falhava.
+        #
+        # Resultado que depende da ORDEM dos módulos é a mesma doença de resultado que depende
+        # do host: o teste não controla a própria entrada. Aqui ele passa a declarar qual
+        # static quer — o do genótipo, que é justamente o que ele afirma documentar.
+        self._static_before = os.environ.get("EDGE_BLOG_STATIC")
+        os.environ["EDGE_BLOG_STATIC"] = str(BLOG / "static")
         self.server = _client()
         self.client = self.server.app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.pop("EDGE_BLOG_LOG", None)
+        if self._static_before is None:
+            os.environ.pop("EDGE_BLOG_STATIC", None)
+        else:
+            guard_blog_env(self)
+            os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_app_has_jinja_template_folder(self):
         # the app resolves templates/ (the scaffold), not just inline strings.
@@ -91,6 +110,7 @@ class SelfHostedJS(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
         self.fix = Path(self.tmp.name) / "cortex.json"
         self.fix.write_text(json.dumps(
@@ -174,13 +194,24 @@ class UxCatalog(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
+        # mesma razão da classe acima: `_static()` resolve por EDGE_BLOG_STATIC, dez módulos a
+        # setam e nenhum a limpa — sem declarar o próprio static, este teste herda o tmpdir já
+        # apagado do último módulo a rodar e o /ux-catalog sai sem tokens.
+        self._static_before = os.environ.get("EDGE_BLOG_STATIC")
+        os.environ["EDGE_BLOG_STATIC"] = str(BLOG / "static")
         self.server = _client()
         self.client = self.server.app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.pop("EDGE_BLOG_LOG", None)
+        if self._static_before is None:
+            os.environ.pop("EDGE_BLOG_STATIC", None)
+        else:
+            guard_blog_env(self)
+            os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_ux_catalog_route_lists_tokens_and_macros(self):
         r = self.client.get("/ux-catalog")
@@ -209,13 +240,24 @@ class TablerOverDarkIdentity(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         log = Path(self.tmp.name) / "log.jsonl"
         log.write_text("")
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_LOG"] = str(log)
+        # mesma razão da classe acima: `_static()` resolve por EDGE_BLOG_STATIC, dez módulos a
+        # setam e nenhum a limpa — sem declarar o próprio static, este teste herda o tmpdir já
+        # apagado do último módulo a rodar e o /ux-catalog sai sem tokens.
+        self._static_before = os.environ.get("EDGE_BLOG_STATIC")
+        os.environ["EDGE_BLOG_STATIC"] = str(BLOG / "static")
         self.server = _client()
         self.client = self.server.app.test_client()
 
     def tearDown(self):
         self.tmp.cleanup()
         os.environ.pop("EDGE_BLOG_LOG", None)
+        if self._static_before is None:
+            os.environ.pop("EDGE_BLOG_STATIC", None)
+        else:
+            guard_blog_env(self)
+            os.environ["EDGE_BLOG_STATIC"] = self._static_before
 
     def test_tabler_vendored_and_loaded(self):
         vendor = BLOG / "static" / "vendor"
@@ -239,13 +281,41 @@ class DefaultLogNotPollutedBySmokeTests(unittest.TestCase):
     checked-in baseline; auth/browser coverage belongs in hermetic tests that point EDGE_BLOG_LOG at
     a tmp file. So the guard is STRUCTURAL, not a literal-body denylist (round-2 [high]: a denylist of
     known strings lets a NEW body slip through the same way): the committed log must carry ZERO voz.*
-    events of ANY type/body — any present is pollution by construction."""
+    events of ANY type/body — any present is pollution by construction.
 
-    LOG = BLOG.parent / "state" / "events" / "log.jsonl"
+    The subject is the COMMITTED blob, never the working tree. `/state/` is gitignored (the genotype
+    ships no state), so on a fresh clone this path does not exist while on a live install it is the
+    HOST's runtime log — a log that legitimately carries voz.* events. Reading the working tree made
+    this tripwire answer a different question depending on who ran it: dead in the genotype, and a
+    false alarm against real runtime Voz in an install. So the guard asks git, not the filesystem:
+    it reads `HEAD:state/events/log.jsonl` and skips when nothing is tracked there. Same answer in
+    every checkout; the tripwire still fires the day a `git add -A` commits the log."""
 
-    def _committed_events(self):
+    REL = "state/events/log.jsonl"
+
+    @classmethod
+    def _committed_blob(cls):
+        """The tracked content of the default log at HEAD, or None when it is not tracked."""
+        try:
+            out = subprocess.run(
+                ["git", "show", f"HEAD:{cls.REL}"],
+                cwd=BLOG.parent, capture_output=True, check=False)
+        except OSError:
+            return None
+        if out.returncode != 0:
+            return None
+        return out.stdout.decode("utf-8", errors="replace")
+
+    def _require_committed_log(self):
+        blob = self._committed_blob()
+        if blob is None:
+            self.skipTest(f"{self.REL} is not tracked at HEAD (/state/ is gitignored) — "
+                          "no committed log to guard")
+        return blob
+
+    def _committed_events(self, blob):
         out = []
-        for line in self.LOG.read_text().splitlines():
+        for line in blob.splitlines():
             line = line.strip()
             if not line:
                 continue
@@ -261,9 +331,8 @@ class DefaultLogNotPollutedBySmokeTests(unittest.TestCase):
         # STRUCTURAL guard (round-2 [high]): not a denylist of known smoke-test bodies, but the whole
         # class — ANY voz.* event in the committed baseline is ad-hoc pollution (the baseline has none;
         # real Voz lands at runtime on the live log). A new manual POST with any body fails this.
-        if not self.LOG.is_file():
-            self.skipTest("no committed default log in this checkout")
-        voz = [e.get("type") for e in self._committed_events()
+        blob = self._require_committed_log()
+        voz = [e.get("type") for e in self._committed_events(blob)
                if str(e.get("type", "")).startswith("voz.")]
         self.assertEqual(voz, [],
                          f"the committed authoritative log carries {len(voz)} ad-hoc voz.* event(s) "
@@ -273,11 +342,16 @@ class DefaultLogNotPollutedBySmokeTests(unittest.TestCase):
     def test_committed_log_is_intact(self):
         # the committed default log must satisfy the SAME strict integrity check the drain gates on —
         # contiguous int seqs, dict envelopes, no poisoned payload (a polluted/seq-gapped commit fails).
-        if not self.LOG.is_file():
-            self.skipTest("no committed default log in this checkout")
+        blob = self._require_committed_log()
         import grill_drain
-        self.assertTrue(grill_drain.log_is_intact(self.LOG),
-                        "the committed default authoritative log is not intact")
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as fh:
+            fh.write(blob)
+            staged = Path(fh.name)
+        try:
+            self.assertTrue(grill_drain.log_is_intact(staged),
+                            "the committed default authoritative log is not intact")
+        finally:
+            staged.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

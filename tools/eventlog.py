@@ -133,15 +133,118 @@ DIRECTION_TYPES = [
     "session.topics.generation",
 ]
 KIND_ORDER = ["phase", "priority", "constraint", "thread"]
+# A Direction's HANDLE (#632). The fleet read of 2026-08-16 found 788 body-only :Direction nodes in
+# one group and 577 in another: "what is this agent working on?" had no answer short of opening
+# eight hundred paragraphs, and consolidate had no short name to merge on, so every beat appended
+# one more. 80 chars is the handle budget — long enough to name a steer, short enough that a list of
+# forty still reads as a list.
+DIRECTION_TITLE_MAX = 80
 
 
-def fold_direction(events):
+def require_direction_title(title, what):
+    """Reject a Direction with no usable HANDLE (#632) — the write FAILS, body-only is not ok.
+    A handle is a single line of <= DIRECTION_TITLE_MAX chars; a paragraph or a multi-line blob is
+    the body wearing the title's name. Returns the stripped title."""
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError(
+            f"cannot append {what} without a title — a Direction with no short handle is "
+            "unreadable at volume (#632); pass title='<= 80 chars naming the steer'")
+    t = title.strip()
+    if len(t) > DIRECTION_TITLE_MAX:
+        raise ValueError(f"{what} title is {len(t)} chars, max {DIRECTION_TITLE_MAX} — a handle, "
+                         "not a paragraph; the long form belongs in `body`")
+    if "\n" in t or "\r" in t:
+        raise ValueError(f"{what} title must be a single line — the long form belongs in `body`")
+    return t
+
+
+def derive_direction_title(body, max_len=DIRECTION_TITLE_MAX):
+    """Derive a handle from the FIRST SENTENCE of a body (#632 part 4). Returns None when there is
+    nothing to derive from.
+
+    This is the BACKFILL rule, and every title it produces MUST be marked as generated
+    (`title_generated`) wherever it lands: a derived handle is a legible placeholder for a steer
+    nobody named, never a claim that somebody named it. Read paths may show it; the grill should
+    still be able to tell the two apart and replace it."""
+    if not isinstance(body, str) or not body.strip():
+        return None
+    text = " ".join(body.split())
+    # Cut at the EARLIEST clause boundary, not the first one in this list: a body whose full stop
+    # lands three lines in but whose em-dash lands at word ten yields a far better handle from the
+    # dash. (Measured on this host's own Direction: ". " gave a truncated 80-char stub, " — " gave
+    # "ed audita e conserta o caminho que só existe uma vez por instalação" whole.)
+    cuts = [i for i in (text.find(stop) for stop in (". ", "? ", "! ", "; ", " — ", " - "))
+            if i > 0]
+    if cuts:
+        text = text[:min(cuts)].strip()
+    text = text.rstrip(".?!;:, ")
+    if not text:
+        return None
+    if len(text) <= max_len:
+        return text
+    cut = text[:max_len - 1]
+    if " " in cut:
+        cut = cut[:cut.rindex(" ")]
+    return cut.rstrip(".?!;:, ") + "…"
+
+
+def _validated_expires_at(value, what):
+    """Normalize a declared END for a Direction (#632 part 2), or raise. `None` = no declared end.
+
+    The live counterexample this exists for: group `ed` holds one Direction, the well-written one,
+    which names its own deadline INSIDE the body ("PRAZO EXPLICITO: esta Direction expira no
+    nascimento de ed"). The deadline passed the same day the agent.yaml was emitted and nothing in
+    the system could tell, because a deadline in prose is not a field. This is the field.
+
+    Accepts an ISO-8601 date ('2026-08-16') or datetime. A DATE-ONLY value names the LAST DAY the
+    steer holds, so it normalizes to that day's end — "expires 2026-08-16" is still live during
+    2026-08-16. A naive datetime is read as UTC (the log stamps UTC)."""
+    if value is None:
+        return None
+    parsed = _parse_expiry(value)
+    if parsed is None:
+        raise ValueError(f"{what} expires_at must be an ISO-8601 date or datetime "
+                         f"(e.g. '2026-08-16'), got {value!r}")
+    return parsed.isoformat()
+
+
+def _parse_expiry(value):
+    """Parse an expiry to an aware UTC datetime, or None when unusable. FAIL-DARK on read (a
+    corrupt expiry on a historical event means 'no declared end', never a crashed briefing); the
+    WRITE path turns the same None into a loud ValueError via `_validated_expires_at`."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if len(raw) == 10:  # date-only → the last day the steer holds, inclusive
+        dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _is_expired(item, now):
+    """True when the item declared an end and `now` is past it. No declared end → never expires
+    (persist-until-dropped stays the default: nothing is lost by omission)."""
+    end = _parse_expiry(item.get("expires_at"))
+    return end is not None and now is not None and now > end
+
+
+def fold_direction(events, now=None):
     """Pure fold of direction.* events → addressable items in two tiers (ADR-0007).
 
     Per-id, in seq order: `direction.proposed` opens/updates a `proposed` item; `direction.set`
     opens/updates a `set` item and **outranks** proposed for the same id (curado > hipótese, a
     correção sempre ganha); `direction.dropped` removes the id (persist-until-dropped — nothing is
     lost by omission). Returns {"set": [...], "proposed": [...]} in insertion order.
+
+    `now` (an aware datetime, #632) is the clock the EXPIRY is read against: an item whose declared
+    `expires_at` is past `now` has left the live fold and appears in NEITHER tier — that is what
+    makes the ANCHORS rebuild and recall go quiet on a steer whose window closed, with no beat
+    present to retire it by hand. It is not lost: `expired_directions` lists it, so the successor
+    is an open hole in the map and not silence. `now=None` disables expiry entirely (the fold stays
+    a pure function of the events it was handed).
 
     Fail-dark over a corrupt log (Slice 4 [high]): `id`/`supersedes` are used AS dict keys, so a
     JSON-valid event with a non-string (unhashable, e.g. list) key field would TypeError this fold —
@@ -195,6 +298,8 @@ def fold_direction(events):
             if items.get(iid, {}).get("tier") == "set":
                 continue  # set outranks proposed
             items[iid] = {"id": iid, "body": p.get("body", ""), "kind": p.get("kind", "thread"),
+                          "title": _key(p.get("title")), "expires_at": p.get("expires_at"),
+                          "title_generated": bool(p.get("title_generated")),
                           "from_artefato": p.get("from_artefato"), "relates_to": relates_to,
                           "tier": "proposed"}
         elif t == "direction.set":
@@ -209,20 +314,51 @@ def fold_direction(events):
                                       # stored but never honored, leaving the old steer active.
             items[iid] = {"id": iid, "body": p.get("body", p.get("plan", "")),
                           "kind": p.get("kind", "thread"), "supersedes": sup,
+                          "title": _key(p.get("title")), "expires_at": p.get("expires_at"),
+                          "title_generated": bool(p.get("title_generated")),
                           "origin_comment_id": p.get("origin_comment_id"),
                           "tier": "set"}
         elif t == "direction.dropped":
             items.pop(_key(p.get("id")), None)
-    return {"set": [i for i in items.values() if i["tier"] == "set"],
-            "proposed": [i for i in items.values() if i["tier"] == "proposed"]}
+    live = [i for i in items.values() if not _is_expired(i, now)]
+    return {"set": [i for i in live if i["tier"] == "set"],
+            "proposed": [i for i in live if i["tier"] == "proposed"]}
 
 
-def direction_at(seq=None, ts=None, log=LOG):
+def fold_expired_directions(events, now):
+    """The other half of the expiry fold (#632): the items that WOULD be live but for a declared
+    end already past. Same fold, opposite filter — an expired steer must stay readable so the beat
+    can see what ran out and write the successor ("sucessora é buraco aberto no mapa, não silêncio")."""
+    all_items = fold_direction(events, now=None)
+    return [i for i in all_items["set"] + all_items["proposed"] if _is_expired(i, now)]
+
+
+def _expiry_now(now, ts):
+    """The clock the fold reads expiry against. An explicit `now` wins; a `ts` CURSOR is its own
+    clock (replaying to a past cursor must reconstruct that past — a steer alive then is alive in
+    the replay, or wall-clock leaks into a fold documented as pure); otherwise the live read uses
+    the wall clock, which is the only thing that can notice a deadline passing with nobody there."""
+    if now is not None:
+        return now
+    if ts is not None:
+        return _parse_expiry(ts)
+    return datetime.now(timezone.utc)
+
+
+def direction_at(seq=None, ts=None, log=LOG, now=None):
     """Fold direction.* events up to a cursor → {"set":[...], "proposed":[...]} (ADR-0007).
     Pure: replaying to a past cursor reconstructs that past, both tiers — strategic versioning.
-    Returns None when there are no direction events at all."""
+    A steer whose declared `expires_at` has passed is NOT in either tier (#632); `now`/`ts` pick
+    the clock (see `_expiry_now`). Returns None when there are no direction events at all."""
     evs = read(types=DIRECTION_TYPES, until_seq=seq, until_ts=ts, log=log)
-    return fold_direction(evs) if evs else None
+    return fold_direction(evs, now=_expiry_now(now, ts)) if evs else None
+
+
+def expired_directions(seq=None, ts=None, log=LOG, now=None):
+    """The steers whose declared window CLOSED, as of the same cursor `direction_at` uses — the
+    open holes in the map. Empty list when none (or when the item was dropped by hand first)."""
+    evs = read(types=DIRECTION_TYPES, until_seq=seq, until_ts=ts, log=log)
+    return fold_expired_directions(evs, _expiry_now(now, ts)) if evs else []
 
 
 def _require_body(body, what):
@@ -232,21 +368,36 @@ def _require_body(body, what):
         raise ValueError(f"cannot append {what} with an empty/whitespace body")
 
 
-def propose(id, body, kind="thread", from_artefato=None, relates_to=None, log=LOG):
+def propose(id, body, kind="thread", from_artefato=None, relates_to=None, log=LOG,
+            *, title=None, expires_at=None, title_generated=False):
     """Append a `direction.proposed` item (the non-curated tier — grill achados / artefato candidates).
-    Raises ValueError on an empty/whitespace body — no hollow direction lands."""
+    Raises ValueError on an empty/whitespace body — no hollow direction lands — and on a missing or
+    over-long `title` (#632): a steer with no short handle is unfindable at volume, so it does not
+    get written. `title` is KEYWORD-ONLY on purpose: an existing positional call fails LOUDLY on the
+    new contract instead of silently binding its body to the title slot. `expires_at` (optional) is
+    the declared end (see `_validated_expires_at`)."""
     _require_body(body, "direction.proposed")
     return append("direction.proposed", "direction",
                   {"id": id, "body": body, "kind": kind,
+                   "title": require_direction_title(title, "direction.proposed"),
+                   "title_generated": bool(title_generated),
+                   "expires_at": _validated_expires_at(expires_at, "direction.proposed"),
                    "from_artefato": from_artefato, "relates_to": relates_to}, log=log)
 
 
-def set_direction(id, body, kind="thread", supersedes=None, log=LOG):
+def set_direction(id, body, kind="thread", supersedes=None, log=LOG,
+                  *, title=None, expires_at=None):
     """Append a `direction.set` item (the curated tier — Voz only; promotes/supersedes a proposed id).
-    Raises ValueError on an empty/whitespace body — no hollow direction lands."""
+    Raises ValueError on an empty/whitespace body and on a missing/over-long `title` (#632, same
+    contract and the same keyword-only reasoning as `propose`).
+
+    The two lifecycle handles are peers: `supersedes` retires a steer BY NAME (honored by the fold),
+    `expires_at` retires it BY DATE with nobody present to do it."""
     _require_body(body, "direction.set")
     return append("direction.set", "direction",
-                  {"id": id, "body": body, "kind": kind, "supersedes": supersedes}, log=log)
+                  {"id": id, "body": body, "kind": kind, "supersedes": supersedes,
+                   "title": require_direction_title(title, "direction.set"),
+                   "expires_at": _validated_expires_at(expires_at, "direction.set")}, log=log)
 
 
 def drop(id, reason="", log=LOG):
@@ -3216,7 +3367,12 @@ def _foldable_map_open(payload):
         and all(isinstance(payload.get(field), str) and payload[field].strip()
                 for field in ("titulo", "rationale", "dispatch_id"))
         and tier in _LENS_TIERS and isinstance(author, str) and author.strip()
-        and ((tier == "asserted" and author in ("operador", "grill"))
+        # "mentor" is the operator's own surface vocabulary (2026-07-13 rename). The WRITE path
+        # (_wayfinder_curation) and _foldable_ticket_open both accept it; this reader was missed,
+        # so a mentor-authored map was written, accepted by grill_gate (which counts map.opened by
+        # TYPE), and then invisible to the lens forever — taking its tickets with it, since a
+        # ticket cannot fold without resolving its parent map. Close mapped, portfolio empty.
+        and ((tier == "asserted" and author in ("operador", "grill", "mentor"))
              or (tier == "llm_judged" and author in ("edge", "racionalizador")))
     ):
         return False
@@ -4609,12 +4765,59 @@ def _direction_ids(events):
             if isinstance(p.get("id"), str)}
 
 
+def _live_atividade_keys(log=LOG):
+    """Refs/ulids of eventlog atividades currently aberta/reaberta."""
+    keys = set()
+    try:
+        folded = atividades_at(log=log)
+    except Exception:
+        return keys
+    for ref, item in (folded or {}).items():
+        if not isinstance(item, dict):
+            continue
+        if item.get("estado") not in ("aberta", "reaberta"):
+            continue
+        keys.add(ref)
+        if item.get("ref"):
+            keys.add(item["ref"])
+        if item.get("ulid"):
+            keys.add(item["ulid"])
+            keys.add(f"atividade:{item['ulid']}")
+    return keys
+
+
+def _proposal_activity_refs(cand):
+    refs = set()
+    if not isinstance(cand, dict):
+        return refs
+    for key in ("atividade", "atividade_id", "activity"):
+        val = cand.get(key)
+        if isinstance(val, str) and val.strip():
+            refs.add(val.strip())
+    relates = cand.get("relates_to")
+    if isinstance(relates, list):
+        for ref in relates:
+            if not isinstance(ref, dict):
+                continue
+            if ref.get("kind") in {"atividade", "activity"}:
+                for key in ("id", "ref", "atividade", "atividade_id"):
+                    val = ref.get(key)
+                    if isinstance(val, str) and val.strip():
+                        refs.add(val.strip())
+            for key in ("atividade", "atividade_id", "ref"):
+                val = ref.get(key)
+                if isinstance(val, str) and val.strip():
+                    refs.add(val.strip())
+    return refs
+
+
 def consolidate_artefato_proposals(log=LOG):
-    """Fan each `artefato.published` candidate into the non-curated `proposed` tier (ADR-0007: the
-    sweep populates, the grill curates). Idempotent via the deterministic id `<slug>:<i>` — a
-    candidate already in the log (proposed/set/dropped) is never re-added. Returns the count added."""
+    """Fan `artefato.published` candidates into proposed ONLY when attached to a
+    live activity. Orphan proposes[] do not auto-land. Idempotent via `<slug>:<i>`.
+    """
     evs = read(log=log)
     have = _direction_ids(evs)
+    live = _live_atividade_keys(log)
     n = 0
     for e in evs:
         if e.get("type") != "artefato.published":
@@ -4630,7 +4833,21 @@ def consolidate_artefato_proposals(log=LOG):
                 cand.get("text") if isinstance(cand, dict) else None) or ""
             if not (isinstance(body, str) and body.strip()):
                 continue
-            propose(iid, body, kind=cand.get("kind", "thread"),
+            attached = _proposal_activity_refs(cand if isinstance(cand, dict) else {})
+            if not attached or not (attached & live):
+                continue  # orphan — skip; attach to a live activity or do not land
+            # #632: this fan is the volume engine — every published artefato's candidate steers
+            # become `proposed` items, which is most of the 788. It is a PROJECTION of an already
+            # published payload, not a fresh authoring, so it cannot fail the way an authored write
+            # does: refusing here would strand the steers of artefatos already on disk. A candidate
+            # that carries its own title keeps it; otherwise the handle is DERIVED and marked
+            # generated, exactly as the backfill does.
+            title = cand.get("title") if isinstance(cand, dict) else None
+            generated = not (isinstance(title, str) and title.strip())
+            if generated:
+                title = derive_direction_title(body)
+            propose(iid, body, kind=cand.get("kind", "thread"), title=title,
+                    title_generated=generated,
                     from_artefato=slug, relates_to=cand.get("relates_to"), log=log)
             have.add(iid)
             n += 1
@@ -4645,7 +4862,12 @@ def _render_items(items):
     for kind in KIND_ORDER + [k for k in by_kind if k not in KIND_ORDER]:
         for it in by_kind.get(kind, []):
             prov = f" _(from {it['from_artefato']})_" if it.get("from_artefato") else ""
-            lines.append(f"- **[{kind}]** {it.get('body', '')} `#{it['id']}`{prov}")
+            # The HANDLE leads (#632): a reader scanning forty steers reads forty titles, not forty
+            # paragraphs. A legacy item with no title renders exactly as before — body only.
+            gen = " _(derived)_" if it.get("title_generated") else ""
+            handle = f"**{it['title']}**{gen} — " if it.get("title") else ""
+            ends = f" _(expires {it['expires_at']})_" if it.get("expires_at") else ""
+            lines.append(f"- **[{kind}]** {handle}{it.get('body', '')} `#{it['id']}`{prov}{ends}")
     return "\n".join(lines) if lines else "_none_"
 
 

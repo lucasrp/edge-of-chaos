@@ -1,0 +1,136 @@
+# Roster DECLARADO para os testes que derivam do seam S3 (sources -> recognizers).
+#
+# Por que existe: `harvest.build_recognizers()` e `briefing` leem o agent.yaml DO HOST. Num
+# genótipo (que por contrato não tem agent.yaml) a tabela nasce vazia e ~133 testes falham por
+# construção — sem dizer nada sobre o código. Num install com roster mínimo, falham igual.
+#
+# Os módulos usam o roster REAL quando ele existe (a intenção original: validar o seam do install
+# de verdade) e caem nesta fixture quando não existe. Assim o teste mede o CÓDIGO no genótipo e o
+# INSTALL num install — em vez de medir "quem está rodando a suíte".
+#
+# As vias abaixo espelham as invocações reais gravadas em tests/fixtures/harvest/*.jsonl.
+name: fixture
+codename: fixture
+graph_group: fixture
+edge_home: ~/edge/
+language: pt-BR
+mission: Missao de fixture — existe para os testes terem identidade conhecida.
+voice: Voz de fixture — deterministica, igual em qualquer host.
+mentee: Fixture Mentee
+# blog_domain e DERIVADO desta URL por tools/edge-render (derive_vars), nunca
+# declarado direto — declarar `blog_domain:` nao tem efeito nenhum.
+blog_public_url: https://edge.edgeofchaos.net
+blog_port: 8766
+routers:
+  # com secret_ref declarado, o apply CHECA a credencial e relata quando falta — que é
+  # exatamente o que test_reports_missing_credentials exercita. Um roster todo keyless
+  # não tem o que cobrar, e o substrate-check passa a não ter nada para dizer.
+  embedding:
+    provider: openai
+    secret_ref: openai.env:OPENAI_API_KEY
+    model: text-embedding-3-small
+sources:
+  - name: exa
+    kind: api
+    lens: mundo
+    # _validate._required_refs le secret_ref no nivel da FONTE (kind: api); na interface ele
+    # documenta qual chave a perna usa, mas NAO entra na checagem de credenciais do apply.
+    secret_ref: exa.env:EXA_API_KEY
+    description: Busca neural/semântica sobre web e papers.
+    interfaces:
+      - interface_id: search-deep
+        via: POST https://api.exa.ai/search — corpo JSON com {query, numResults}
+        secret_ref: exa.env:EXA_API_KEY
+        dry_semantics: never-dry
+        canary:
+          params:
+            type: fast
+            numResults: 1
+          pass_when: hit_count >= 1
+      - interface_id: contents
+        via: POST https://api.exa.ai/contents — corpo JSON com {ids}
+        dry_semantics: never-dry
+  - name: x
+    kind: api
+    lens: mundo
+    secret_ref: keys.env:X_BEARER_TOKEN
+    description: Conversa de praticantes no X.
+    interfaces:
+      - interface_id: v2-recent
+        via: GET https://api.twitter.com/2/tweets/search/recent?query=<termos>&max_results=10 — busca recente
+        secret_ref: keys.env:X_BEARER_TOKEN
+        dry_semantics: false-dry-prone
+        idiom:
+          max_terms: 3
+          style: termos curtos, sem operadores booleanos longos
+        canary:
+          query: AI lang:en -is:retweet
+          params:
+            max_results: 10
+          pass_when: hit_count == 10
+        # a contagem de resultados vive em dado do operador, nunca num host hardcoded
+        hit_count: '"result_count"\s*:\s*(\d+)' 
+      - interface_id: xai-responses
+        # perna DECLARADA e nao instalada: reconhecimento e observacao, nunca permissao —
+        # o recognizer deriva dela do mesmo jeito, e a ausencia fica visivel em vez de tacita.
+        installed: false
+        via: POST https://api.x.ai/v1/responses — corpo JSON
+  - name: arxiv
+    kind: api
+    lens: mundo
+    description: Preprints.
+    interfaces:
+      - interface_id: api-query
+        via: GET https://export.arxiv.org/api/query?search_query=<termos>&max_results=10 — preprints
+        idiom:
+          https_only: true
+        canary:
+          params:
+            search_query: cat:cs.CL
+            sortBy: lastUpdatedDate
+            max_results: 1
+          pass_when: hit_count >= 1
+  - name: hn
+    kind: api
+    lens: mundo
+    description: Hacker News via Algolia.
+    interfaces:
+      - interface_id: algolia-search
+        via: GET https://hn.algolia.com/api/v1/search?query=<termos> — busca no HN
+        dry_semantics: real
+  - name: overleaf
+    kind: api
+    lens: mundo
+    description: Busca em documentos do Overleaf.
+    interfaces:
+      - interface_id: v2-search
+        via: GET https://www.overleaf.com/api/v2/search?q=<termos> — busca em documentos
+  - name: github
+    kind: cli
+    lens: atividade
+    description: GitHub pela CLI gh autenticada.
+    interfaces:
+      - interface_id: gh-cli
+        via: gh api / gh search — read-only
+  - name: gdrive-consortium
+    kind: cli
+    lens: atividade
+    description: Drive do consórcio via rclone, somente leitura.
+    interfaces:
+      # O guarda exige o literal COMPLETO do remote, nunca só o nome: o mesmo remote `gdrive`
+      # alcança outros drives, e uma leitura deles não pode dobrar nesta fonte (contaminação
+      # de fronteira). O identificador abaixo é o mesmo que as fixtures de tests/fixtures/harvest
+      # já carregam.
+      - interface_id: rclone-read
+        via: rclone ls/lsd/copy FROM 'gdrive,team_drive=0ANpsQbmPpJ3WUk9PVA:' — leitura
+
+# Escrita NUNCA entra em `sources:` — uma entrada com forma de act ali e erro de CATEGORIA, e o
+# validador a derruba do roster de leitura. O upload do drive vive aqui, com hitl explicito.
+acts:
+  - name: gdrive-upload
+    hitl: true
+    via: rclone copy <local> 'gdrive,team_drive=0ANpsQbmPpJ3WUk9PVA:<dest>' — WRITE, exige confirmacao humana
+    description: >-
+      Sobe arquivo para o drive do consorcio. Ato, nao leitura. Via rclone e NAO por
+      MCP: nao ha servidor MCP declarado para este remote, entao a escrita passa pela
+      CLI com confirmacao humana.

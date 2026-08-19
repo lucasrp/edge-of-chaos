@@ -33,7 +33,6 @@ import _identity
 CURSORS = _identity.state_root() / "state" / "cursors.json"
 CODEX_BASELINE_KEY = "_codex_baselined"
 GROK_BASELINE_KEY = "_grok_baselined"
-
 # Identity (group + store) resolves LAZILY through _identity at call time (ADR-0015): no
 # import-time cache (stale-copy risk), no baked-in host path (the dev's -home-<user> store
 # default sent roberto scanning a nonexistent dir — "nothing new" over a 294-session backlog).
@@ -126,15 +125,9 @@ def _source_description(item):
     return "Claude work session (mentee<->edge)"
 
 
-def _legacy_episode_name(item, chunk_index=None):
+def _episode_name(item, chunk_index=None):
     sid = item["id"].replace(":", "-")[:24]
     base = f"session-{sid}"
-    return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
-
-
-def _episode_name(item, chunk_index=None):
-    sid = (item.get("raw_id") or item["id"]).replace(":", "-")
-    base = f"session-{item.get('surface', 'unknown')}-{sid}-w{item['watermark']}"
     return base if chunk_index is None else f"{base}-p{chunk_index + 1}"
 
 
@@ -151,6 +144,7 @@ def _grok_enabled(project_dir, grok_dir):
 
 
 def _hermes_enabled(project_dir, hermes_dir):
+    """Optional Hermes surface: explicit dir / False override, else configured surface."""
     import surfaces_cfg
     return surfaces_cfg.include_optional_surface("hermes", project_dir, hermes_dir)
 
@@ -430,8 +424,7 @@ def _lentes_config(path=None):
     When agent.yaml is absent (first-run), fall back to state/bootstrap.json
     ``backfill_days`` so the initial assemble uses the install lookback.
     """
-    path = (Path(os.path.expanduser(os.environ.get("EDGE_HOME", str(REPO)))) / "agent.yaml"
-            if path is None else Path(path))
+    path = _identity.identity_path("agent.yaml") if path is None else Path(path)
     try:
         import yaml
         raw = yaml.safe_load(path.read_text()) or {}
@@ -494,7 +487,7 @@ def rationalization_identity(session_id, turns, *, surface="claude", watermark=N
 
 
 def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None, grok_dir=None,
-                          hermes_dir=None, backfill_days=None, now=None,
+                          backfill_days=None, now=None,
                           racionalizador_version="racionalizador-v3-session-provenance"):
     """Return current substantial inputs lacking a log checkpoint, oldest first.
 
@@ -509,10 +502,6 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
         raise ValueError("racionalizador_version must be a non-blank string")
     include_codex = _codex_enabled(project_dir, codex_dir)
     include_grok = _grok_enabled(project_dir, grok_dir)
-    include_hermes = (
-        _hermes_enabled(project_dir, hermes_dir)
-        if project_dir is None or hermes_dir is not None else False
-    )
     if project_dir is None:
         project_dir = _identity.project_dir()
     now = datetime.now(timezone.utc) if now is None else now
@@ -539,20 +528,13 @@ def plan_rationalizations(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
         discovered.extend(sessions.list_codex_sessions(codex_dir))
     if include_grok:
         discovered.extend(sessions.list_grok_sessions(grok_dir))
-    if include_hermes:
-        discovered.extend(sessions.list_hermes_sessions(hermes_dir))
     pending = []
     for session in discovered:
         path = Path(session.path)
         try:
-            mtime = sessions.updated_epoch(session)
-        except (TypeError, ValueError):
-            mtime = None
-        if mtime is None:
-            try:
-                mtime = path.stat().st_mtime
-            except OSError:
-                continue
+            mtime = path.stat().st_mtime
+        except OSError:
+            continue
         if floor is not None and mtime < floor:
             continue
         # Pre-process: operator dialogue only (no terminals/tools) + not worker/sidechain.
@@ -721,7 +703,6 @@ def rationalize_pending_sessions(
     completer_factory=None,
     log=eventlog.LOG,
     codex_dir=None,
-    hermes_dir=None,
     rationalize_fn=None,
     backfill_days=None,
     max_sessions_per_sweep=DEFAULT_MAX_SESSIONS_PER_SWEEP,
@@ -788,7 +769,6 @@ def rationalize_pending_sessions(
                 project_dir,
                 log=log,
                 codex_dir=codex_dir,
-                hermes_dir=hermes_dir,
                 backfill_days=backfill_days,
                 racionalizador_version=racionalizador_version,
             )
@@ -799,7 +779,10 @@ def rationalize_pending_sessions(
                     return 0  # watermark grew → will unpark below
                 return 1 if _softfail_is_parked(entry, item["watermark"]) else 0
 
-            pending = sorted(pending, key=_park_key)
+            pending = sorted(
+                pending,
+                key=lambda item: (_park_key(item), item["mtime"], item["surface"], item["id"]),
+            )
             for item in pending:
                 # Finding G: limit attempts (not only successes) so invalid_output cannot burn
                 # unbounded sessions past max_sessions_per_sweep.
@@ -873,7 +856,6 @@ def rationalize_pending_sessions(
                 project_dir,
                 log=log,
                 codex_dir=codex_dir,
-                hermes_dir=hermes_dir,
                 backfill_days=backfill_days,
                 racionalizador_version=racionalizador_version,
             )
@@ -890,8 +872,11 @@ def rationalize_pending_sessions(
 
 
 # --- effectful execute: log + ingest + advance cursor ---
-def execute(plan, cursors, log=eventlog.LOG):
-    """Persist Tier-0 episodes/cursors only. Tier-1 Graphiti intake is gated by emprego.project()."""
+def execute(plan, ingest_fn, cursors, log=eventlog.LOG):
+    """**Tier-0 is truth** (ADR-0006): write each qualifying delta as an `episode` event and advance
+    its cursor — **always, even with no graph**. The graph ingest (`ingest_fn`) is **best-effort**:
+    a missing runtime or a down Neo4j (e.g. a graph-less fleet host) is logged and skipped, never
+    fatal — the graph is a projection rebuildable from the log. Returns (cursors, n_logged)."""
     qualifying = [it for it in plan if not it.get("skip") and it.get("body", "").strip()]
     for it in qualifying:                              # Tier-0: the log + cursor, unconditionally
         # R8c part 1 (F9-dep, C5): STAMP the source Medium's tier on the episode at ingest. The native
@@ -903,11 +888,42 @@ def execute(plan, cursors, log=eventlog.LOG):
                    "medium_tier": "low_tier"}
         if it.get("surface") in ("codex", "grok"):
             payload["surface"] = it["surface"]
-        if it.get("surface") == "hermes":
-            payload.update(surface="hermes", profile_name=it["profile_name"],
-                           edge_group=it["edge_group"])
         eventlog.append("episode", f"session:{it['id']}", payload, log=log)
         cursors[it["id"]] = it["watermark"]
+    if qualifying and ingest_fn is not None:           # Tier-1: graph projection, best-effort
+        # BOUNDED + degrade-dark (#62): Tier-0 (episode + cursor) is ALREADY durable above, so the
+        # graph ingest must never gate the wake. It runs on a daemon thread with a hard deadline —
+        # a HANG (add_episode on a network call with no client timeout) degrades dark LOUD exactly
+        # like a raise; the graph re-projects from the log. Fail loud on a bad budget, never un-cap.
+        # Default 600s (qualidade>latência, operador 2026-07-25): extração LLM honesta
+        # passa fácil de 30s e o grafo vivia truncando em silêncio; o cap segue existindo
+        # só para HANG de rede — nunca para apressar trabalho real.
+        budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
+        try:
+            budget = float(budget_raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number — fail loud (#62)")
+        if not math.isfinite(budget) or budget < 0:
+            raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a finite non-negative "
+                             "number — nan/inf/negative would un-bound the graph ingest (#62); fail loud")
+        err = []
+        done = threading.Event()
+
+        def _ingest():
+            try:
+                ingest_fn(qualifying)
+            except Exception as e:  # noqa: BLE001 — captured, surfaced on the caller thread
+                err.append(e)
+            finally:
+                done.set()
+
+        threading.Thread(target=_ingest, daemon=True).start()
+        if not done.wait(timeout=budget):
+            print(f"sweep: graph ingest EXCEEDED {budget:g}s budget — degraded DARK (Tier-0 log is "
+                  f"current; the graph is rebuildable from the log)")
+        elif err:
+            print(f"sweep: graph ingest skipped ({type(err[0]).__name__}: {err[0]}) — "
+                  f"Tier-0 log is current; the graph is rebuildable from the log")
     return cursors, len(qualifying)
 
 
@@ -925,9 +941,6 @@ def _load_openai_key():
 
 
 def _first_ts(path):
-    # Hermes sessions are SQLite virtual paths (`state.db#session_id`), not files.
-    if "#" in str(path):
-        return None
     for line in open(path):
         try:
             ts = json.loads(line).get("timestamp")
@@ -972,24 +985,25 @@ def chunk_episode_body(body, max_chars=MAX_EPISODE_CHARS):
     return chunks
 
 
-async def _add_episode_with_backoff(add, *, attempts=6, base_delay=15):
-    """Retry only provider throttling; every other failure remains immediately visible."""
-    import asyncio
-    for attempt in range(attempts):
-        try:
-            return await add()
-        except Exception as e:
-            quota_exhausted = getattr(e, "code", None) == "insufficient_quota" or \
-                "insufficient_quota" in str(e)
-            if (type(e).__name__ != "RateLimitError" or quota_exhausted or
-                    attempt == attempts - 1):
-                raise
-            delay = base_delay * (2 ** attempt)
-            print(f"  ~ rate limited; retrying in {delay}s")
-            await asyncio.sleep(delay)
+def _ingest_summary(ingested, failures):
+    """A linha ALTA do ingest, ou None quando tudo entrou.
+
+    As falhas por episódio já são impressas uma a uma — e é exatamente por isso que elas somem:
+    ficam soterradas num traço longo, e TODAS as linhas de resumo seguintes ('communities
+    consolidadas — 0 clusters', etc.) continuam parecendo normais. Um wake que não filmou NADA
+    reportava sucesso em todas as outras pernas. O operador não via uma falha; via calmaria.
+
+    Ingest que falha é a memória parando de avançar — o órgão do qual todo o resto depende — e
+    isso não pode custar um grep para ser notado."""
+    if not failures:
+        return None
+    first = failures[0]
+    total = ingested + len(failures)
+    return (f"sweep: graph ingest — {len(failures)} de {total} episódio(s) FALHARAM; "
+            f"a memória NÃO avançou neles. Primeiro: {first}")
 
 
-def _legacy_graphiti_ingest(items):
+def graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
     others still land). Returns the set of session ids that ingested — INFORMATIONAL: `execute`
@@ -999,12 +1013,13 @@ def _legacy_graphiti_ingest(items):
     import asyncio
     from graphiti_core import Graphiti
     from graphiti_core.nodes import EpisodeType
+    from graphiti_core.llm_client import LLMConfig, OpenAIClient
     _load_openai_key()
     neo = _identity.neo4j_conn()
-    install_group = _identity.require_group()   # unchanged fallback for Claude/Codex/Grok
+    group = _identity.require_group()   # resolved ONCE, before any episode (codex gate)
     ok = set()
 
-    async def bounded_previous_uuids(g, ref, group):
+    async def bounded_previous_uuids(g, ref):
         """The previous-episode context add_episode would retrieve, bounded: most-recent-first
         under PREV_CONTEXT_MAX_CHARS, never an episode over MAX_EPISODE_CHARS (a legacy pre-#53
         giant — one alone can blow the window). Deterministic seam: the tool disposes what the
@@ -1022,45 +1037,48 @@ def _legacy_graphiti_ingest(items):
             total += size
         return chosen
 
+    _ingested, _failures = [], []
+
     async def go():
-        g = Graphiti(*neo)
+        # gpt-5.6-luna NÃO serve aqui: graphiti_core fixa reasoning.effort="minimal"
+        # (openai_base_client.py:36) e o luna recusa esse valor — o extractor morre com 400 e
+        # a sessão inteira deixa de ser filmada. 9d330ea já mantinha 4o-mini neste caminho por
+        # custo (extractor = linha #1 da fatura); agora há também um motivo de compatibilidade.
+        llm = OpenAIClient(config=LLMConfig(model="gpt-4o-mini", small_model="gpt-4o-mini"))
+        g = Graphiti(*neo, llm_client=llm)
         await g.build_indices_and_constraints()
-        groups = sorted({it.get("edge_group") or install_group for it in items})
-        records, _, _ = await g.driver.execute_query(
-            "MATCH (e:Episodic) WHERE e.group_id IN $groups "
-            "RETURN e.group_id AS group_id, e.name AS name", groups=groups)
-        existing = {(r["group_id"], r["name"]) for r in records}
         for it in items:
-            group = it.get("edge_group") or install_group
             ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
             chunks = chunk_episode_body(it["body"])   # one big session → several context-fit episodes (#53)
             failed = False
             for k, chunk in enumerate(chunks):
                 name = _episode_name(it) if len(chunks) == 1 else _episode_name(it, k)
-                legacy_name = (_legacy_episode_name(it) if len(chunks) == 1
-                               else _legacy_episode_name(it, k))
                 try:
-                    if (group, name) in existing or (group, legacy_name) in existing:
-                        print(f"  = exists {name}")
-                        continue
-                    prev = await bounded_previous_uuids(g, ref, group)
+                    prev = await bounded_previous_uuids(g, ref)
                     await _add_episode_with_backoff(lambda: g.add_episode(
-                        name=name, episode_body=chunk, source=EpisodeType.message,
-                        source_description=_source_description(it), reference_time=ref,
-                        group_id=group, previous_episode_uuids=prev))
-                    existing.add((group, name))
+                        name=name, episode_body=chunk,
+                        source=EpisodeType.message,
+                        source_description=_source_description(it),
+                        reference_time=ref, group_id=group,
+                        previous_episode_uuids=prev))
                     print(f"  + ingested {name} ({len(chunk)} chars)")
                 except Exception as e:
                     failed = True
+                    _failures.append(f"{name}: {type(e).__name__}: {e}")
                     print(f"  ! FAILED {name}: {type(e).__name__}: {e}")
                     if os.environ.get("EDGE_GRAPHITI_DEBUG") == "1":
                         import traceback
                         traceback.print_exc()
+                else:
+                    _ingested.append(name)
             if not failed:           # a session counts as ingested only if every sub-episode landed
                 ok.add(it["id"])
         await g.close()
 
     asyncio.run(go())
+    summary = _ingest_summary(len(_ingested), _failures)
+    if summary:
+        print(summary)
     return ok
 
 
@@ -1109,49 +1127,33 @@ def embed_and_signal(slug, body, cites, embed_fn=None, log=eventlog.LOG):
 def _maybe_consolidate():
     """Communities consolidation behind EDGE_COMMUNITIES=1 (dark by default, padrão EDGE_CONDUCTOR).
     Vazão×confiança: a vazão é automática atrás do knob; a confiança fica no harm-bearing. Best-effort
-    como o graph-ingest — NUNCA derruba um sweep (grafo/LLM fora → skip logado)."""
+    como o graph-ingest — NUNCA derruba um sweep (grafo/LLM fora → skip logado).
+
+    Mas "não derruba" nunca quis dizer "não conta". `len(written or [])` colapsava as duas
+    respostas possíveis num único "0 clusters": o grafo que rodou e não tinha o que agrupar, e o
+    grafo que NÃO CONSEGUIU rodar. A frota inteira imprimia a linha calma da escassez enquanto o
+    órgão estava parado (#635)."""
     if os.environ.get("EDGE_COMMUNITIES") != "1":
         return
     try:
         import communities
-        written = communities.consolidate()
-        print(f"sweep: communities consolidadas — {len(written or [])} clusters")
     except Exception as e:
-        print(f"sweep: communities skipped ({type(e).__name__}: {e}) — graph/LLM leg dark")
-
-
-def _maybe_project_emprego(log=eventlog.LOG):
-    """Project only mining-accepted digests into Graphiti; Tier-0 remains truth."""
-    budget_raw = os.environ.get("EDGE_SWEEP_INGEST_BUDGET_S", "600")
+        print(f"sweep: communities skipped ({type(e).__name__}: {e}) — módulo indisponível")
+        return
     try:
-        budget = float(budget_raw)
-    except (TypeError, ValueError):
-        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} is not a number")
-    if not math.isfinite(budget) or budget < 0:
-        raise ValueError(f"EDGE_SWEEP_INGEST_BUDGET_S={budget_raw!r} must be finite and non-negative")
-    err, done = [], threading.Event()
-
-    def _run():
-        try:
-            import emprego
-            out = emprego.project(log=log)
-            if out is not None:
-                print(f"sweep: emprego project — added {out.get('added', 0)}/{out.get('total', 0)} accepted digests")
-        except Exception as exc:  # noqa: BLE001
-            err.append(exc)
-        finally:
-            done.set()
-
-    threading.Thread(target=_run, daemon=True).start()
-    if not done.wait(timeout=budget):
-        print(f"sweep: emprego project EXCEEDED {budget:g}s budget — degraded DARK")
-    elif err:
-        print(f"sweep: emprego project skipped ({type(err[0]).__name__}: {err[0]}) — Tier-0 log is current")
-
-
-def _cortex_refresh(log=eventlog.LOG):
-    _maybe_project_emprego(log=log)
-    _maybe_consolidate()
+        written = communities.consolidate()
+    except communities.ConsolidationFailed as e:
+        # severidade na língua de group_health.verdicts (#638): `dark` = não pude rodar,
+        # `fail` = rodei e quebrei. As duas são altas; nenhuma é "0 clusters".
+        print(f"sweep: communities [{e.severity}] FALHARAM ({e.reason}) — a consolidação NÃO "
+              f"rodou; as Community deste grupo estão PARADAS (não vazias) e a navegação por "
+              f"cluster segue no estado da última passagem que funcionou. {e.detail}")
+        return
+    except Exception as e:   # noqa: BLE001 — best-effort leg: loga alto, nunca derruba o sweep
+        print(f"sweep: communities [fail] FALHARAM ({type(e).__name__}: {e}) — a consolidação "
+              f"NÃO rodou; as Community deste grupo estão PARADAS, não vazias")
+        return
+    print(f"sweep: communities consolidadas — {len(written)} clusters")
 
 
 def _topic_direction_window_days():
@@ -1165,34 +1167,68 @@ def _topic_direction_window_days():
     return val
 
 
-def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, grok_dir=None,
-                                    log=eventlog.LOG):
-    """Recent Voz -> topic threads -> Direction.proposed.
-
-    This is the automatic non-curated tier the wake can safely run before assemble reads Direction.
-    It never promotes to `set`, and it never reopens a dropped/set steer.
-    """
-    if os.environ.get("EDGE_TOPIC_DIRECTION", "1").lower() in {"0", "false", "no", "off"}:
-        return 0
+def _atividades_state_dir(explicit=None):
+    """Persisted 4-level register (N1–N4). Never invents a state path."""
+    if explicit:
+        return Path(explicit)
+    env = os.environ.get("EDGE_ATIVIDADES_STATE")
+    if env:
+        return Path(env)
     try:
-        import topic_threads
-        kwargs = dict(
-            window_days=_topic_direction_window_days(),
-            project_dir=project_dir,
-            codex_dir=codex_dir,
-            grok_dir=grok_dir,
-            all_stores=(project_dir is None),
-            log=log,
-        )
-        out = topic_threads.sync_recent_topic_memory(**kwargs)
-        if out.get("total"):
-            print(f"sweep: session topics indexed {out.get('topics', 0)}; "
-                  f"topic threads proposed {out.get('directions', 0)} Direction item(s)")
-        return out.get("total", 0)
+        cand = _identity.state_root() / "state" / "atividades"
+        if (cand / "atividades.json").is_file():
+            return cand
+    except Exception:
+        return None
+    return None
+
+
+def _maybe_propose_topic_directions(project_dir=None, codex_dir=None, grok_dir=None,
+                                    log=eventlog.LOG, atividades_state=None):
+    """Wake-time Direction.proposed BEFORE assemble.
+
+    Primary engine: live activity N3+N4 pair (one proposed per open activity).
+    TOPIC_SPECS / topic-7d canned steers are NOT the proposed engine — session
+    topics stay as navigation index only. Never promotes to `set`. Never reopens
+    set/dropped. Without a persisted atividades state (or without an N3+N4 pair),
+    degrades declared — no silent invented objectives.
+    """
+    written = 0
+    if os.environ.get("EDGE_TOPIC_DIRECTION", "1").lower() not in {"0", "false", "no", "off"}:
+        try:
+            import topic_threads
+            kwargs = dict(
+                window_days=_topic_direction_window_days(),
+                project_dir=project_dir,
+                codex_dir=codex_dir,
+                grok_dir=grok_dir,
+                all_stores=(project_dir is None),
+                log=log,
+            )
+            # index only — sync_recent_topic_memory no longer emits topic-7d proposed
+            out = topic_threads.sync_recent_topic_memory(**kwargs)
+            if out.get("topics"):
+                print(f"sweep: session topics indexed {out.get('topics', 0)}")
+            written += int(out.get("topics") or 0)
+        except Exception as e:  # noqa: BLE001 — automatic inference must not gate the wake
+            print(f"sweep: session-topic index skipped ({type(e).__name__}: {e}) — "
+                  "wake continues")
+    try:
+        import atividades
+        state = _atividades_state_dir(atividades_state)
+        if state is None or not (Path(state) / "atividades.json").is_file():
+            return written
+        reg, proj = atividades.carregar_estado(state)
+        n = atividades.propose_live_activity_directions(reg, proj, log)
+        if n:
+            print(f"sweep: live-activity Direction proposed {n} item(s) "
+                  "(N3+N4 pair; not topic-7d)")
+        written += n
+        return written
     except Exception as e:  # noqa: BLE001 — automatic inference must not gate the wake
-        print(f"sweep: topic-thread Direction skipped ({type(e).__name__}: {e}) — "
+        print(f"sweep: activity Direction skipped ({type(e).__name__}: {e}) — "
               "wake continues; grill can still curate existing Direction")
-        return 0
+        return written
 
 
 def reproject():
@@ -1202,7 +1238,7 @@ def reproject():
     eventlog.consolidate_artefato_proposals()
     eventlog.project_direction()                       # pure fold — always
     eventlog.project_corpus()                          # pure fold — always (Tier-0, no graph)
-    _cortex_refresh()                                  # emprego gate, then communities
+    _maybe_consolidate()                               # communities: vazão automática, knob-gated
     missing = cortex.artefatos_without_kernel()        # the C3 gate finally gets a reader (ADR-0009)
     if missing:
         print(f"sweep: C3 — {len(missing)} published Artefato(s) without an intent.kernel: "
@@ -1266,7 +1302,7 @@ def _acquire_cursors_lock(lk, wait_s=CURSORS_LOCK_WAIT_S, poll_s=CURSORS_LOCK_PO
 
 def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=None,
         log=eventlog.LOG, recent=None, graph_recover_fn=None, group=None, codex_dir=None,
-        grok_dir=None, cursors_lock_wait_s=None):
+        grok_dir=None, cursors_lock_wait_s=None, atividades_state=None):
     """Full sweep: plan the deltas → ingest + log + advance cursors → re-project (if anything new) →
     graph-recover (ALWAYS). `recent=N` bounds this run to the N newest sessions (the rest backfill on
     later sweeps). Graph recovery runs EVERY sweep, independent of `n` (Codex P2), so a no-delta sweep
@@ -1316,10 +1352,11 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
                 cursors = _grok_baseline(cursors, grok_dir, install_birth=birth)
             plan = plan_sweep(project_dir, cursors, recent=recent, codex_dir=codex_dir,
                               grok_dir=grok_dir, install_birth=birth)
-            cursors, n = execute(plan, cursors, log=log)
+            cursors, n = execute(plan, ingest_fn or graphiti_ingest, cursors, log=log)
             save_cursors(cursors, cursors_path)
             proposed = _maybe_propose_topic_directions(project_dir=project_dir, codex_dir=codex_dir,
-                                                       grok_dir=grok_dir, log=log)
+                                                       grok_dir=grok_dir, log=log,
+                                                       atividades_state=atividades_state)
         finally:
             fcntl.flock(lk, fcntl.LOCK_UN)
 
@@ -1328,7 +1365,7 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
     elif reproject_fn is None:
         # Communities are the automatic consolidation leg of the wake. They must still refresh on a
         # no-delta dispatch so the briefing can read the current graph before any skill reasoning.
-        _cortex_refresh(log=log)
+        _maybe_consolidate()
     # graph recovery runs ALWAYS (not under `if n`) — a no-delta sweep still self-heals the graph.
     # The run's `log` is threaded through (Codex P2): a custom-log dry-run never projects the real
     # corpus (publisher.reproject_graph default-skips a non-canonical log).
@@ -1338,7 +1375,6 @@ def run(project_dir=None, ingest_fn=None, cursors_path=CURSORS, reproject_fn=Non
 
 
 def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir=None,
-                                hermes_dir=None,
                                 complete_fn=None, completer_factory=None,
                                 rationalize_fn=None, lentes_config=None,
                                 reconcile_fn=None, project_fn=None, render_fn=None,
@@ -1354,8 +1390,7 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
     version = config.get(
         "racionalizador_version", "racionalizador-v3-session-provenance")
     pending = plan_rationalizations(
-        project_dir, log=log, codex_dir=codex_dir, hermes_dir=hermes_dir,
-        backfill_days=backfill_days,
+        project_dir, log=log, codex_dir=codex_dir, backfill_days=backfill_days,
         racionalizador_version=version,
     )
     if pending:
@@ -1369,7 +1404,6 @@ def run_rationalization_backlog(project_dir=None, *, log=eventlog.LOG, codex_dir
             completer_factory=completer_factory,
             log=log,
             codex_dir=codex_dir,
-            hermes_dir=hermes_dir,
             rationalize_fn=rationalize_fn,
             backfill_days=backfill_days,
             max_sessions_per_sweep=config.get(

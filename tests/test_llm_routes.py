@@ -166,9 +166,17 @@ class CompleterFor(unittest.TestCase):
         self.assertEqual(seen["model"], "grok-4.5")
 
     def test_api_route_without_key_raises_transport_error(self):
+        # hermético (mesma cura de test_credential_present_vs_absent): a rota chat é openai e
+        # o que se cobra é a AUSÊNCIA da chave. Um OPENAI_API_KEY exportado no ambiente de quem
+        # roda a suíte vence o secrets/ do repo temporário (override explícito vence, como
+        # _secrets.load_env) e o transporte resolve — o teste passava ou falhava conforme o HOST
+        # tivesse chave, medindo a instalação em vez do código.
+        from unittest import mock
+        env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
         repo = temp_repo(openai_key=None)
-        with self.assertRaises(_llm.LLMTransportError):
-            llm_routes.completer_for("chat", repo=repo)
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaises(_llm.LLMTransportError):
+                llm_routes.completer_for("chat", repo=repo)
 
 
 if __name__ == "__main__":

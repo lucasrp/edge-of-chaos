@@ -8,9 +8,11 @@ Curadoria humana fica onde erro machuca (harm-bearing), nunca como porteiro da v
 
 READ navigation is exposed through the Modulo-2 door (cortex.communities/community/locate —
 late-binding, ADR-0019); the WRITE side (consolidate) is called by sweep/heartbeat directly,
-mirroring the eventlog split (writes direct, reads through the door). All graph adapters are
-lazy imports that degrade DARK (None), the same contract as briefing.graph_clusters; this
-module imports bare (no top-level neo4j/urllib) so bare-python callers can hold the door.
+mirroring the eventlog split (writes direct, reads through the door). The READ adapters are
+lazy imports that degrade DARK (None), the same contract as briefing.graph_clusters; the WRITE
+one does NOT — `consolidate` raises ConsolidationFailed, because a write that could not happen
+is a failure and not an empty result (#635). This module imports bare (no top-level
+neo4j/urllib) so bare-python callers can hold the door.
 """
 import json
 import os
@@ -18,7 +20,59 @@ import time
 import uuid as uuidlib
 from collections import Counter, defaultdict
 
-GROUP = os.environ.get("EDGE_GROUP")
+_AUTO = object()   # "resolva pelo seam" — DISTINTO de None/"" , que significam "sem grupo"
+
+
+class ConsolidationFailed(RuntimeError):
+    """`consolidate()` NÃO conseguiu agrupar — distinto de `[]` ("não havia o que agrupar").
+
+    O dente da #635. `consolidate()` devolvia None em três situações que são coisas diferentes
+    — sem grupo, sem driver, e grafo inalcançável/erro no meio — e o chamador (`sweep`) fazia
+    `len(written or [])` e imprimia "0 clusters" para TODAS. Um grafo que não pôde ser
+    consolidado lia-se, no terminal do operador, idêntico a um grafo que ainda não tem o que
+    consolidar. Foi essa indistinção que fez o apagão (identidade lida em tempo de import,
+    corrigido no PR #603) passar por ESCASSEZ durante meses: a frota inteira imprimia
+    "0 clusters" e ninguém viu falha nenhuma.
+
+    Ausência de resultado só é sucesso quando o órgão RODOU. Falha em rodar é falha, e falha
+    tem que ser alta.
+
+    O vocabulário é o de `group_health.verdicts` (#638), não um terceiro inventado:
+      · `dark` — NÃO PUDE rodar (sem identidade de grupo, sem Bolt). Nada foi medido, o que é
+        MUITO diferente de "tudo bem": lá o `main` já sai 2 nesse caso.
+      · `fail` — rodei contra o grafo e quebrei no meio.
+    `.severity` é essa palavra, `.reason` é a máquina (`no-group` · `graph-unreachable` ·
+    `graph-error`), `.detail` é o humano. Nenhuma das três é `[]`."""
+
+    SEVERITIES = {"no-group": "dark", "graph-unreachable": "dark", "graph-error": "fail"}
+
+    def __init__(self, reason, detail=""):
+        self.reason = reason
+        self.severity = self.SEVERITIES.get(reason, "fail")
+        self.detail = detail
+        super().__init__(f"{reason}: {detail}" if detail else reason)
+
+
+def _resolve_group(group):
+    """O grupo efetivo. `_AUTO` (o default) resolve pelo seam; None ou "" são uma INSTRUÇÃO
+    explícita do chamador — sem grupo — e continuam sem grupo.
+
+    Antes o default era None e o corpo fazia `group or _group()`, o que apaga a diferença: um
+    None explícito virava "resolva um pra mim" e a chamada caía no grafo do install. Era
+    invisível enquanto a identidade vinha só de EDGE_GROUP (quase sempre ausente em teste);
+    passou a morder quando a resolução ganhou o agent.yaml."""
+    return _group() if group is _AUTO else group
+
+
+def _group():
+    """O grupo, resolvido pelo seam único (ADR-0015) e SOB DEMANDA.
+
+    Era uma constante de módulo lendo a variável de ambiente do grupo direto, no topo do arquivo:
+    um segundo seam E um cache de identidade em tempo de import — o mesmo par que
+    test_sweep_has_no_import_time_identity_cache já proíbe no sweep. Cache de identidade no import
+    guarda a identidade de quem importou, não a do install que vai ser consultado."""
+    import _identity
+    return _identity.group()
 
 
 # --- pure core (bare python; the internal seam the tests hold) ---
@@ -113,10 +167,10 @@ def _driver(uri=None, user=None, password=None):
         return None
 
 
-def communities(group=None, **kw):
+def communities(group=_AUTO, **kw):
     """The briefing §5 leg: [{uuid, name, summary, size, last_touched}] recency-desc.
     [] = graph reachable, no communities yet; None = dark."""
-    group = group or GROUP
+    group = _resolve_group(group)
     if not group:
         return None
     drv = _driver(**kw)
@@ -137,10 +191,10 @@ def communities(group=None, **kw):
         return None
 
 
-def community(ref, group=None, **kw):
+def community(ref, group=_AUTO, **kw):
     """One cluster in full: members (with last_mentioned) + provenance (source sessions via
     MENTIONS, artefatos via DISTILLS). ref = uuid or name. None = dark/not found."""
-    group = group or GROUP
+    group = _resolve_group(group)
     if not group:
         return None
     drv = _driver(**kw)
@@ -177,10 +231,10 @@ def community(ref, group=None, **kw):
         return None
 
 
-def locate(names, group=None, **kw):
+def locate(names, group=_AUTO, **kw):
     """JULGAR positioning: for each entity name, which community holds it (member), neighbours
     it (edge — RELATES_TO into a community), or none. None = dark."""
-    group = group or GROUP
+    group = _resolve_group(group)
     if not group:
         return None
     if not names:
@@ -211,12 +265,12 @@ def locate(names, group=None, **kw):
 
 
 def _default_summarize(members_text):
-    """gpt-5.4-mini one-shot name+summary; injected in tests. Raises on transport error —
+    """One-shot name+summary pelo modelo de chat do host (gpt-5.6-luna neste install); injected in tests. Raises on transport error —
     consolidate catches and degrades."""
     import urllib.request
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
-        data=json.dumps({"model": "gpt-5.4-mini", "max_completion_tokens": 300, "messages": [{
+        data=json.dumps({"model": "gpt-5.6-luna", "max_completion_tokens": 300, "messages": [{
             "role": "user",
             "content": "Estas entidades formam um cluster de conhecimento das sessões de "
                        "trabalho de um operador. Dê um NOME curto (3-6 palavras, PT-BR) e um "
@@ -228,17 +282,26 @@ def _default_summarize(members_text):
     return body["choices"][0]["message"]["content"].strip()
 
 
-def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
+def consolidate(group=_AUTO, summarize_fn=None, min_size=3, min_cross=2, **kw):
     """The offline consolidation sweep (WRITE side — called by heartbeat/sweep, NOT the door):
     entities+RELATES_TO → cluster() → merge_pass() → summarize each → wipe-rebuild Community/
-    HAS_MEMBER (their own lifecycle; the log stays the truth, ADR-0006). Returns the list of
-    {name, size} written, or None on a dark graph. Dust count is logged, never silent."""
-    group = group or GROUP
+    HAS_MEMBER (their own lifecycle; the log stays the truth, ADR-0006).
+
+    Returns the list of {name, size} written — `[]` means the sweep RAN and there was nothing to
+    group (no entities, or every candidate was dust). It NEVER returns None: a consolidation that
+    could not run raises `ConsolidationFailed`, because the read side's dark contract (None) is
+    wrong for a WRITE — a write that did not happen is not "no data", it is a failure, and it
+    must reach the operator as one. Dust count is logged, never silent."""
+    group = _resolve_group(group)
     if not group:
-        return None
+        raise ConsolidationFailed(
+            "no-group", "sem identidade de grupo (EDGE_GROUP ou agent.yaml name/codename) — "
+            "nada foi lido nem escrito no grafo")
     drv = _driver(**kw)
     if drv is None:
-        return None
+        raise ConsolidationFailed(
+            "graph-unreachable", f"sem driver Neo4j para o grupo {group!r} "
+            "(bolt fora, ou senha ausente em EDGE_NEO4J_PASSWORD / _identity)")
     summarize_fn = summarize_fn or _default_summarize
     try:
         with drv.session() as s:
@@ -294,8 +357,10 @@ def consolidate(group=None, summarize_fn=None, min_size=3, min_cross=2, **kw):
             s.execute_write(_rebuild)
         return [{"name": n, "size": len(g)} for _, n, _, g in payloads]
     except Exception as e:
-        # ed: never swallow silently — a raised consolidate reads identically to an empty
-        # graph ("0 clusters"), which hid the schema-name collision above for weeks.
+        # ed: never swallow silently — a swallowed consolidate reads identically to an empty
+        # graph ("0 clusters"), which hid the schema-name collision above for weeks. The
+        # traceback stays (it is the only diagnosis of a mid-write failure) and the failure now
+        # PROPAGATES: the caller decides how loud, and `edge-python -c "...consolidate()"`
+        # exits non-zero instead of printing a reassuring None.
         import traceback; traceback.print_exc()
-        print(f"communities: consolidate degraded ({type(e).__name__}: {e}) — 0 clusters written")
-        return None
+        raise ConsolidationFailed("graph-error", f"{type(e).__name__}: {e}") from e

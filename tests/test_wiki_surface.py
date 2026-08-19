@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from _blog_env import guard_blog_env
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -79,6 +80,7 @@ class _WikiBase(unittest.TestCase):
         self.log = root / "log.jsonl"
         self.log.write_text("\n".join(self.LOG_LINES) + ("\n" if self.LOG_LINES else ""))
 
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root / "entries")
         os.environ["EDGE_BLOG_STATIC"] = str(root / "static")
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
@@ -346,6 +348,7 @@ class TestWikiReachableFromBriefingAndDistills(unittest.TestCase):
                 {"slug": "alpha-post", "intent": "open: alpha."}),
         ]) + "\n")
 
+        guard_blog_env(self)
         os.environ["EDGE_BLOG_ENTRIES"] = str(root / "entries")
         os.environ["EDGE_BLOG_STATIC"] = str(root / "static")
         os.environ["EDGE_BLOG_LOG"] = str(self.log)
@@ -359,11 +362,22 @@ class TestWikiReachableFromBriefingAndDistills(unittest.TestCase):
         os.environ.pop("EDGE_WIKI_ROOT", None)
         self.tmp.cleanup()
 
-    def test_artefato_distills_a_cluster_link_into_the_wiki(self):
-        # an Artefato's distilled cluster (`distills: ["cluster:foo"]`) is a live drill-down into the
-        # cluster thread — the graph→knowledge bridge from the work feed.
-        html = self.client.get("/").get_data(as_text=True)
-        self.assertIn("/wiki/foo", html)
+    def test_artefato_distills_no_longer_bridges_into_the_wiki(self):
+        """O feed NÃO emite mais chip de `distills` — e isso é contrato, não regressão.
+
+        ADR-0018 (`b4f917a`, "blog home: layout A … artifact chips removed") removeu
+        `_artifact_items` de propósito. O `PLAN.md` §Slice 5b ainda exigia alcançabilidade
+        "from an Artefato's `distills`" e nunca foi emendado, então este teste ficou vermelho
+        contra uma decisão deliberada. Emendado em 2026-08-16 por palavra do operador.
+
+        O teste inverte de lado em vez de sumir: ele agora GUARDA a decisão da ADR — se alguém
+        reintroduzir os chips sem revisitar a ADR, isto acusa. E os irmãos abaixo seguem
+        guardando a metade que sobreviveu: o wiki não fica órfão, é alcançável por /briefing e
+        por /wiki."""
+        feed = self.client.get("/").data.decode()
+        self.assertNotIn("/wiki/", feed,
+                         "o chip de distills foi removido pela ADR-0018; se voltou ao feed, a "
+                         "ADR precisa ser revisitada ANTES de mexer neste teste")
 
     def test_briefing_links_to_the_wiki(self):
         html = self.client.get("/briefing").get_data(as_text=True)

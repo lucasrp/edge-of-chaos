@@ -41,6 +41,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import eventlog  # noqa: E402
 import render  # noqa: E402
+import yaml_rite  # noqa: E402
 
 SCHEMA = "edge.rito-manifest/v1"
 RITO_VERSION = "artefato-double-grounding/experiment-b"
@@ -446,16 +447,21 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             run.save(manifest)
             raise exc
 
-        # 9 — final_html: the PINNED render (renderer id sealed; one byte seam)
+        # #585 / #647: probe/review consume the mentee page, not raw YAML keys.
+        # Markdown drafts stay the pinned renderer; leftover YAML still renders to HTML.
+        reader_facing = yaml_rite.reader_facing_text(blind_safe)
+        outputs["reader_facing"] = reader_facing
+
+        # 9 — final_html: YAML → spec_to_html; markdown stays the pinned renderer.
         if _completed_output(run, manifest, "final_html") is None:
             _begin(run, manifest, "final_html")
             try:
-                page_bytes = render.markdown_page_bytes(blind_safe)
+                page_bytes = yaml_rite.page_bytes(blind_safe)
                 out = run.output_for("final_html")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(page_bytes)
                 _finish(run, manifest, "final_html")
-                _stage_record(manifest, "final_html")["renderer_id"] = render.RENDERER_ID
+                _stage_record(manifest, "final_html")["renderer_id"] = yaml_rite.renderer_id_for(blind_safe)
                 run.save(manifest)
             except BaseException as exc:
                 _fail(run, manifest, "final_html", exc)
@@ -466,7 +472,9 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         # clareza pedagógica é critério de strike, com os contrapesos vinculantes
         # (fato é do fact-audit; enchimento ≠ crescimento) escritos na própria lente.
         import feynman_gate as _feynman_gate
-        final_review_prompt = (prompts["final_review"](outputs)
+        review_outputs = dict(outputs)
+        review_outputs["treatment_cleanup"] = outputs.get("reader_facing", blind_safe)
+        final_review_prompt = (prompts["final_review"](review_outputs)
                                + "\n\n" + _feynman_gate.LENS_BLOCK)
         if theme_review_contract:
             final_review_prompt = f"{final_review_prompt}\n\n{theme_review_contract}"
@@ -631,11 +639,14 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
     expected_page = None
     sealed_md = None
     stage_renderer = (by_name.get("final_html") or {}).get("renderer_id")
-    if stage_renderer != render.RENDERER_ID and "renderer-id-mismatch" not in failures:
+    _verify_rid = render.RENDERER_ID
+    if md_path.is_file():
+        _verify_rid = yaml_rite.renderer_id_for(md_path.read_text(encoding="utf-8"))
+    if stage_renderer != _verify_rid and "renderer-id-mismatch" not in failures:
         failures.append("renderer-id-mismatch")
     if md_path.is_file():
         sealed_md = md_path.read_text(encoding="utf-8")
-        expected_page = render.markdown_page_bytes(sealed_md)
+        expected_page = yaml_rite.page_bytes(sealed_md)
         sealed = (by_name.get("final_html") or {}).get("output") or {}
         if sealed.get("sha256") != sha_bytes(expected_page):
             failures.append("form-renderer-mismatch")
@@ -660,7 +671,7 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
         spec = (ev.get("payload") or {}).get("spec") or {}
         if (isinstance(spec, dict)
                 and spec.get("format") == "edge-markdown/v1"
-                and spec.get("renderer_id") == render.RENDERER_ID
+                and spec.get("renderer_id") == yaml_rite.renderer_id_for(sealed_md or "")
                 and spec.get("rito_manifest_sha256") == core
                 and expected_page is not None
                 and spec.get("page_sha256") == sha_bytes(expected_page)
@@ -681,7 +692,7 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
     if not (isinstance(receipt, dict)
             and any(ev.get("seq") == receipt.get("event_seq") for ev in bound)
             and receipt.get("rito_manifest_sha256") == core
-            and receipt.get("renderer_id") == render.RENDERER_ID
+            and receipt.get("renderer_id") == yaml_rite.renderer_id_for(sealed_md or "")
             and expected_page is not None
             and receipt.get("page_sha256") == sha_bytes(expected_page)):
         failures.append("publication-receipt-unbound")

@@ -17,6 +17,13 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import eventlog  # noqa: E402
 
+# The CANONICAL batch one `publish_artefato_atomic` lands, in order — named ONCE so the batch's
+# shape is asserted in a single place instead of being re-typed (and left behind) in every test
+# that reads a publish back. It grew: published+kernel (#3) → +adoption (R6/S10) → +assembly.pending
+# (tkt-003, the Assemble queue is log truth). Extend HERE when the canon grows again, never inline.
+ATOMIC_PUBLISH_BATCH = ["artefato.published", "intent.kernel", "artefato.adoption",
+                        "assembly.pending"]
+
 
 class AppendThenReadRoundTrips(unittest.TestCase):
     """The tracer bullet: an appended event lands as one JSONL line, stamped with a
@@ -88,8 +95,8 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_two_tiers_by_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "explore X", log=log)
-            eventlog.set_direction("b", "ship Y", log=log)
+            eventlog.propose("a", "explore X", log=log, title="explore X")
+            eventlog.set_direction("b", "ship Y", log=log, title="ship Y")
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["proposed"]], ["a"])
             self.assertEqual([i["id"] for i in d["set"]], ["b"])
@@ -97,9 +104,9 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_set_outranks_proposed_same_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "maybe X", log=log)
-            eventlog.set_direction("a", "X ratified", log=log)
-            eventlog.propose("a", "waffle", log=log)  # cannot demote a set id
+            eventlog.propose("a", "maybe X", log=log, title="maybe X")
+            eventlog.set_direction("a", "X ratified", log=log, title="X ratified")
+            eventlog.propose("a", "waffle", log=log, title="waffle")  # cannot demote a set id
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["set"]], ["a"])
             self.assertEqual(d["proposed"], [])
@@ -107,7 +114,7 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_dropped_removes_and_stays_gone(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "X", log=log)
+            eventlog.propose("a", "X", log=log, title="X")
             eventlog.drop("a", "noise", log=log)
             self.assertEqual(eventlog.direction_at(log=log), {"set": [], "proposed": []})
 
@@ -128,7 +135,7 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
         # `set` tier; a proposed item carries from_artefato/relates_to and origin_comment_id is None.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "explore X", from_artefato="alpha-post", log=log)
+            eventlog.propose("a", "explore X", from_artefato="alpha-post", log=log, title="explore X")
             d = eventlog.direction_at(log=log)
             self.assertIsNone(d["proposed"][0].get("origin_comment_id"))
             self.assertEqual(d["proposed"][0]["from_artefato"], "alpha-post")
@@ -140,8 +147,9 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
         # active alongside the new ruling.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("introspection-ratio-watch", "watch recall/research ratio", log=log)
+            eventlog.propose("introspection-ratio-watch", "watch recall/research ratio", log=log, title="watch recall/research ratio")
             eventlog.set_direction("worthwhile-test", "ship the worthwhile-test metric",
+                                   title="the worthwhile test",
                                    supersedes="introspection-ratio-watch", log=log)
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["set"]], ["worthwhile-test"])
@@ -152,8 +160,8 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
         # guard: supersedes pointing at the set's own id must NOT delete the item it just set.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog.propose("a", "maybe X", log=log)
-            eventlog.set_direction("a", "X ratified", supersedes="a", log=log)
+            eventlog.propose("a", "maybe X", log=log, title="maybe X")
+            eventlog.set_direction("a", "X ratified", supersedes="a", log=log, title="X ratified")
             d = eventlog.direction_at(log=log)
             self.assertEqual([i["id"] for i in d["set"]], ["a"])
             self.assertEqual(d["proposed"], [])
@@ -161,8 +169,8 @@ class DirectionFoldsPerIdIntoTwoTiers(unittest.TestCase):
     def test_replay_to_past_cursor(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            p = eventlog.propose("a", "X", log=log)              # seq 1
-            eventlog.set_direction("a", "X ratified", log=log)   # seq 2
+            p = eventlog.propose("a", "X", log=log, title="X")              # seq 1
+            eventlog.set_direction("a", "X ratified", log=log, title="X ratified")   # seq 2
             past = eventlog.direction_at(seq=p["seq"], log=log)
             self.assertEqual([i["id"] for i in past["proposed"]], ["a"])
             self.assertEqual(past["set"], [])
@@ -282,8 +290,8 @@ class ProjectDirectionRendersBothTiers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             out = Path(tmp) / "direction.md"
-            eventlog.set_direction("b", "ship Y", kind="priority", log=log)
-            eventlog.propose("c", "name the full-read budget", from_artefato="recall-report", log=log)
+            eventlog.set_direction("b", "ship Y", kind="priority", log=log, title="ship Y")
+            eventlog.propose("c", "name the full-read budget", from_artefato="recall-report", log=log, title="name the full-read budget")
             eventlog.project_direction(log=log, out=out)
             text = out.read_text()
             self.assertIn("do not edit", text.lower())
@@ -297,8 +305,8 @@ class ProjectDirectionRendersBothTiers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             out = Path(tmp) / "direction.md"
-            eventlog.propose("a", "alpha", log=log)
-            eventlog.set_direction("a", "omega", log=log)
+            eventlog.propose("a", "alpha", log=log, title="alpha")
+            eventlog.set_direction("a", "omega", log=log, title="omega")
             eventlog.project_direction(seq=1, log=log, out=out)
             text = out.read_text()
             self.assertIn("alpha", text)
@@ -313,19 +321,43 @@ class ArtefatoProposalsConsolidateIntoProposedTier(unittest.TestCase):
     def test_candidates_become_proposed_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
+            opened = eventlog.open_atividade(
+                operacao="edge", finalidade="Trilho vivo",
+                tier="asserted", author="operador", log=log)
+            ulid = opened["payload"]["ulid"]
+            rel = [{"kind": "atividade", "id": ulid}]
             eventlog._append_orphan_published_for_test("recall-report", proposes=[
-                {"body": "name the full-read budget", "kind": "constraint"},
-                {"body": "watch read:write ratio"}], log=log)
+                {"body": "name the full-read budget", "kind": "constraint",
+                 "relates_to": rel},
+                {"body": "watch read:write ratio", "relates_to": rel}], log=log)
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 2)
             prop = eventlog.direction_at(log=log)["proposed"]
             self.assertEqual({i["from_artefato"] for i in prop}, {"recall-report"})
             self.assertIn("name the full-read budget", [i["body"] for i in prop])
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)  # idempotent
 
+    def test_orphan_proposes_do_not_auto_land(self):
+        """artefato.published.proposes[] without a live activity stay off proposed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "log.jsonl"
+            eventlog._append_orphan_published_for_test("recall-report", proposes=[
+                {"body": "name the full-read budget", "kind": "constraint"},
+                {"body": "watch read:write ratio"}], log=log)
+            self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)
+            d = eventlog.direction_at(log=log)
+            self.assertTrue(d is None or d.get("proposed") == [])
+
     def test_dropped_candidate_not_resurrected(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            eventlog._append_orphan_published_for_test("r", proposes=[{"body": "X"}], log=log)
+            opened = eventlog.open_atividade(
+                operacao="edge", finalidade="Trilho vivo",
+                tier="asserted", author="operador", log=log)
+            ulid = opened["payload"]["ulid"]
+            eventlog._append_orphan_published_for_test(
+                "r", proposes=[{"body": "X",
+                                "relates_to": [{"kind": "atividade", "id": ulid}]}],
+                log=log)
             eventlog.consolidate_artefato_proposals(log=log)
             eventlog.drop("r:0", "rejected", log=log)
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 0)
@@ -344,7 +376,14 @@ class ArtefatoProposalsConsolidateIntoProposedTier(unittest.TestCase):
                          '"payload": "a corrupt string payload"}\n')
                 fh.write('{"seq": 2, "ts": "t", "type": "direction.proposed", "subject": "direction", '
                          '"payload": [1, 2, 3]}\n')
-            eventlog._append_orphan_published_for_test("r", proposes=[{"body": "X"}], log=log)
+            opened = eventlog.open_atividade(
+                operacao="edge", finalidade="Trilho vivo",
+                tier="asserted", author="operador", log=log)
+            ulid = opened["payload"]["ulid"]
+            eventlog._append_orphan_published_for_test(
+                "r", proposes=[{"body": "X",
+                                "relates_to": [{"kind": "atividade", "id": ulid}]}],
+                log=log)
             # must not raise — the valid candidate still consolidates past the corrupt direction events
             self.assertEqual(eventlog.consolidate_artefato_proposals(log=log), 1)
             self.assertIn("X", [i["body"] for i in eventlog.direction_at(log=log)["proposed"]])
@@ -726,8 +765,7 @@ class ExperimentCurationFoldsCuratedFirst(unittest.TestCase):
                 log=log)
             events = eventlog.read(log=log)
             self.assertEqual([e["type"] for e in events],
-                             ["artefato.published", "intent.kernel", "artefato.adoption",
-                              "experiment.curated"])
+                             ATOMIC_PUBLISH_BATCH + ["experiment.curated"])
             exp = eventlog.experiment_at("exp40", log=log)
             self.assertEqual(exp["canonical"]["typed"]["claim"], "GN wins.")
             self.assertEqual(exp["canonical_artifacts"][0],
@@ -908,7 +946,7 @@ class WriteHelpersRejectEmptyBodies(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             for bad in ("", "   ", "\n\t "):
                 with self.assertRaises(ValueError):
-                    eventlog.propose("d1", bad, log=log)
+                    eventlog.propose("d1", bad, title="a valid handle", log=log)
             self.assertEqual(eventlog.read(log=log), [])
 
     def test_set_direction_rejects_empty_and_whitespace(self):
@@ -916,7 +954,7 @@ class WriteHelpersRejectEmptyBodies(unittest.TestCase):
             log = Path(tmp) / "log.jsonl"
             for bad in ("", "   ", "\n\t "):
                 with self.assertRaises(ValueError):
-                    eventlog.set_direction("d1", bad, log=log)
+                    eventlog.set_direction("d1", bad, title="a valid handle", log=log)
             self.assertEqual(eventlog.read(log=log), [])
 
     def test_report_direction_rejects_empty_and_whitespace(self):
@@ -931,8 +969,8 @@ class WriteHelpersRejectEmptyBodies(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
             eventlog.set_objective("ship the gate", log=log)
-            eventlog.propose("d1", "tighten the close", log=log)
-            eventlog.set_direction("d2", "ratify the steer", log=log)
+            eventlog.propose("d1", "tighten the close", log=log, title="tighten the close")
+            eventlog.set_direction("d2", "ratify the steer", log=log, title="ratify the steer")
             eventlog.report_direction("the steer prose", log=log)
             self.assertEqual(len(eventlog.read(log=log)), 4)
 
@@ -1181,9 +1219,9 @@ class AtomicPublishHasNoCrashWindow(unittest.TestCase):
             # batch also carries the adoption telemetry (here synthesized: no caller-supplied payload).
             self.assertEqual(writes["count"], 1)
             evs = eventlog.read(log=log)
-            self.assertEqual([e["type"] for e in evs],
-                             ["artefato.published", "intent.kernel", "artefato.adoption"])
-            self.assertEqual([e["seq"] for e in evs], [1, 2, 3])
+            self.assertEqual([e["type"] for e in evs], ATOMIC_PUBLISH_BATCH)
+            self.assertEqual([e["seq"] for e in evs],
+                             list(range(1, len(ATOMIC_PUBLISH_BATCH) + 1)))
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
 
 
@@ -1204,8 +1242,7 @@ class ProducerFacingPublishPairsItsKernel(unittest.TestCase):
             # the adoption telemetry in the same indivisible batch (synthesized here).
             self.assertEqual(eventlog.artefatos_without_kernel(log=log), [])
             evs = eventlog.read(log=log)
-            self.assertEqual([e["type"] for e in evs],
-                             ["artefato.published", "intent.kernel", "artefato.adoption"])
+            self.assertEqual([e["type"] for e in evs], ATOMIC_PUBLISH_BATCH)
 
     def test_publish_artefato_with_empty_intent_raises_and_lands_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1257,10 +1294,13 @@ class AppendBatchIsSerializedAcrossConcurrentWriters(unittest.TestCase):
                     t.join()
 
                 seqs = [e["seq"] for e in eventlog.read(log=log)]
-                # each atomic publish lands THREE events under R6 (published + kernel + adoption) → 3n
-                # events, seqs 1..3n with no dupes
-                self.assertEqual(len(seqs), 3 * n)
-                self.assertEqual(sorted(seqs), list(range(1, 3 * n + 1)))
+                # each atomic publish lands the canonical batch (published + kernel + adoption +
+                # assembly.pending) → k*n events, seqs 1..k*n with no dupes. k comes from the named
+                # canon, not a hand-typed literal: what this test guards is the flock serialization
+                # (unique, strictly-monotonic seqs), and that guard must not rot when the batch grows.
+                k = len(ATOMIC_PUBLISH_BATCH)
+                self.assertEqual(len(seqs), k * n)
+                self.assertEqual(sorted(seqs), list(range(1, k * n + 1)))
                 self.assertEqual(seqs, sorted(seqs))  # strictly monotonic in file order
 
 
