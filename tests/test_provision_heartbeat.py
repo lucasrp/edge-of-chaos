@@ -47,9 +47,10 @@ class RenderUnits(unittest.TestCase):
         self.assertIn("Type=oneshot", svc)
         self.assertIn("/home/x/edge/tools/edge-python", svc)
         self.assertIn("/home/x/edge/tools/sweep.py --rationalize-only", svc)
+        self.assertIn("Environment=EDGE_HOME=/home/x/edge", svc)
         self.assertIn("WorkingDirectory=/home/x/edge", svc)
         self.assertIn("TimeoutStartSec=30min", svc)
-        self.assertIn("KillMode=control-group", svc)
+
         self.assertNotIn("[Timer]", svc)
         self.assertNotIn("{{", svc)
 

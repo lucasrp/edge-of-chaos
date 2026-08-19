@@ -65,6 +65,14 @@ class PlaceSkipsSelfCopy(unittest.TestCase):
             self.assertTrue(_provision.place_tree(src, dst))
             self.assertTrue((dst / "a.md").exists())
 
+    def test_place_tree_renders_install_identity(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "skills"; src.mkdir()
+            (src / "wake.md").write_text("You are {name}. Run /{prefix}-wake.")
+            dst = Path(d) / "home" / "skills"
+            _provision.place_tree(src, dst, {"{name}": "Steve", "{prefix}": "Steve"})
+            self.assertEqual((dst / "wake.md").read_text(), "You are Steve. Run /Steve-wake.")
+
 
 class ValidateNotifies(unittest.TestCase):
     CFG = {"sources": [], "routers": {}}

@@ -14,10 +14,12 @@ Locator/offset-based; carries no domain semantics beyond surface normalization (
 import json
 import os
 import re
+import time
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-# Operator-facing chat surfaces the edge films. Rationalization plans over all three.
+# Legacy file-backed surfaces; Hermes is virtual and accepted separately by the normalizer.
 SURFACES = ("claude", "codex", "grok")
 
 ROLES = {"user": "human", "assistant": "edge"}
@@ -25,6 +27,7 @@ CODEX_ROLES = {"user": "human", "assistant": "edge"}
 GROK_ROLES = {"user": "human", "assistant": "edge"}
 _USER_QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
 SCAFFOLDING_PREFIXES = (
+    "[IMPORTANT: Background process ",
     "<environment_context>",
     "<skill>",
     "<subagent_notification>",
@@ -54,6 +57,8 @@ class Session:
     id: str
     path: Path
     surface: str = "claude"
+    updated_at: str | None = None
+    profile_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -114,6 +119,134 @@ def current_session_anchor(env=None):
         return grok_session_anchor(live)
     return None
 
+
+_HERMES_SESSION_ID = re.compile(r"^[A-Za-z0-9_.:-]+$")
+_HERMES_LIVE_MAX_AGE = 60 * 60
+
+
+def _hermes_live_dir(env=None):
+    env = os.environ if env is None else env
+    root = Path(os.path.expanduser(env.get("EDGE_HOME", "~/.edge-of-chaos/steve")))
+    return root / "state" / "live" / "hermes"
+
+
+def _pid_start_time(pid):
+    try:
+        # /proc/<pid>/stat field 22 is stable for the lifetime of a process.
+        return Path(f"/proc/{int(pid)}/stat").read_text().split()[21]
+    except (FileNotFoundError, PermissionError, OSError, IndexError, ValueError):
+        return None
+
+
+def _owner_token(pid=None):
+    pid = os.getpid() if pid is None else int(pid)
+    start = _pid_start_time(pid)
+    return f"{pid}:{start}" if start is not None else str(pid)
+
+
+def _owner_is_alive(owner):
+    pid_text, separator, expected_start = str(owner).partition(":")
+    try:
+        os.kill(int(pid_text), 0)
+    except PermissionError:
+        pass
+    except (ProcessLookupError, TypeError, ValueError):
+        return False
+    if not separator:
+        return True  # legacy PID-only owner
+    return _pid_start_time(pid_text) == expected_start
+
+
+def _read_hermes_owners(path):
+    try:
+        age = time.time() - path.stat().st_mtime
+        raw = path.read_text().strip()
+    except (FileNotFoundError, OSError):
+        return {}
+    try:
+        parsed = json.loads(raw)
+        owners = parsed.get("owners", {}) if isinstance(parsed, dict) else {}
+        owners = {str(pid): max(0, int(count)) for pid, count in owners.items()}
+        owners = {pid: count for pid, count in owners.items() if count}
+    except (json.JSONDecodeError, TypeError, ValueError):
+        # Empty/integer files were written by the previous lease format.
+        return {} if age > _HERMES_LIVE_MAX_AGE else {"legacy": 1}
+    if age <= _HERMES_LIVE_MAX_AGE:
+        return owners
+    return {owner: count for owner, count in owners.items() if _owner_is_alive(owner)}
+
+
+def _write_hermes_owners(path, owners):
+    owners = {str(pid): int(count) for pid, count in owners.items() if count > 0}
+    if not owners:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps({"owners": owners}, sort_keys=True))
+    os.replace(tmp, path)
+
+
+def mark_hermes_session_active(session_id, env=None):
+    if not isinstance(session_id, str) or not _HERMES_SESSION_ID.fullmatch(session_id):
+        raise ValueError("invalid Hermes session id")
+    import fcntl
+    path = _hermes_live_dir(env) / session_id
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.parent / ".locks" / session_id
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        owners = _read_hermes_owners(path)
+        owner = _owner_token()
+        owners[owner] = owners.get(owner, 0) + 1
+        _write_hermes_owners(path, owners)
+
+
+def mark_hermes_session_inactive(session_id, env=None):
+    if not isinstance(session_id, str) or not _HERMES_SESSION_ID.fullmatch(session_id):
+        raise ValueError("invalid Hermes session id")
+    import fcntl
+    path = _hermes_live_dir(env) / session_id
+    lock_path = path.parent / ".locks" / session_id
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        owners = _read_hermes_owners(path)
+        owner = _owner_token()
+        count = owners.get(owner, 0)
+        if count <= 1:
+            owners.pop(owner, None)
+        else:
+            owners[owner] = count - 1
+        _write_hermes_owners(path, owners)
+def current_session_anchors(env=None):
+    """All live session anchors, including Hermes hooks and explicit env."""
+    env = os.environ if env is None else env
+    anchors = []
+    anchor = current_session_anchor(env)
+    if anchor:
+        anchors.append(anchor)
+    hermes_id = env.get("HERMES_SESSION_ID")
+    if isinstance(hermes_id, str) and _HERMES_SESSION_ID.fullmatch(hermes_id):
+        anchors.append(f"hermes:{hermes_id}")
+    live = _hermes_live_dir(env)
+    if live.is_dir():
+        import fcntl
+        for path in live.iterdir():
+            if not path.is_file() or not _HERMES_SESSION_ID.fullmatch(path.name):
+                continue
+            lock_path = path.parent / ".locks" / path.name
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            with lock_path.open("a+") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                owners = _read_hermes_owners(path)
+                _write_hermes_owners(path, owners)
+            if owners:
+                anchors.append(f"hermes:{path.name}")
+    return tuple(dict.fromkeys(anchors))
 
 def grok_active_sessions_path(env=None) -> Path:
     """Path to Grok's live active_sessions.json (env → agent.yaml → ~/.grok/...)."""
@@ -544,8 +677,8 @@ def _grok_turn_from_obj(obj):
 
 def _normalize_surface(surface) -> str:
     s = (surface or "claude").strip().lower()
-    if s not in SURFACES:
-        raise ValueError(f"surface must be one of {SURFACES}, got {surface!r}")
+    if s not in (*SURFACES, "hermes"):
+        raise ValueError(f"surface must be one of {(*SURFACES, 'hermes')}, got {surface!r}")
     return s
 
 
@@ -588,8 +721,59 @@ def dialogue_turns(path, surface="claude") -> list:
     )
 
 
+def hermes_state_db(cfg=None, agent_yaml=None, env=None) -> Path:
+    import surfaces_cfg
+    return surfaces_cfg.surface_home("hermes", cfg=cfg, agent_yaml=agent_yaml, env=env) / "state.db"
+
+
+def _hermes_target(path):
+    db, session_id = str(path).rsplit("#", 1)
+    return Path(db), session_id
+
+
+def _hermes_connect(path):
+    return sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True)
+
+
+def list_hermes_sessions(root=None, cfg=None, agent_yaml=None, env=None) -> list:
+    db = hermes_state_db(cfg, agent_yaml, env) if root is None else Path(root)
+    if db.is_dir():
+        db /= "state.db"
+    if not db.is_file():
+        return []
+    with _hermes_connect(db) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+        profile = "s.profile_name" if "profile_name" in columns else "NULL"
+        rows = conn.execute(f"""SELECT s.id, MAX(m.timestamp), {profile} FROM sessions s
+            LEFT JOIN messages m ON m.session_id = s.id AND m.active = 1
+                AND m.role IN ('user', 'assistant')
+            GROUP BY s.id, {profile} ORDER BY MAX(m.timestamp), s.id""")
+        return [Session(id, Path(f"{db}#{id}"), "hermes", updated_at,
+                        profile_name or "default")
+                for id, updated_at, profile_name in rows]
+
+
+def updated_epoch(session) -> float:
+    """Normalize Hermes REAL timestamps and older ISO-text stores."""
+    try:
+        return float(session.updated_at)
+    except (TypeError, ValueError):
+        from datetime import datetime
+        return datetime.fromisoformat(str(session.updated_at).replace("Z", "+00:00")).timestamp()
+
+
 def read_turns(path, surface="claude") -> list:
     """Parse a transcript into ordered human/edge dialogue turns (alias of dialogue_turns)."""
+    if surface == "hermes":
+        db, session_id = _hermes_target(path)
+        with _hermes_connect(db) as conn:
+            rows = conn.execute("""SELECT role, content FROM messages
+                WHERE session_id = ? AND active = 1 AND role IN ('user', 'assistant')
+                ORDER BY timestamp, id""", (session_id,))
+            return [Turn("human" if role == "user" else "edge", content)
+                    for role, content in rows
+                    if content and not _is_scaffolding_turn(
+                        "human" if role == "user" else "edge", content)]
     return dialogue_turns(path, surface=surface)
 
 
@@ -629,9 +813,13 @@ def mentee_dialogue_for_rationalize(session: Session):
     surface = _normalize_surface(session.surface)
     if not is_user_session(session):
         return None
-    path = Path(session.path)
+    if surface == "hermes":
+        turns, watermark = delta(session.path, 0, surface=surface)
+        turns = filter_dialogue_for_rationalizer(turns)
+        return (turns, watermark) if turns and any(t.role == "human" for t in turns) else None
     try:
-        raw_lines = path.read_text(errors="replace").splitlines()
+        raw_lines = Path(session.path).read_text(errors="replace").splitlines()
+
     except OSError:
         return None
     watermark = len(raw_lines)
@@ -728,6 +916,14 @@ def delta(path, since_line: int, surface="claude"):
     A truncated FINAL line (a writer flushing mid-sweep) is NOT consumed by the watermark —
     when the writer completes it, the next sweep re-reads it (non-lossy raw). A corrupt
     interior line is a crashed writer: dropped and consumed (`_turns_from_lines`)."""
+    if surface == "hermes":
+        db, session_id = _hermes_target(path)
+        with _hermes_connect(db) as conn:
+            rows = list(conn.execute("""SELECT id, role, content FROM messages
+                WHERE session_id = ? AND active = 1 AND role IN ('user', 'assistant') AND id > ?
+                ORDER BY timestamp, id""", (session_id, since_line)))
+        return ([Turn("human" if role == "user" else "edge", content)
+                 for _, role, content in rows], max((id for id, _, _ in rows), default=since_line))
     lines = Path(path).read_text(errors="replace").splitlines()
     watermark = len(lines)
     new = lines[since_line:]

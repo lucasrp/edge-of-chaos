@@ -151,8 +151,12 @@ fabricated), `cites` (source + the snippet you used), `lineage` (`builds_on` the
 `bears_on` (SÓ sobre hipótese VIVA — `cortex.hypotheses_at()` lists them; empty over fabricated), `para`
 (explicit target reader; empty resolves to the mentee) and `reports_on`.
 
-    tools/edge-python <<'EOF'
-    import sys; sys.path.insert(0, 'tools')
+    "${EDGE_HOME:?EDGE_HOME is required}/tools/edge-python" <<'EOF'
+    import os, sys
+    from pathlib import Path
+
+    edge_home = Path(os.environ["EDGE_HOME"]).expanduser().resolve()
+    sys.path.insert(0, str(edge_home / "tools"))
     import rito, llm_routes
 
     slug = '<slug>'
@@ -172,7 +176,7 @@ fabricated), `cites` (source + the snippet you used), `lineage` (`builds_on` the
         'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
     }
 
-    rito.run_rito(slug, run_dir=f'state/rito/{slug}',
+    rito.run_rito(slug, run_dir=edge_home / 'state' / 'rito' / slug,
                   grounding1_fn=lambda: '<the derive-first dossier: first-principles reconstruction + gap-closers you read>',
                   prompts=prompts, complete_fn=complete_fn,
                   intent='open: …; bet: …', skill='research', dispatch_id=dispatch_id,
@@ -186,7 +190,9 @@ mismatch** — the exact reviewed bytes, and only they, land at `blog/entries/<s
 side-effects (source-signal + graph projection) run the same as every artefato. The
 first authorial draft stays sealed and addressable in the run dir for later blind reading. Prove it ran:
 
-    tools/edge-python tools/rito.py verify state/rito/<slug>
+    "${EDGE_HOME:?EDGE_HOME is required}/tools/edge-python" \
+      "${EDGE_HOME}/tools/rito.py" verify \
+      "${EDGE_HOME}/state/rito/<slug>" --blog-dir "${EDGE_HOME}/blog/entries"
 
 The Artefato is **transient** — it cools and is prunable; it also **bears the comment field**, the surface
 the mentee's later comment consolidates from. The durable knowledge it distills lives in the **cluster**,

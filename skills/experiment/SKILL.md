@@ -15,7 +15,7 @@ translate the uncertainty into the schema.
 enters the ledger and cortex. That does **not** dissolve experiment. An **Experiment is a subset of
 Atividade** — same employment case, plus a **provenance rite** (chain of prior experiments/claims)
 and a mandatory **eval** product (biased or not; still an eval) that **generates knowledge**. This
-skill (`/ed-experiment`) is what **manages that subset**. Ordinary Atividades (ship, fix, wayfind)
+skill (`/{prefix}-experiment`) is what **manages that subset**. Ordinary Atividades (ship, fix, wayfind)
 stay employment-only unless promoted into this rite. See CONTEXT.md **Experiment** and
 `memory/experiment-is-atividade-with-rite-and-eval.md`.
 

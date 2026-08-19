@@ -33,6 +33,12 @@ class SplitHomeConfigRoots(unittest.TestCase):
                 {"EDGE_HOME": tmp})
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout.strip(), tmp)
+            sig = _run(
+                "import inspect,sys; sys.path.insert(0, 'tools'); import llm_routes; "
+                "print(inspect.signature(llm_routes.completer_for).parameters['repo'].default)",
+                {"EDGE_HOME": tmp})
+            self.assertEqual(sig.returncode, 0, sig.stderr)
+            self.assertEqual(sig.stdout.strip(), "None")
 
     def test_llm_routes_repo_stays_genotype_without_edge_home(self):
         r = _run(

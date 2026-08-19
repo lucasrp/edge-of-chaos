@@ -1,0 +1,86 @@
+import sys
+import unittest
+from unittest import mock
+from datetime import datetime, timezone
+from pathlib import Path
+
+TESTS = Path(__file__).resolve().parent
+ROOT = TESTS.parent
+sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(TESTS))
+import quente
+import sessions
+import sweep
+from test_hermes_sessions import HermesSessionsTest
+
+
+class HermesPipelineTest(HermesSessionsTest):
+    def test_sweep_skips_profiles_without_edge_group(self):
+        planned = sweep.plan_sweep(
+            project_dir=self.home, cursors={}, recent=None,
+            codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual(planned, [])
+
+    def test_quente_and_sweep_consume_hermes(self):
+        (self.home / "config.yaml").write_text("edge_group: hive\n")
+        with __import__("sqlite3").connect(self.db) as conn:
+            now = datetime.now(timezone.utc).isoformat()
+            for i in range(6, 12):
+                conn.execute("INSERT INTO messages VALUES (?, 'a', 'user', ?, ?, 1)",
+                             (i, "substantial operator prompt " * 20, now))
+        selected, _ = quente.select_window(
+            store_dir=self.home, k=2, max_age_days=None,
+            codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual([m["id"] for m in selected], ["hermes:a"])
+
+        with __import__("sqlite3").connect(self.db) as conn:
+            for i in range(12, 18):
+                conn.execute("INSERT INTO messages VALUES (?, 'b', 'user', ?, ?, 1)",
+                             (i, "substantial operator prompt " * 20, now))
+        planned = sweep.plan_sweep(
+            project_dir=self.home, cursors={}, recent=None,
+            codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual([p["surface"] for p in planned], ["hermes", "hermes"])
+        self.assertEqual([p["profile_name"] for p in planned], ["work", "default"])
+        self.assertEqual([p["edge_group"] for p in planned], ["hive", "hive"])
+        self.assertEqual(planned[0]["turns"][:2], [
+            sessions.Turn("human", "question"), sessions.Turn("edge", "answer")])
+
+    def test_quente_and_sweep_exclude_active_hermes_session(self):
+        (self.home / "config.yaml").write_text("edge_group: hive\n")
+        with __import__("sqlite3").connect(self.db) as conn:
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute("UPDATE messages SET timestamp = ? WHERE session_id = 'b'", (now,))
+            for i in range(6, 12):
+                conn.execute("INSERT INTO messages VALUES (?, 'a', 'user', ?, ?, 1)",
+                             (i, "substantial operator prompt " * 20, now))
+        env = {"EDGE_HOME": str(self.home), "HERMES_SESSION_ID": "a"}
+        with mock.patch.dict(__import__("os").environ, env, clear=True):
+            selected, _ = quente.select_window(
+                store_dir=self.home, k=2, max_age_days=None,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+            planned = sweep.plan_sweep(
+                project_dir=self.home, cursors={}, recent=None,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual(selected, [])
+        self.assertEqual([p["id"] for p in planned], ["b"])
+
+    def test_first_sweep_respects_hermes_date_window(self):
+        (self.home / "config.yaml").write_text("edge_group: hive\n")
+        with mock.patch.object(sweep, "_film_window_start", return_value=10**20):
+            planned = sweep.plan_sweep(
+                project_dir=self.home, cursors={}, recent=None,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual(planned, [])
+
+    def test_explicit_backfill_can_read_old_hermes_history(self):
+        (self.home / "config.yaml").write_text("edge_group: hive\n")
+        with mock.patch.object(sweep, "_film_window_start", return_value=10**20):
+            planned = sweep.plan_sweep(
+                project_dir=self.home, cursors={}, recent=None, hermes_backfill=True,
+                codex_dir=False, grok_dir=False, hermes_dir=self.db)
+        self.assertEqual([p["profile_name"] for p in planned], ["work", "default"])
+
+
+if __name__ == "__main__":
+    unittest.main()

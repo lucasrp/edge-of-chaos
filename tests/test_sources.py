@@ -449,5 +449,61 @@ class RoadmapReplaced(unittest.TestCase):
         self.assertIn("tools/sources.py", head)
 
 
+class RoadmapMaterialization(unittest.TestCase):
+    def test_render_from_agent_yaml_and_preserve_measured_yield(self):
+        with tempfile.TemporaryDirectory() as td:
+            agent = _write_yaml(td, """
+            sources:
+              - name: github
+                kind: cli
+                interfaces:
+                  - interface_id: gh-cli
+                    via: gh search
+                    idiom: qualifier-first
+                    canary: gh api user
+                    dry_semantics: empty-is-empty
+            """)
+            roadmap = Path(td) / "state" / "source-roadmap.md"
+            sources.render_source_roadmap(agent, roadmap)
+            parsed = sources.parse_roadmap(roadmap.read_text())
+            self.assertEqual(parsed["github"]["fields"]["idiom"], "qualifier-first")
+            text = roadmap.read_text().replace(
+                "seed:loopR-onboarding interface materialized; yield NOT YET MEASURED",
+                "2026-07-31 [seed:loopR-live] 4 hits; 1 used",
+            )
+            roadmap.write_text(text)
+            sources.render_source_roadmap(agent, roadmap)
+            self.assertIn("2026-07-31 [seed:loopR-live] 4 hits; 1 used", roadmap.read_text())
+
+    def test_render_fails_closed_when_agent_yaml_is_invalid(self):
+        with tempfile.TemporaryDirectory() as td:
+            agent = Path(td) / "agent.yaml"
+            agent.write_text("sources: [")
+            with self.assertRaises(ValueError):
+                sources.render_source_roadmap(agent)
+
+    def test_measured_yield_is_not_duplicated_across_interfaces(self):
+        with tempfile.TemporaryDirectory() as td:
+            agent = _write_yaml(td, """
+            sources:
+              - name: github
+                interfaces:
+                  - interface_id: gh-cli
+                    via: gh search
+                  - interface_id: web
+                    via: browser
+            """)
+            roadmap = Path(td) / "state" / "source-roadmap.md"
+            sources.render_source_roadmap(agent, roadmap)
+            text = roadmap.read_text().replace(
+                "seed:loopR-onboarding interface materialized; yield NOT YET MEASURED",
+                "2026-07-31 [seed:loopR-live] 4 hits; 1 used",
+                1,
+            )
+            roadmap.write_text(text)
+            sources.render_source_roadmap(agent, roadmap)
+            self.assertEqual(roadmap.read_text().count("4 hits; 1 used"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

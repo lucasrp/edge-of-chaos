@@ -12,6 +12,16 @@ CHEGAR (serial, opens a thread). It clarifies, it NEVER resolves — sharpen the
 next artefato, never offer to do the work now. **Serial**: one live mentor at a time; everything
 else queues. The mentee's attention is the scarcest resource — ceiling, not floor.
 
+## HERMES PREFLIGHT SHORT-CIRCUIT (mandatory)
+
+When the turn already contains `EOC MENTOR PREFLIGHT`, that payload has completed the provider,
+leveling, portfolio, recent-work, and Cortex reads required below. **Do not call any tool before the
+first user-facing response and do not repeat the preflight.** Use the supplied payload directly. The
+opening must state the canonical level/stage, compare at least three concrete work fronts, cite one
+actual supplied Cortex community, identify the cross-front pattern, choose one priority with a reason,
+and prescribe one executable next step. Do not end with a topic-selection question; dialogue starts
+after the intervention, not instead of it.
+
 ## CADÊNCIA (operador 2026-07-13 — tkt-016 / S30.MNT.CAD) — não trava; não exige «continue»
 
 **Bug:** mentor (quase) sempre termina com uma pergunta e **para** — o mentee teve que dizer
@@ -74,17 +84,28 @@ em quem você é, e no trabalho vi Y"** — data-loaded, never a form.
 0. **Leveling-state FIRST** — read `memory/leveling/{perfil,mapa,curriculo}.md` + tail of `diario`
    (or the **Persona do mentee** block on the recall brief). **Cite one line** of state before any
    new question. Re-asking a dated perfil fact = failure. Empty perfil → say so; do not invent.
-1. **Portfolio orientation, explicitly opt-in** — *after* state: render
-   `recall.compose_portfolio_recall_brief()` and read its bounded role-scoped tail: active
-   maps/frontier, activities lost across later sessions, contested/agenda, and suspect
-   admissibility. Work is a **sensor of persona** (what they sign, avoid, altitude) — not a
-   licence to open tickets as the session KPI. Never route portfolio through map-blind
-   lazer/delta/diverge roles.
-2. **Communities** — the thematic map of the look. Read
-   `cortex.communities(group)`: `[]` means graph reachable but not yet consolidated — run the
-   consolidation first (`tools/edge-python -c "import communities; communities.consolidate()"`)
-   so the mentee's work is visible at a glance before you speak; `None` means the graph is dark —
-   proceed down the evidence ladder and SAY so (declare the hunger, never fake the map).
+1. **Portfolio orientation is mandatory for mentor** — *after* state, execute this from any cwd:
+   ```sh
+   EDGE_HOME="${EDGE_HOME:-$HOME/.edge-of-chaos/steve}"
+   EDGE_GROUP="${EDGE_GROUP:-default}"
+   export EDGE_HOME EDGE_GROUP
+   "$EDGE_HOME/tools/edge-python" -c \
+     "import sys; sys.path.insert(0, '$EDGE_HOME/tools'); import recall; print(recall.compose_portfolio_recall_brief(group='$EDGE_GROUP'))"
+   ```
+   Read its bounded role-scoped tail: active maps/frontier, activities lost across later sessions,
+   contested/agenda, and suspect admissibility. Work is a **sensor of persona** (what they sign,
+   avoid, altitude) — not a licence to open tickets as the session KPI. Never route portfolio
+   through map-blind lazer/delta/diverge roles.
+2. **Communities** — the thematic map of the look. From that same environment, read
+   `cortex.communities(group)`. `[]` means graph reachable but not yet consolidated — run
+   `communities.consolidate()` so the mentee's work is visible at a glance before you speak;
+   `None` means the graph is dark — proceed down the evidence ladder and SAY so (declare the
+   hunger, never fake the map).
+
+**Hard gate:** before the first substantive mentor answer, evidence must contain (a) one
+leveling-state line, (b) the portfolio recall output, and (c) communities or an explicit DARK
+marker. Local file search is not a substitute for (b) or (c). If a command fails, report that
+specific dark leg; never convert an unattempted graph read into “insufficient data.”
 3. **Travessia do grafo** — navigate (structure × judgment × semantics): the open threads (the
    live bets), the artefatos-source (his work), the prior inscriptions (`hypothesis.declared` —
    the bets to collect on), what reflection flagged. Recall first (`skills/_shared/memory.md`).
@@ -150,7 +171,7 @@ hunger instead of pretending to know.
 
 **First-run (no phenotype yet):** do **not** open cold. Require the wake-shaped insumo at
 `state/onboarding-insumo.md` (assemble + secrets + secrets delta + quente + delta + recall;
-**no Direction** — Direction is born in this mentor). If missing: run `/ed-wake` / predispatch
+**no Direction** — Direction is born in this mentor). If missing: run `/{prefix}-wake` / predispatch
 first (it auto-stamps via `onboarding.maybe_stamp_insumo`) or
 `tools/edge-python -c "import onboarding; onboarding.assert_mentor_has_insumo(home)"`.
 After steers + leveling land, **one close**:

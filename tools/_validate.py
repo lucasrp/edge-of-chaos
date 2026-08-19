@@ -63,6 +63,8 @@ def _required_refs(cfg):
     refs = [r["secret_ref"] for r in (cfg.get("routers") or {}).values() if r.get("secret_ref")]
     refs += [s["secret_ref"] for s in (cfg.get("sources") or [])
              if s.get("kind") == "api" and s.get("secret_ref")]
+    # Graphiti extraction is OpenAI-specific even when embeddings use another provider.
+    refs.append("openai.env:OPENAI_API_KEY")
     return refs
 
 

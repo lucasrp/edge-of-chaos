@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from _blog_env import guard_blog_env
 
@@ -18,6 +19,42 @@ def _ev(seq, ts, type_, slug, payload_extra=None):
     payload.update(payload_extra or {})
     return json.dumps({"seq": seq, "ts": ts, "type": type_, "subject": f"artefato:{slug}",
                        "payload": payload})
+
+
+class TestBlogSplitHomePaths(unittest.TestCase):
+    def test_edge_home_is_default_for_installed_runtime(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "blog"))
+        import server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime = Path(tmp) / "installed-edge"
+            env = {"EDGE_HOME": str(runtime)}
+            with mock.patch.dict(os.environ, env, clear=False):
+                for key in ("EDGE_BLOG_ENTRIES", "EDGE_BLOG_STATIC", "EDGE_BLOG_LOG"):
+                    os.environ.pop(key, None)
+                self.assertEqual(server._entries(), runtime / "blog" / "entries")
+                self.assertEqual(server._static(), server.BASE / "static")
+                self.assertEqual(server._log(), runtime / "state" / "events" / "log.jsonl")
+                response = server.app.test_client().get("/static/style.css")
+                self.assertEqual(response.status_code, 200)
+                self.assertGreater(len(response.data), 0)
+
+    def test_explicit_paths_override_edge_home(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "blog"))
+        import server
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            explicit = root / "explicit"
+            with mock.patch.dict(os.environ, {
+                "EDGE_HOME": str(root / "installed-edge"),
+                "EDGE_BLOG_ENTRIES": str(explicit / "entries"),
+                "EDGE_BLOG_STATIC": str(explicit / "static"),
+                "EDGE_BLOG_LOG": str(explicit / "log.jsonl"),
+            }):
+                self.assertEqual(server._entries(), explicit / "entries")
+                self.assertEqual(server._static(), explicit / "static")
+                self.assertEqual(server._log(), explicit / "log.jsonl")
 
 
 class TestBlog(unittest.TestCase):

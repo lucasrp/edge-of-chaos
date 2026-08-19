@@ -160,6 +160,6 @@ Create `state/setup/` if missing:
 - Portuguese if `agent.yaml` language is pt-BR.
 ---
 
-## Relationship to old `ed-autonomia`
+## Relationship to old `/{prefix}-autonomia`
 
 Absorbs the **v1** job (bootstrap inventory, frontier, “what am I missing?”) and the **setup** job (phenotype: sources, voice, keys, routers) into one operator-facing door. Continuous primitive probe/repair stays out of this skill unless explicitly asked.

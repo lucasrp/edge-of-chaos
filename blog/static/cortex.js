@@ -1179,6 +1179,8 @@
               else n.removeClass("search-hit");
             });
           });
+          var visible = cy.nodes().not(".filtered-out");
+          if (visible.length) cy.fit(visible, 40);
         },
         flyTo: function (id) {
           var hit = cy.getElementById(id);

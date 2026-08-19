@@ -112,7 +112,7 @@ The prose phases above bottom out in two testable modules in `tools/`:
 ## The close lives at the skill's EXIT
 
 The close is **not** the beat's job. It lives in this shared pipeline, at the **skill's exit**.
-This honors **ADR-0008**: a **standalone** `/ed-report` — invoked directly, with no beat around
+This honors **ADR-0008**: a **standalone** `/{prefix}-report` — invoked directly, with no beat around
 it — exits through the same close, so it observes the same review gates and the same atomic
 publish. The lifecycle is never privileged to the beat; whatever runs the producer, the close
 runs at its exit.
@@ -168,7 +168,7 @@ artefato opens whole by itself. The gate is unchanged: interaction that TEACHES,
 Every artefato carries its **origin** (`user_requested | beat`), resolved from the dispatch that
 woke it (`predispatch.py --origin`; the publisher persists it on `artefato.published`, the corpus
 fold and the graph projection carry it). **A standalone producer the mentee invoked directly
-(`/ed-report`, a pedido) wakes with `--origin user_requested`** — the default is `beat`, so an
+(`/{prefix}-report`, a pedido) wakes with `--origin user_requested`** — the default is `beat`, so an
 undeclared wake never claims the mentee's voice. A
 user-requested artefato is exactly where the mentee's cognition is NOW — first-order signal;
 a beat artefato is exploration, indistinguishable from noise. Everything that learns from

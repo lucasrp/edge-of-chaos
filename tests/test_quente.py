@@ -158,7 +158,8 @@ class TestSelectWindow(unittest.TestCase):
             old = os.environ.get("EDGE_PROJECT_DIR")
             os.environ["EDGE_PROJECT_DIR"] = tmp
             try:
-                sel, window_start = quente.select_window(k=1, exclude=(), codex_dir=False)
+                sel, window_start = quente.select_window(
+                    k=1, exclude=(), codex_dir=False, hermes_dir=False)
             finally:
                 if old is None:
                     del os.environ["EDGE_PROJECT_DIR"]
@@ -174,7 +175,7 @@ class TestSelectWindow(unittest.TestCase):
             old = os.environ.get("CLAUDE_CODE_SESSION_ID")
             os.environ["CLAUDE_CODE_SESSION_ID"] = "s-novo"
             try:
-                sel, _ = quente.select_window(store_dir=tmp, k=2)
+                sel, _ = quente.select_window(store_dir=None, k=2)
                 self.assertNotIn("s-novo", [m["id"] for m in sel])
                 sel_all, _ = quente.select_window(store_dir=tmp, k=2, exclude=())
                 self.assertIn("s-novo", [m["id"] for m in sel_all])

@@ -9,6 +9,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
 import onboarding  # noqa: E402
+import _validate  # noqa: E402
 
 
 def _inv(**by_file):
@@ -49,6 +50,11 @@ class EmbeddingAdapter(unittest.TestCase):
 
     def test_no_key_is_dark(self):
         self.assertIsNone(onboarding.embedding_from_inventory(_inv()))
+
+    def test_install_requires_openai_key_for_graphiti_even_with_other_embedding_provider(self):
+        refs = _validate._required_refs({"routers": {"embedding": {
+            "provider": "openrouter", "secret_ref": "openrouter.env:OPENROUTER_API_KEY"}}})
+        self.assertIn("openai.env:OPENAI_API_KEY", refs)
 
 
 class RouterCarriesBaseUrl(unittest.TestCase):

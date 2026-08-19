@@ -23,6 +23,12 @@ class MentorIsTheCanonicalSkillName(unittest.TestCase):
         self.assertIn("skills/mentor/SKILL.md", grill)
         self.assertIn("legacy alias", grill.lower())
 
+    def test_mentor_requires_split_home_safe_cortex_recall(self):
+        mentor = (REPO / "skills" / "mentor" / "SKILL.md").read_text()
+        self.assertIn("$EDGE_HOME/tools/edge-python", mentor)
+        self.assertIn("compose_portfolio_recall_brief", mentor)
+        self.assertIn("**Hard gate:**", mentor)
+
     def test_mentor_owns_the_live_experiment_transition(self):
         mentor = (REPO / "skills" / "mentor" / "SKILL.md").read_text()
 

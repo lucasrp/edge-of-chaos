@@ -63,7 +63,7 @@ artefato-agents) são chamadas paralelas NO MESMO turno — o paralelismo vem da
 simultâneas, nunca de background + espera.
 
 **Caminho comandado (Voz fast-path, §1 da tabela):** quando o dispatch nasce de uma ordem do
-operador (wake `--origin user_requested`, um `/ed-report sobre X`, um pedido direto na sessão),
+operador (wake `--origin user_requested`, um `/{prefix}-report sobre X`, um pedido direto na sessão),
 a ordem TRAVA os campos que nomeia e o funil roda só nos graus de liberdade restantes:
 
 - `tools/edge-python tools/pauta.py sortear --lock abordagem=... [--lock objeto=...]` para os
@@ -140,7 +140,7 @@ the SAME turn — blocking; the lei do turno above rules here too):
 The close is **not the beat's job**. Every branch funnels through the **one shared pipeline**
 (`skills/_shared/pipeline.md`) at its own exit: the genus contract, the two blind reviewers, the
 improve loop, the atomic publish with its `intent.kernel`, the **consolidação do grafo**, the
-chamada and the Voz cycle. A standalone `/ed-report` observes the same gates (ADR-0008). The
+chamada and the Voz cycle. A standalone `/{prefix}-report` observes the same gates (ADR-0008). The
 bounce-bound lives in the protocol, never in the producer's discretion. Do not run a close in
 the trunk; do not archive or fan by hand (digestion is the pull-at-open sweep every dispatch
 runs at entry).
