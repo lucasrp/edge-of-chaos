@@ -941,6 +941,9 @@ def _load_openai_key():
 
 
 def _first_ts(path):
+    # Hermes sessions use virtual SQLite paths (`state.db#session_id`), not files.
+    if "#" in str(path):
+        return None
     for line in open(path):
         try:
             ts = json.loads(line).get("timestamp")
@@ -1003,6 +1006,28 @@ def _ingest_summary(ingested, failures):
             f"a memória NÃO avançou neles. Primeiro: {first}")
 
 
+def _ingest_group(item, install_group):
+    """Route profile-aware Hermes items; other surfaces stay on the install group."""
+    return item.get("edge_group") or install_group
+
+
+async def _add_episode_with_backoff(add, *, attempts=6, base_delay=15):
+    """Retry only transient provider throttling; every other failure stays visible."""
+    import asyncio
+    for attempt in range(attempts):
+        try:
+            return await add()
+        except Exception as e:
+            quota_exhausted = (getattr(e, "code", None) == "insufficient_quota" or
+                               "insufficient_quota" in str(e))
+            if (type(e).__name__ != "RateLimitError" or quota_exhausted or
+                    attempt == attempts - 1):
+                raise
+            delay = base_delay * (2 ** attempt)
+            print(f"  ~ rate limited; retrying in {delay}s")
+            await asyncio.sleep(delay)
+
+
 def graphiti_ingest(items):
     """Incremental Graphiti extraction (C2): one episode per session-delta, into THIS install's
     own group (agent.yaml identity, #21). Robust: a per-episode failure is logged and skipped (the
@@ -1016,10 +1041,10 @@ def graphiti_ingest(items):
     from graphiti_core.llm_client import LLMConfig, OpenAIClient
     _load_openai_key()
     neo = _identity.neo4j_conn()
-    group = _identity.require_group()   # resolved ONCE, before any episode (codex gate)
+    install_group = _identity.require_group()  # fallback for Claude/Codex/Grok
     ok = set()
 
-    async def bounded_previous_uuids(g, ref):
+    async def bounded_previous_uuids(g, ref, group):
         """The previous-episode context add_episode would retrieve, bounded: most-recent-first
         under PREV_CONTEXT_MAX_CHARS, never an episode over MAX_EPISODE_CHARS (a legacy pre-#53
         giant — one alone can blow the window). Deterministic seam: the tool disposes what the
@@ -1048,13 +1073,14 @@ def graphiti_ingest(items):
         g = Graphiti(*neo, llm_client=llm)
         await g.build_indices_and_constraints()
         for it in items:
+            group = _ingest_group(it, install_group)
             ref = _parse_ts(_first_ts(it["path"]))   # all sub-episodes share the session's ref-time
             chunks = chunk_episode_body(it["body"])   # one big session → several context-fit episodes (#53)
             failed = False
             for k, chunk in enumerate(chunks):
                 name = _episode_name(it) if len(chunks) == 1 else _episode_name(it, k)
                 try:
-                    prev = await bounded_previous_uuids(g, ref)
+                    prev = await bounded_previous_uuids(g, ref, group)
                     await _add_episode_with_backoff(lambda: g.add_episode(
                         name=name, episode_body=chunk,
                         source=EpisodeType.message,

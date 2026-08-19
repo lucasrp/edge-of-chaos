@@ -649,3 +649,55 @@ class GraphIngestIsBoundedAndNeverGatesTheSweep(unittest.TestCase):
         import inspect
         self.assertNotIn("ingest_fn", inspect.signature(sweep.execute).parameters)
 
+
+class GraphitiHermesIngestSeams(unittest.IsolatedAsyncioTestCase):
+    def test_virtual_hermes_sqlite_path_has_no_file_timestamp(self):
+        self.assertIsNone(sweep._first_ts("/tmp/state.db#session-123"))
+
+    def test_item_edge_group_overrides_install_group(self):
+        self.assertEqual(sweep._ingest_group({"edge_group": "profile-group"}, "install-group"),
+                         "profile-group")
+        self.assertEqual(sweep._ingest_group({}, "install-group"), "install-group")
+
+    async def test_transient_rate_limit_is_retried(self):
+        class RateLimitError(Exception):
+            pass
+
+        calls = []
+
+        async def add():
+            calls.append(1)
+            if len(calls) == 1:
+                raise RateLimitError("slow down")
+            return "ok"
+
+        with mock.patch("asyncio.sleep", new=mock.AsyncMock()) as sleep:
+            self.assertEqual(await sweep._add_episode_with_backoff(add, base_delay=0), "ok")
+        self.assertEqual(len(calls), 2)
+        sleep.assert_awaited_once()
+
+    async def test_insufficient_quota_is_not_retried(self):
+        class RateLimitError(Exception):
+            code = "insufficient_quota"
+
+        calls = []
+
+        async def add():
+            calls.append(1)
+            raise RateLimitError("insufficient_quota")
+
+        with self.assertRaises(RateLimitError):
+            await sweep._add_episode_with_backoff(add, base_delay=0)
+        self.assertEqual(len(calls), 1)
+
+    async def test_non_transient_error_is_not_retried(self):
+        calls = []
+
+        async def add():
+            calls.append(1)
+            raise RuntimeError("broken payload")
+
+        with self.assertRaises(RuntimeError):
+            await sweep._add_episode_with_backoff(add, base_delay=0)
+        self.assertEqual(len(calls), 1)
+
