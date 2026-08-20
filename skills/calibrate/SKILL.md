@@ -15,7 +15,7 @@ evidence cannot settle. Unlike the grill, your object is not the mentee's model 
 
 Fan ONE subagent (fresh context, self-reading subject — it may hold the cortex door; it
 reads folds, never the live session) to assemble the **mechanical evidence pack**. The pack
-is measurements + pointers-to-disk (the clerk idiom, `conductor.py` node_briefs — never a
+is measurements + pointers-to-disk (the clerk idiom — never a
 context dump), zero opinions:
 
 - **yield table**: fold_grounding × fold_source_yield — attempts, hits, cited, similarity,

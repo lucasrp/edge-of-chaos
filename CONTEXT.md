@@ -55,16 +55,15 @@ Escala pra bloqueio por evidência logada, não por vibe (ADR-00XX).
 - **O dente:** sem `pauta.proposta` viva não abre Ato-2 — uniforme para autônomo e comandado. Voz = PROPOSTA-ok por autoridade; contra ordem não há silêncio, há **seca declarada**.
 - Verbetes plenos: seção **Pauta / Escolha (Ato-1)** no glossário abaixo.
 
-## 3. Produção   ⟶ CONGELADO (agente vivo é dono do conductor)
+## 3. Produção   ⟶ CONGELADO (agente vivo é dono da produção)
 **Resp:** desenvolver a PROPOSTA da Pauta num contexto rico (a escolha saiu daqui — ADR-0024).
-**Interface:** `produce(proposta, depth) → draft`
+**Interface:** `produce(proposta) → draft`
 
 - **Artefato:** o entregável de um beat — carrega Worthwhile content, existe pra **mover ou confirmar a Direction**. Transiente (esfria, é prunável); o durável vive no cluster, o steer na Direction. Nasce aqui, é julgado no 4, publicado no 5.
 - **Worthwhile content:** a interseção — insight profundo de domínio **aplicado ao trabalho vivo do mentee**. Domínio sozinho é genérico; mentee sozinho é raso. **O centro tem nome:** este é o bar de UM setup (o report profundo aplicado) — desde ADR-0024 é a Pauta que escolhe o setup; Worthwhile não é mais o seletor único de pauta.
 - **Producer-skill:** uma skill que rende um Artefato na sua forma — report/research/map/plan/discovery/critique. Recebe a PROPOSTA da Pauta (ADR-0024), desenvolve o tema na sua forma, sai pelo close — a escolha de pauta não vive mais aqui.
-- **Conductor:** a maquinaria de montagem do genus deep-dive — outline vivo por-nó (empty→draft→revised→final), split/merge, arco motivate→deliver→change-the-course estrutural. O gate de discharge por-nó **chama** a interface do Close. **Dark by default** (`EDGE_CONDUCTOR`).
 - **Rich rite (ato):** os moves cognitivos que o produtor **faz** — derivação de primeiros princípios, um "o que eu não sei" marcado, um benchmark/frame de fora, a lineage. (O Close afere; aqui se gera.)
-- **Depth:** o alvo de desenvolvimento que o **operador** seta (brief/standard/deep) — o recurso escasso é a atenção do mentee. Ceiling, não floor.
+- **Duty:** um único caminho de produção, propriedade do genus — plenitude, cobrir as facetas, nenhuma faceta dobrada, voz do pedagogo Feynman. Sem knob de profundidade. Synthesis-to-a-bite é falha do genus.
 
 ## 4. Julgamento / Close
 **Resp:** gatear o genus, format-agnostic.

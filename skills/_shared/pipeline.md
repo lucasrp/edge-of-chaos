@@ -85,7 +85,7 @@ sees, not raw authoring source (if a leftover draft is still YAML, they never sc
      (votes get their receipt; a comment this artefato answered closes with its ref; an
      unanswered comment gets a one-time receipt and stays pending), then
      `voz.assert_all_received()` — the fail-loud gate that no Voz was ignored without even
-     a receipt. (Enforcement inside `close.run_close` plugs in when the conductor work in
+     a receipt. (Enforcement inside `close.run_close` plugs in when the close work in
      `tools/close.py` settles; until then this prose IS the contract.)
 
 ## The testable surfaces
@@ -209,7 +209,7 @@ this is not an optional form-only clerk anymore; the publisher owns the WHOLE `r
 producer has **SETTLED** the artefato (every claim already made, the rich context still in the MAIN's
 window), it does **not** run `close.run_close` inline. It writes the settled spec + fields to **disk
 pointers** and hands off to the publisher (via the Agent tool) with a **brief + disk POINTERS** — the
-`conductor.py` node_briefs idiom, never a context dump: `{dispatch_id, main_session_id, skill,
+clerk idiom (measurements + disk pointers), never a context dump: `{dispatch_id, main_session_id, skill,
 intent_kernel, slug, spec_path, cites_path, proposes_path, distills_path, lineage_path}`. The publisher
 runs the **whole close** in a clean process — the genus contract, the two blind reviewers, the
 **mechanical** improve loop, the mint, the render, the atomic publish — and returns a typed **pull-channel**

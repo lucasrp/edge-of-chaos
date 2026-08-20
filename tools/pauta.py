@@ -617,7 +617,6 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
             "gate_trace": gate_trace,
             "delta_voz": dv,
             "origem": "voz" if voz else "autonomo",
-            "depth": c.get("depth") or "brief",
             "dispatch_id": dispatch_id,
             "slug_prefix": slug_prefix(cell),
         }
@@ -897,7 +896,7 @@ def main(argv=None):
     p = sub.add_parser("propose")
     p.add_argument("--cell", required=True, help="JSON {objeto, abordagem}")
     p.add_argument("--candidates", default="[]", help="JSON [{tema, forma, faceta, lastro, ...}]")
-    p.add_argument("--constraints", default="{}", help="JSON (Voz: origem/tema/forma/depth)")
+    p.add_argument("--constraints", default="{}", help="JSON (Voz: origem/tema/forma)")
     p.add_argument("--dispatch-id", required=True)
     d = sub.add_parser("proposta")
     d.add_argument("--dispatch-id", required=True)

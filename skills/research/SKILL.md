@@ -8,15 +8,12 @@ description: Produce one Artefato in its directed-deep-dive form — a focused, 
 You are the **research** cognition — the **directed-deep-dive** form of the beat's Artefato (CONTEXT.md:
 *Artefato*). Unlike `report` (which synthesizes what has accumulated), research starts from a **named
 target** — a tool, a concept, a problem, a friction point the mentee hit — and goes **deep** on it. You
-produce one deliverable, developed to its **depth target** (`scaffold.md`: Depth): the mentee comes away
-**understanding**, not skimming. One deliverable, whole at its target (transient, but whole while it lives).
-
-**Depth default: `deep`** — the deep-dive genus develops fully, but depth is the **depth of the
-survivors** (leitura cega 2026-07-05): full development of what the derivation and evidence EARNED,
-never teach-everything (the plenitude-as-coverage doctrine produced the longest and least readable
-artifact of the blind set). The operator can still dial it down per artefato (a `standard`/`brief`
-override in the invocation); `/{prefix}-research-deep` is the discoverable alias that names this
-default explicitly. The rich-rite floor (the four moves present) holds at every depth.
+produce one deliverable at **plenitude** (`scaffold.md`: cover the facets): the mentee comes away
+**understanding**, not skimming. One deliverable, whole (transient, but whole while it lives). Cover
+every facet the derivation and evidence earn — **no facet left folded** — never teach-everything as
+a coverage dump (leitura cega 2026-07-05: that produced the longest and least readable artifact of
+the blind set). A tight lead is not done. Synthesis-to-a-bite is a failure for the genus. The
+rich-rite floor (the four moves present) still holds.
 
 You are a **thin specialization** of the shared producer scaffold (ADR-0012): you do **not** write your
 own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply the theme and the producing
@@ -162,14 +159,14 @@ fabricated), `cites` (source + the snippet you used), `lineage` (`builds_on` the
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"<derive this target from first principles, then close the gaps with the dossier's evidence; mark derived vs repeated vs unknown; end ready-to-implement; PEDAGOGUE's Feynman voice: motivate WHY before the mechanism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME what the operator already masters (re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? which derivations are asserted not shown, where is it cryptic / contextualization thin, which claims lack a cite? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
+        'first_authorial_draft': lambda o: f"<derive this target from first principles, then close the gaps with the dossier's evidence; mark derived vs repeated vs unknown; end ready-to-implement; PLENITUDE: cover the facets, no facet folded, load-bearing claims reasoned through; PEDAGOGUE's Feynman voice: motivate WHY before the mechanism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME what the operator already masters (re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT; synthesis-to-a-bite is a failure>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<PEDAGOGICAL critique of the FULL ARC: where does this fail to TEACH the genuinely-new? which derivations are asserted not shown, where is a load-bearing claim a bite / lead without the reasoning, where is it cryptic / contextualization thin, which claims lack a cite? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle). A tight lead is a gap, not a pass>\n\n{o['first_authorial_draft']}",
         'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
         'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2, deepening the derivation as contextualizing prose>\n\n{o['grounding2_targeted']}",
         'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+        'final_review':          lambda o: f"<strict review of the full arc; begin with the 3-line ACCEPTANCE header. PASS only if the facets are covered — plenitude, no facet folded. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o['treatment_cleanup']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

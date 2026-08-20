@@ -1,13 +1,13 @@
-"""assembly — the conductor-integration provenance helpers (S-WIRE).
+"""assembly — provenance helpers for a stamped `_assembly` block (S-WIRE).
 
-The producer stamps `artefato['_assembly']` from its `run_conductor` result; the close re-verifies and
+The producer may stamp `artefato['_assembly']`; the close re-verifies and
 SIGNS it (the signing primitive is close-PRIVATE — A8 — and lives in `close.py`, never here). This
 module holds only the NON-secret, pure computations both sides share:
 
-  - `content_digest(spec)` — a stable digest of the conductor's conciliated content that IGNORES
+  - `content_digest(spec)` — a stable digest of assembled content that IGNORES
     close-owned `_grounding` signatures, so the same content digests identically before and after
-    close's `ground_visuals` (the H2 ordering fix). Used by S-WIRE to stamp `conductor_digest` and by
-    S-ATTEST's re-verify to detect content revised outside the conductor (P1).
+    close's `ground_visuals` (the H2 ordering fix). Used by S-WIRE to stamp `content_digest` and by
+    S-ATTEST's re-verify to detect content revised after the stamp (P1).
   - `assembly_facts(result, seed)` — the `_assembly` dict the producer stamps onto the artefato.
 
 Deliberately holds NO secret and NO `sign`/`attest` — keeping it here would be the public sign-any API
@@ -60,20 +60,17 @@ def _strip_block(block):
 
 def content_digest(spec) -> str:
     """sha256 over the canonical content with all `_grounding` signatures stripped. Stable and
-    order-insensitive (sorted keys), so the conductor's output digests identically whether read at the
-    conductor seam or after close's additive visual signing."""
+    order-insensitive (sorted keys), so the same content digests identically before and after
+    close's additive visual signing."""
     blob = json.dumps(_strip_grounding(spec), sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def assembly_facts(result: dict, seed: dict) -> dict:
-    """Build the `_assembly` provenance the producer stamps onto the artefato from a `run_conductor`
-    result + the seed it ran on. `assembled='conductor'` whenever the conductor actually ran (enabled,
-    not passthrough); a disabled/passthrough run is never stamped by the producer (close synthesizes the
-    default — S-ATTEST). `conductor_digest` binds THIS run's conciliated content so a later single-context
-    revision in the close loop is detectable (P1)."""
+    """Build the `_assembly` provenance dict from a production `result` + the seed it ran on.
+    `content_digest` binds THIS run's content so a later revision in the close loop is detectable."""
     facts = {
-        "assembled": "conductor" if result.get("enabled") else "single-context",
+        "assembled": "multi-agent" if result.get("enabled") else "single-context",
         "node_count": len(result.get("outline") or []),
         "seed_finding_count": len(seed.get("findings") or []),
         "conductor_ship": bool(result.get("ship")),

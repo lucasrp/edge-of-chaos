@@ -70,7 +70,7 @@ a ordem TRAVA os campos que nomeia e o funil roda só nos graus de liberdade res
   eixos que a ordem pinar (célula travada ainda é célula — o nome carrega o setup);
 - `tools/edge-python tools/pauta.py propose --cell '<json>' --candidates '<json do grounding>'
   --dispatch-id "$EDGE_DISPATCH_PLAN_ID" --constraints
-  '{"origem":"voz","tema":"<da ordem>","forma":"<da ordem>","depth":"<se pedida>"}'`.
+  '{"origem":"voz","tema":"<da ordem>","forma":"<da ordem>"}'`.
 
 A palavra do operador é **PROPOSTA-ok por autoridade**: nenhum juízo LLM roda, os pisos entram
 em modo-declara e o recibo `gate_trace.waived` lista exatamente o que NÃO rodou e por quê

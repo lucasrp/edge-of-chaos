@@ -115,7 +115,7 @@ class TestBriefingSection(unittest.TestCase):
 
 
 class TestSweepKnob(unittest.TestCase):
-    """Consolidação no sweep atrás de EDGE_COMMUNITIES (dark por default, padrão EDGE_CONDUCTOR)."""
+    """Consolidação no sweep atrás de EDGE_COMMUNITIES (dark por default)."""
 
     def test_off_by_default(self):
         import os, sweep

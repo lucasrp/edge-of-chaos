@@ -1,7 +1,6 @@
 """Slice 4 — the grounded 2-spot visual post-pass (D-E). The ONLY place a chart/diagram enters a
-conductor report: Slices 1-3 hold the GLOBAL VISUAL INVARIANT (no node emits a drawn visual), so the
-whole assembled `content` reaches here visual-free, and `add_visuals` adds AT MOST 2 genuinely good,
-GROUNDED visuals — read from the full report + evidence, never fabricated.
+report: the assembled `content` reaches here visual-free, and `add_visuals` adds AT MOST 2 genuinely
+good, GROUNDED visuals — read from the full report + evidence, never fabricated.
 
 Design (ed-research, sharpened against the real APIs):
   - the role-mark / "data drives the marks" check is NOT SVG-primitive-counting (verified wrong for
@@ -24,7 +23,7 @@ import copy
 import re
 
 import close
-import conductor
+import json
 import render
 import visual_grounding  # S7/R2: sign each grounded splice with its unforgeable attestation
 import visual_recipes
@@ -32,10 +31,45 @@ import visual_recipes
 _GRAPH_NODE_CAP = 12            # operator's ~<=12; a denser graph is a hairball (Ghoniem/Fekete)
 
 
+# Drawn visuals are Slice-4-only. Structured-data blocks (metrics-grid, comparison-table, …)
+# are legitimate body forms and are deliberately excluded.
+_DRAWN_VISUALS = frozenset({
+    "chart", "diagram", "ascii-diagram", "raw-html", "svg", "html", "custom-html",
+})
+
+
+def _norm_gap(s: str) -> str:
+    """Casefold, punctuation→space, whitespace-collapse — shared by attribution matching."""
+    s = (s or "").casefold()
+    s = re.sub(r"[^\w\s]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _parse_envelope(raw: str):
+    """Tolerant fence→dict parse: strip a ```json fence, tolerate surrounding prose."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip()
+    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+    candidates = [text]
+    brace = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace and brace.group(0) != text:
+        candidates.append(brace.group(0))
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(data, dict):
+            return data
+    return None
+
+
 def _norm(s) -> str:
-    """Normalize text for attribution matching — reuse the conductor's gap normalizer (casefold,
-    punctuation→space, whitespace-collapse) so the corpus and the cited spans agree."""
-    return conductor._norm_gap(s if isinstance(s, str) else "")
+    """Normalize text for attribution matching (casefold, punctuation→space, collapse)."""
+    return _norm_gap(s if isinstance(s, str) else "")
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +89,7 @@ def _existing_drawn_visuals(content: dict) -> set:
     for s in _all_sections(content):
         for b in (s.get("blocks") or []):
             t = render.canonical_block(b)[0]
-            if t in conductor._DRAWN_VISUALS:
+            if t in _DRAWN_VISUALS:
                 found.add(t)
     return found
 
@@ -509,7 +543,7 @@ def select_spots(content: dict, evidence: dict, dispatch_fn, max_visuals: int) -
     if max_visuals <= 0:
         return []
     raw = dispatch_fn(role="selector", prompt=_selector_prompt(content, evidence, max_visuals))
-    data = conductor._parse_envelope(raw) or {}
+    data = _parse_envelope(raw) or {}
     spots = data.get("spots")
     if not isinstance(spots, list):
         return []
@@ -552,7 +586,7 @@ def build_spot(spot: dict, evidence: dict, dispatch_fn) -> tuple[dict | None, st
     grounds by attribution against the evidence, then verifies it renders + passes the chart/graph
     quality gate. Fail closed."""
     raw = dispatch_fn(role="builder", prompt=_builder_prompt(spot, evidence))
-    data = conductor._parse_envelope(raw)
+    data = _parse_envelope(raw)
     if not data:
         return None, "builder returned no parseable payload"
     block, provenance = data.get("block"), data.get("provenance")

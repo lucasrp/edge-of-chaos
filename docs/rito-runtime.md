@@ -124,8 +124,8 @@ the cognitive inputs vary; the stages, detector, and publication seam are identi
 | `map` | connections diagram | rito | connections dossier; fenced mermaid/ASCII diagram + connection table (Markdown-native) |
 | `plan` | next-steps flow | rito | situation/constraints dossier; fenced flow + ordered list/risk table |
 | `discovery` | serendipity find | rito | the find + anchoring evidence; before/after + callout |
+| `report-deep` / `research-deep` / `discovery-deep` | (alias) | rito (inherited) | same genus path as the base skill — not a different depth |
 | `mentor` | insight artefato leg | rito | insight explanation; **only** the artefato-publication leg — the three-steers `grill_gate` close is untouched |
-| `report-deep` / `research-deep` / `discovery-deep` | (alias) | rito (inherited) | delegate verbatim to their base skill — no separate exit |
 | `experiment` | (closes via `/report`) | rito (inherited) | an experiment finalizes by publishing a report, so it rides report's rite |
 | `critique` | appraisal | inherits shared close | short skill; references "the close" only, carries no explicit exit snippet — moves when it grows one |
 

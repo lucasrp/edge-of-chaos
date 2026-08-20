@@ -11,7 +11,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 import visuals    # noqa: E402
 import render     # noqa: E402
-import conductor  # noqa: E402
 
 # Evidence the visuals must be grounded against (the corpus attribution resolves to).
 _EVIDENCE = {
@@ -609,82 +608,6 @@ class CombinedSectionIndex(unittest.TestCase):
         self.assertEqual(len(out["sections"]), 1, "no stray trailing section")
 
 
-class WiredIntoProducer(unittest.TestCase):
-    """codex P2: add_visuals must be REACHED from the producer path, not only direct tests. run_conductor
-    runs it at the producer→close seam via the injected visual_dispatch_fn (#40); None => no-op."""
-    _SEED = {"findings": [
-        {"claim": "slice one closed 3 defects", "bears_on": "richness", "citation": "a", "probe": "relevance"},
-        {"claim": "slice three closed 7 defects", "bears_on": "richness", "citation": "a", "probe": "relevance"}],
-        "residuals": ["the live lag at 50 entities"]}
-
-    @staticmethod
-    def _writer(prompt):
-        echo = " ".join(c for c in ("slice one closed 3 defects", "slice three closed 7 defects")
-                        if c in prompt)
-        env = {"title": "t", "blocks": [{"type": "paragraph",
-               "text": f"Developed prose covering {echo}. what i don't know: scale; builds on prior."}],
-               "digest": {"bullets": [], "assumed_prior": "",
-                          "contribution": "develops the claim to plenitude", "cross_refs": []}}
-        return f"prose {echo}\n```json\n{json.dumps(env)}\n```"
-
-    @staticmethod
-    def _conc(prompt):
-        return '```json\n{"blocks":[]}\n```'
-
-    @staticmethod
-    def _vdispatch(role, prompt):
-        if role == "selector":
-            return _fence({"spots": [{"section_index": 0, "visual_kind": "chart", "intent": "defects per slice"}]})
-        return _fence({"block": {"type": "chart", "chart": "bar", "title": "defects closed",
-                                 "data": [{"label": "slice one", "value": 3},
-                                          {"label": "slice three", "value": 7}]},
-                       "provenance": [{"source": "slice one closed 3 defects"},
-                                      {"source": "slice three closed 7 defects"}]})
-
-    def test_visual_dispatch_splices_a_grounded_chart(self):
-        r = conductor.run_conductor(self._SEED, "obj", self._writer, is_enabled=True,
-                                    conciliate_fn=self._conc, visual_dispatch_fn=self._vdispatch)
-        types = [render.canonical_block(b)[0] for s in r["deep_spec"]["sections"] for b in s["blocks"]]
-        self.assertIn("chart", types, "the injected visual dispatch must splice a grounded chart")
-        self.assertEqual(r["visual_flags"], [], f"a grounded chart → no shortfall, got {r['visual_flags']}")
-
-    def test_no_dispatch_is_a_noop(self):
-        r = conductor.run_conductor(self._SEED, "obj", self._writer, is_enabled=True,
-                                    conciliate_fn=self._conc)  # no visual_dispatch_fn
-        types = [render.canonical_block(b)[0] for s in r["deep_spec"]["sections"] for b in s["blocks"]]
-        self.assertNotIn("chart", types, "no dispatch → no visual (byte-for-byte unchanged)")
-        self.assertEqual(r["visual_flags"], [])
-
-    def test_residuals_are_not_grounding_evidence(self):
-        # codex P2: a residual (open question) must NOT ground a visual. A datum that only matches a
-        # residual — not a finding — must be dropped.
-        seed = {"findings": [{"claim": "alpha closed 3 defects", "bears_on": "x", "citation": "a",
-                              "probe": "relevance"}],
-                "residuals": ["is beta really 99 at scale"]}  # an OPEN question, not a fact
-        spots = [{"section_index": 0, "visual_kind": "chart", "intent": "beta value"}]
-        def d(role, prompt):
-            if role == "selector":
-                return _fence({"spots": spots})
-            return _fence({"block": {"type": "chart", "chart": "bar", "data": [{"label": "beta", "value": 99}]},
-                           "provenance": [{"source": "is beta really 99 at scale"}]})
-        r = conductor.run_conductor(seed, "obj", self._writer_for(seed), is_enabled=True,
-                                    conciliate_fn=self._conc, visual_dispatch_fn=d)
-        types = [render.canonical_block(b)[0] for s in r["deep_spec"]["sections"] for b in s["blocks"]]
-        self.assertNotIn("chart", types, "a visual grounded only on a residual question must drop")
-
-    @staticmethod
-    def _writer_for(seed):
-        claims = [f["claim"] for f in seed["findings"]]
-        def writer(prompt):
-            echo = " ".join(c for c in claims if c in prompt)
-            env = {"title": "t", "blocks": [{"type": "paragraph",
-                   "text": f"Prosa desenvolvida sobre {echo}. what i don't know: scale."}],
-                   "digest": {"bullets": [], "assumed_prior": "",
-                              "contribution": "develops the claim fully", "cross_refs": []}}
-            return f"prosa {echo}\n```json\n{json.dumps(env)}\n```"
-        return writer
-
-
 class CloseIntegration(unittest.TestCase):
     def test_spliced_content_passes_genus(self):
         # the real shipping path: add_visuals output becomes artefato['content']; close.check_genus
@@ -705,7 +628,7 @@ class CloseIntegration(unittest.TestCase):
                     "cites": [{"ref": "audit", "kind": "mundo", "relevant": True,
                                "snippet": "slice three closed 7 defects"}],
                     "proposes": [{"body": "ship it", "kind": "thread"}],
-                    "distills": ["cluster:conductor"]}
+                    "distills": ["cluster:richness"]}
         self.assertEqual(close.check_genus(artefato), [], "the spliced spec must pass genus")
 
 

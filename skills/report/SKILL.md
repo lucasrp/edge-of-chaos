@@ -6,13 +6,11 @@ description: Produce one Artefato in its prose-synthesis form — a focused, Idi
 ---
 You are the **report** cognition — the **prose-synthesis** form of the beat's Artefato (CONTEXT.md:
 *Artefato*). Given one Worthwhile theme and the evidence gathered for it, you produce a synthesis the
-mentee did not already know, **developed to its depth target** (`scaffold.md`: Depth). One deliverable,
-whole at its target (it is transient — it cools — but while it lives it is whole).
-
-**Depth default: `standard`** — the arc and the load-bearing claims reasoned through, tailored to the
-mentee, not every facet exhausted. The **operator sets depth per artefato** (an override named in the
-invocation); `/{prefix}-report-deep` is the discoverable alias for `deep` (plenitude). The rich-rite
-floor (the four moves present) holds at **every** depth — depth only sets how far *above* it you develop.
+mentee did not already know, **developed to plenitude** (`scaffold.md`: cover the facets). One
+deliverable, whole (it is transient — it cools — but while it lives it is whole). Every cognitive
+move developed, load-bearing claims reasoned through, **no facet left folded**, tailored to the
+mentee. A tight lead is not done. Synthesis-to-a-bite is a failure for the genus. The rich-rite
+floor (the four moves present) still holds — the duty is their development, not merely their presence.
 
 You are a **thin specialization** of the shared producer scaffold (ADR-0012): you do **not** write your
 own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply the theme and the producing
@@ -160,14 +158,14 @@ that becomes the canonical reading; omit when no experiment closes).
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"<the produce guidance, this theme; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME the operator's known (edge + his domain — re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? where is it cryptic / contextualization thin? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
+        'first_authorial_draft': lambda o: f"<the produce guidance, this theme; PLENITUDE: cover the facets, no facet folded, load-bearing claims reasoned through; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME the operator's known (edge + his domain — re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target; synthesis-to-a-bite is a failure>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<PEDAGOGICAL critique of the FULL ARC: where does this fail to TEACH the genuinely-new? where is a load-bearing claim asserted not reasoned? where is it a bite / lead that stands alone without the arc? where is it cryptic / contextualization thin? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle). A tight lead is a gap, not a pass>\n\n{o['first_authorial_draft']}",
         'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
         'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2 into contextualizing prose>\n\n{o['grounding2_targeted']}",
         'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review of the READER-FACING page (rendered HTML if the sealed draft is YAML; markdown as-is); begin with the 3-line ACCEPTANCE header>\n\n{o.get('reader_facing') or o['treatment_cleanup']}",
+        'final_review':          lambda o: f"<strict review of the READER-FACING page (rendered HTML if the sealed draft is YAML; markdown as-is); begin with the 3-line ACCEPTANCE header. PASS only if the facets are covered — plenitude, no facet folded, load-bearing claims reasoned through. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o.get('reader_facing') or o['treatment_cleanup']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',
