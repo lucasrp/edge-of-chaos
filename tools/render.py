@@ -1421,11 +1421,15 @@ def spec_to_html(spec: dict) -> str:
 # post-gate-grounding-arm/generate_post_gate_grounding_arm.py, render_markdown /
 # inline_md). This is the experiment's FORM, pinned as a stage of the rite
 # (docs/rito-runtime.md): the publisher recomputes markdown_page_bytes and
-# refuses a hash mismatch. Do not "improve" it — a byte change is a renderer
-# version change and must bump RENDERER_ID.
+# refuses a hash mismatch. Do not "improve" it silently — a byte change is a
+# renderer version change and must bump RENDERER_ID.
+#
+# v2 keeps the v1 line-walker for prose/lists/tables, but stops wrapping
+# mermaid fences and display-math as one <p> per line, and loads mermaid
+# plus KaTeX auto-render in the document head.
 # ---------------------------------------------------------------------------
 
-RENDERER_ID = "exp072-neutral-markdown/v1"
+RENDERER_ID = "exp072-neutral-markdown/v2"
 
 
 def markdown_title(md: str, fallback: str = "artefato") -> str:
@@ -1436,20 +1440,77 @@ def markdown_title(md: str, fallback: str = "artefato") -> str:
     return fallback
 
 
+_MD_HEAD_LIBS = '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" crossorigin="anonymous">\n<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js" crossorigin="anonymous"></script>\n<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js" crossorigin="anonymous"\n  onload="renderMathInElement(document.body,{delimiters:[{left:\'\\\\[\',right:\'\\\\]\',display:true},{left:\'\\\\(\',right:\'\\\\)\',display:false}],throwOnError:false);"></script>\n<script src="https://cdn.jsdelivr.net/npm/mermaid@11.6.0/dist/mermaid.min.js"></script>\n<script>mermaid.initialize({startOnLoad:true,securityLevel:\'strict\'});</script>'
+
+def _emit_fence(lang: str, lines: list[str]) -> str:
+    content = html.escape(chr(10).join(lines), quote=False)
+    if lang.lower() == "mermaid":
+        return f"<pre class=\"mermaid\">{content}</pre>"
+    if lang:
+        return f"<pre><code class=\"language-{html.escape(lang)}\">{content}</code></pre>"
+    return f"<pre><code>{content}</code></pre>"
+
+
+def _emit_display_math(lines: list[str]) -> str:
+    return f"<div class=\"math-display\">{html.escape(chr(10).join(lines), quote=False)}</div>"
+
+
 def render_markdown_page(md: str, title: str) -> str:
-    """Neutral markdown → self-contained HTML page (the approved renderer, verbatim)."""
+    """Neutral markdown → self-contained HTML page (v2: mermaid + KaTeX)."""
     body: list[str] = []
     in_ul = False
     in_table = False
+    in_fence = False
+    fence_lang = ""
+    fence_lines: list[str] = []
+    in_display_math = False
+    math_lines: list[str] = []
+
+    def _close_lists() -> None:
+        nonlocal in_ul, in_table
+        if in_ul:
+            body.append("</ul>")
+            in_ul = False
+        if in_table:
+            body.append("</tbody></table>")
+            in_table = False
+
     for raw in md.splitlines():
         line = raw.rstrip()
+        stripped = line.strip()
+        if in_fence:
+            if stripped.startswith("```"):
+                body.append(_emit_fence(fence_lang, fence_lines))
+                in_fence = False
+                fence_lang = ""
+                fence_lines = []
+            else:
+                fence_lines.append(raw)
+            continue
+        if in_display_math:
+            math_lines.append(line)
+            if r"\]" in line:
+                body.append(_emit_display_math(math_lines))
+                in_display_math = False
+                math_lines = []
+            continue
+        if stripped.startswith("```"):
+            _close_lists()
+            fence_lang = stripped[3:].strip()
+            in_fence = True
+            fence_lines = []
+            continue
+        if stripped.startswith(r"\["):
+            _close_lists()
+            after = stripped[stripped.find(r"\[") + 2:]
+            if r"\]" in after:
+                body.append(_emit_display_math([line]))
+            else:
+                in_display_math = True
+                math_lines = [line]
+            continue
         if not line:
-            if in_ul:
-                body.append("</ul>")
-                in_ul = False
-            if in_table:
-                body.append("</tbody></table>")
-                in_table = False
+            _close_lists()
             continue
         if line.startswith("|") and line.endswith("|"):
             cells = [c.strip() for c in line.strip("|").split("|")]
@@ -1488,6 +1549,10 @@ def render_markdown_page(md: str, title: str) -> str:
             body.append(f"<blockquote>{_inline_markdown(line[2:].strip())}</blockquote>")
         else:
             body.append(f"<p>{_inline_markdown(line)}</p>")
+    if in_fence:
+        body.append(_emit_fence(fence_lang, fence_lines))
+    if in_display_math:
+        body.append(_emit_display_math(math_lines))
     if in_ul:
         body.append("</ul>")
     if in_table:
@@ -1512,7 +1577,11 @@ a{{color:#1f5f8b}}
 table{{border-collapse:collapse;width:100%;margin:18px 0;background:#fff}}
 th,td{{border:1px solid #d5d9df;padding:8px;vertical-align:top;text-align:left}}
 th{{background:#eef1f5}}
+pre{{background:#edf2f7;padding:12px 16px;overflow-x:auto;border-radius:4px}}
+pre.mermaid{{background:transparent;text-align:center}}
+.math-display{{margin:18px 0;overflow-x:auto;text-align:center}}
 </style>
+{_MD_HEAD_LIBS}
 </head>
 <body><main>
 {chr(10).join(body)}

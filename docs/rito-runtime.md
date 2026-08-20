@@ -10,7 +10,7 @@ pinning the pipeline, not scoring the artifact.
 | Module | Responsibility (deep, one seam each) |
 |---|---|
 | `tools/rito.py` | The rite runtime promoted from `drafts/old-edge-double-grounding-repro/run.py`: sequences stages 1–11, writes the sealed manifest (begin/finish/fail receipts with sha256), runs the deterministic gates (treatment scan, acceptance header, draft immutability), renders via the pinned renderer, terminates in publication. Also owns the DETECTOR `verify_rito` and its CLI. |
-| `tools/render.py` | Gains `render_markdown_page(md, title)` + `RENDERER_ID = "exp072-neutral-markdown/v1"` — the approved renderer promoted verbatim from `generate_post_gate_grounding_arm.render_markdown`. |
+| `tools/render.py` | Gains `render_markdown_page(md, title)` + `RENDERER_ID = "exp072-neutral-markdown/v2"` — the approved renderer promoted verbatim from `generate_post_gate_grounding_arm.render_markdown`. |
 | `tools/publisher.py` | Gains `publish_rito(slug, run_dir, *, intent, …)` — the rite's way out: recomputes the pinned render from the sealed markdown, REFUSES a hash mismatch, commits the atomic `artefato.published` event (spec format `edge-markdown/v1`, log is truth), writes the EXACT recomputed bytes temp+rename. `_render_page` gains the `edge-markdown/v1` branch so reprojection re-derives byte-identical pages. |
 
 ## The stages (canonical order, promoted from run.py)
@@ -150,7 +150,7 @@ the running page — the interaction carries the insight. These do **not** fit t
 and are deliberately left on the legacy close path. The conflict is precise:
 
 1. **Stage 9 (`final_html`) is pinned to the neutral-MARKDOWN renderer.** `render.RENDERER_ID`
-   (`exp072-neutral-markdown/v1`) renders a Markdown body into a self-contained neutral page;
+   (`exp072-neutral-markdown/v2`) renders a Markdown body into a self-contained neutral page;
    `publish_rito` byte-hash-enforces exactly that renderer's output. An interactive page is
    author-written JS+CSS in one file — there is no Markdown body to render, and forcing the JS
    *through* the markdown renderer would either strip the `<script>` (the exact `sanitize_raw_html`
