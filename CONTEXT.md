@@ -63,7 +63,7 @@ Escala pra bloqueio por evidência logada, não por vibe (ADR-00XX).
 - **Worthwhile content:** a interseção — insight profundo de domínio **aplicado ao trabalho vivo do mentee**. Domínio sozinho é genérico; mentee sozinho é raso. **O centro tem nome:** este é o bar de UM setup (o report profundo aplicado) — desde ADR-0024 é a Pauta que escolhe o setup; Worthwhile não é mais o seletor único de pauta.
 - **Producer-skill:** uma skill que rende um Artefato na sua forma — report/research/map/plan/discovery/critique. Recebe a PROPOSTA da Pauta (ADR-0024), desenvolve o tema na sua forma, sai pelo close — a escolha de pauta não vive mais aqui.
 - **Rich rite (ato):** os moves cognitivos que o produtor **faz** — derivação de primeiros princípios, um "o que eu não sei" marcado, um benchmark/frame de fora, a lineage. (O Close afere; aqui se gera.)
-- **Duty:** um único caminho de produção, propriedade do genus — plenitude, cobrir as facetas, nenhuma faceta dobrada, voz do pedagogo Feynman. Sem knob de profundidade. Synthesis-to-a-bite é falha do genus.
+- **Duty:** um único caminho de produção, propriedade do genus — ensina alguém muito inteligente que não viveu a sessão; todo termo na primeira vez; o nome da ferramenta pelo que ela faz, não pelo que ela é; deriva antes de ir buscar fora; score 5 = um estranho entende tudo; o mundo é importante: contextualizar o trabalho com o mundo. Plenitude = esses moves desenvolvidos, não cobrir toda faceta. Sem knob de profundidade. Sem piso de palavras.
 
 ## 4. Julgamento / Close
 **Resp:** gatear o genus, format-agnostic.

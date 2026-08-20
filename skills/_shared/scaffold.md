@@ -18,21 +18,67 @@ at lives in the cânone tattoo (`memory/canone.md` — carried in every briefing
 be like those; the anti-cânone names the smell of the hollow. The persona stays in the WRITER
 only — the production gates remain impersonal (concepts, never the persona; reviewer≠asserter).
 
-## The production duty — plenitude; cover the facets
+## The production duty — the genus (one path; no knob)
 
-There is **one** production path. It is a **genus property of the Artefato**, not a knob: develop the
-theme to **plenitude** — every cognitive move to its full depth, load-bearing claims reasoned through,
-**no facet left folded**. The Feynman pedagogue's voice (build from the concrete, motivate WHY before
-formalism, one vivid handle per hard idea, explain-don't-label) is how that plenitude is taught.
-Length is **emergent** — it grows because a facet got a handle, never toward a number. There is no
-depth field and no menu of sizes. A tight lead that stands alone is **not done**. Synthesis-to-a-bite
-is a **failure** for the genus.
+There is **one** production path. It is a **genus property of the Artefato**, not a knob, not a
+menu of sizes, not a depth field, not a template of headings. Length is **emergent**. There is no
+word-count floor and no word-count target. A tight lead that stands alone is **not done**.
+Synthesis-to-a-bite is a **failure** for the genus.
 
-The **rich-rite floor** (the four cognitive moves: derivation, a marked boundary, an outside frame,
-the lineage) must be **present** — that is the genus gate, unchanged. The duty is their
-**development**, not merely their presence: cover the facets. The producer is **free** to wield its
-subagents however it judges best toward plenitude; the slots below name *roles*, not a fixed
-delegation shape.
+### Contrato (verbatim)
+
+Estas frases são o contrato. Sem exemplos. Sem instâncias. Sem bibliografia.
+
+- ensina alguém muito inteligente que não viveu a sessão
+- todo termo na primeira vez
+- o nome da ferramenta pelo que ela faz, não pelo que ela é
+- deriva antes de ir buscar fora
+- score 5 = um estranho entende tudo
+- o mundo é importante: contextualizar o trabalho com o mundo
+
+### Plenitude
+
+**Plenitude is those moves developed** — developed until a stranger who did not live the session
+can restate the claim and the why from this page alone, and can place the work in the world.
+
+Plenitude is **not** cover-every-facet. Facets that are not on the derivation path may stay out.
+No mandatory Glossary. No mandatory "O que não sei" H2. No word-count floor. No depth knob.
+
+The writer may look things up for *this* page after deriving. Those names are lastro of the page,
+not of this genus. Do not invent citations.
+
+### The four load-bearing moves (cognition order, not typography)
+
+1. **DOOR** — name the object before the scoreboard. *todo termo na primeira vez. o nome da
+   ferramenta pelo que ela faz, não pelo que ela é.* The first block must leave a stranger able
+   to retell what world this is, what the object is, what a unit is, and what the printed claim
+   alleges. A slug is not a door. Infering "the operator already knows" from a prior dialogue is
+   out of this genus. The page is the only briefing the reader gets.
+
+2. **DERIVE IN THE OPEN** — *deriva antes de ir buscar fora.* Show the thinking, not the
+   conclusion: charitable hypothesis, then where it breaks, then what the disk forces. Gaps
+   emerge from reasoning; they are not a pre-allocated "O que não sei" heading. Facets not on
+   this path stay out.
+
+3. **THIS PAGE CARRIES** — *ensina alguém muito inteligente que não viveu a sessão. score 5 =
+   um estranho entende tudo.* If a stranger cannot restate the claim and the why from this page
+   only, the piece failed. Lineage ≤ one sentence. IDs are not a scene. No mandatory H2 skeleton.
+   Calibrate to a stranger, not to an operator.
+
+4. **O MUNDO É IMPORTANTE** — *contextualizar o trabalho com o mundo.* After the derivation,
+   bring in enough of the world that a stranger can place the work. This is not a bibliography
+   H2 and not a dump of papers. If a stranger can retell the local plot and still has no world
+   to hang it on, the page failed.
+
+PASS only if: (a) the first block is a door; (b) the derivation is visible; (c) claim and why
+can be restated from this page alone — score 5; (d) the work is contextualized with the world.
+FAIL if the page opens on a parable or ID plate that already assumes the object; FAIL if unused
+facets were padded in; FAIL if the reader must have lived the session; FAIL if the page never
+leaves the local idiom.
+
+The producer is **free** to wield its subagents however it judges best toward this duty; the
+slots below name *roles*, not a fixed delegation shape. Skills execute this file. They do not
+own it, and they do not restate assume-known.
 
 ## The three slots are role-defined, NOT report-defined
 
@@ -80,11 +126,11 @@ never what a particular report-form *is*:
   before any write, so the **scope deny** is the wall, not read-only-ness. The producer holds the door
   and recalls for itself; its world-reading fan does not. (A graph-reading recall is rung-1 producer
   work, not an explorer — `memory.md`.)
-- **`converge`** — loop2's critic role: decide whether the artefato has **covered the facets** and is
-  ready to ship — every load-bearing claim reasoned through, no facet folded, the moves present,
-  tailored to the mentee, carrying what they did not already know. Converge means *judge plenitude*,
-  **never** *cut it to a bite*. A standalone lead is not a ship condition. The slot says "converge,"
-  not "compress."
+- **`converge`** — loop2's critic role: decide whether the artefato has **developed the genus
+  moves** and is ready to ship — door in the first block, derivation visible, a stranger who
+  did not live the session can restate claim and why (score 5), the work placed in the world.
+  Converge means *judge that plenitude*, **never** *cut it to a bite*, and never *cover every
+  facet*. A standalone lead is not a ship condition. The slot says "converge," not "compress."
 - **`diverge`** — loop2's serendipity role: look sideways for the connection the convergence
   would miss. It carries a **reserved curiosity budget** (the *budget for curiosity*): a fixed slice
   of the dispatch's spend that **must** go to a sideways thread, so serendipity is never starved by
@@ -143,9 +189,10 @@ by an explorer: it is *recall*, not research. The discipline and the concrete cy
 **`skills/_shared/memory.md`**; the loop obeys it at two points:
 
 - **Recall-before-act** — at the **start of loop1** (before fanning explorers) and **before the close**:
-  pull the subgraph your theme touches (its clusters, prior Artefatos, open bets). You never re-derive,
-  re-research, or re-publish what you already know — recall is cheap and owned, the world expensive and
-  fuzzy. Recall *feeds* plenitude: you build on the depth of prior Artefatos rather than duplicate them.
+  pull the subgraph your theme touches (its clusters, prior Artefatos, open bets). Recall is cheap and
+  owned, the world expensive and fuzzy. Recall *feeds* the derivation — what was already established,
+  in one sentence. It does not license skipping the door. A stranger still has to be taught from this
+  page alone.
 - **Project-after-publish** — immediately **after the close publishes**: project the Artefato into the
   graph (`MERGE (:Artefato …)` + `DISTILLS/CITES/PROPOSES` edges) so today's output is tomorrow's recall.
   The log stays canonical (ADR-0006); the graph projection is best-effort (a failed write is reported,
