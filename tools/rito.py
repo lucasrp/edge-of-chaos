@@ -353,11 +353,12 @@ def _llm_stage(run, manifest, name, prompt, complete_fn, outputs) -> str:
 
 
 def _run_feynman_gate_stage(run, manifest, name, page, complete_fn) -> dict[str, Any]:
-    """LLM reviewer notes (old-edge review-gate). Records the verdict; does not raise.
+    """LLM reviewer notes (old-edge review-gate). Records the notes; does not raise.
 
     Two rounds always run. A score does not skip a lastro. A low score does
-    not extra-loop. Mid-loop never StageFailure. The close tooth after
-    rewrite 2 is what may refuse publication.
+    not extra-loop. Mid-loop never StageFailure. Close may store notes; it
+    does not refuse publication. Publish blockers stay with final_review
+    ACCEPTANCE only.
     """
     prior = _completed_output(run, manifest, name)
     if prior is not None:
@@ -516,21 +517,14 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         reader_facing = yaml_rite.reader_facing_text(blind_safe)
         outputs["reader_facing"] = reader_facing
 
-        # Close tooth: review the sealed page (LLM reviewer). The two rounds
-        # already ran -- this is not a loop controller. ACCEPTANCE PASS /
-        # assume-known / sibling do not waive.
+        # Close: review the sealed page and store notes. The two rounds
+        # already ran -- this is not a loop controller and not a ticket.
+        # Scores and critical_issues contextualize the lastro; they MUST
+        # NOT StageFailure or block publish. Publish blockers stay with
+        # final_review ACCEPTANCE only.
         final_verdict = _feynman_gate.review(reader_facing, complete_fn)
         manifest["feynman_gate"] = final_verdict
         run.save(manifest)
-        if final_verdict.get("verdict") != "PASS":
-            exc = StageFailure(
-                f"feynman gate rejected publication: {final_verdict['verdict']} "
-                f"{final_verdict.get('critical_issues') or final_verdict.get('reasons')}"
-            )
-            manifest.update({"status": "failed", "failed_stage": "feynman_gate",
-                             "finished_at": now()})
-            run.save(manifest)
-            raise exc
 
         # 9 — final_html: YAML → spec_to_html; markdown stays the pinned renderer.
         if _completed_output(run, manifest, "final_html") is None:

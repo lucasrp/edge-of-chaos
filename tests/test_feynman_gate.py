@@ -1,10 +1,12 @@
 """Feynman content reviewer — judge ONLY the page. Content, not form.
 
 The rite tooth is review() (old-edge LLM reviewer). Tests mock complete_fn
-with canned JSON. Fixture A FAIL (unexplained rates). Fixture B PASS
-(instruments taught). Heading-only glossary/biblio does not pass.
-assume-known does not waive. Two evals + two lastros always run — a
-"pass" under the old all-dims>=3 rule does not skip a round.
+with canned JSON. Fixture A is thin (unexplained rates + written holes).
+Fixture B teaches instruments and still names a concrete improvement per
+axis (no 5s). Heading-only glossary/biblio does not satisfy the duty.
+assume-known does not waive. Two evals + two lastros always run. Scores
+contextualize the next lastro; they are not a pass/fail ticket. Close
+must not StageFailure on a low score.
 """
 import json
 import sys
@@ -133,7 +135,7 @@ FIXTURE_A_REVIEW = _review_json(
 )
 
 FIXTURE_B_REVIEW = _review_json(
-    scores={name: 5 for name in feynman_gate.DIMENSIONS},
+    scores={name: 4 for name in feynman_gate.DIMENSIONS},
     critical=[],
     suggestions=[
         "Nomeie um caso de campo (Mata v. Avianca) se o lastro alcançar.",
@@ -141,8 +143,14 @@ FIXTURE_B_REVIEW = _review_json(
         "Deixe visível o passo da derivação que foi pulado.",
     ],
     feedback={
-        name: "ensinado; derivação visível; instrumento no prosa."
-        for name in feynman_gate.DIMENSIONS
+        "profundidade": "n=205 já está; ainda falta um caso concreto (Mata v. Avianca) no parágrafo do Harvey.",
+        "historia": "o arco abre no objeto; o fim ainda pode voltar à porta ('os jeitos não comutam').",
+        "feynman": "a derivação está visível; nomeie o passo que pulou entre 'se o documento existe' e o placar.",
+        "prosa": "prosa corre; a transição entre os dois instrumentos ainda pode ser uma frase, não um corte.",
+        "honestidade": "o 'aí o raciocínio trava' é buraco real; deixe explícito o que o n=216 ainda não decide.",
+        "consistencia": "a página carrega; não cite a peça anterior nem de relance no callback da taxa.",
+        "didatica": "instrumentos ensinados; repita whose/of-what/n quando 0,2% voltar.",
+        "mundo": "Dahl/Magesh estão na prosa; pendure também o produto (CoCounsel / Harvey) pelo que faz.",
     },
 )
 
@@ -219,78 +227,132 @@ class ReviewerPromptContract(unittest.TestCase):
         self.assertIn("does not waive", feynman_gate.CRITICAL_RULE)
         self.assertIn("local idiom", feynman_gate.CRITICAL_RULE)
 
+    def test_reviewer_scale_is_zero_to_four_never_five(self):
+        prompt = feynman_gate.reviewer_prompt(FIXTURE_A_FAIL)
+        self.assertIn("0-4", prompt)
+        self.assertIn("There is no 5", prompt)
+        self.assertNotIn("Excellent — no issues found", prompt)
+        self.assertIn('Never write "no issues found"', prompt)
+        self.assertIn("NO minimum score to pass", prompt)
+        self.assertEqual(feynman_gate.SCORE_MAX, 4)
+
 
 class ReviewParsesCannedJson(unittest.TestCase):
-    def test_fixture_a_unexplained_rates_fail(self):
+    def test_fixture_a_unexplained_rates_are_low_with_written_holes(self):
         v = feynman_gate.review(FIXTURE_A_FAIL, _mock(FIXTURE_A_REVIEW))
-        self.assertEqual(v["verdict"], "FAIL", v)
-        self.assertFalse(v["pass"], v)
         self.assertTrue(v["critical_issues"], v)
-        self.assertFalse(v["dimensions"]["didatica"]["pass"], v)
+        self.assertLess(v["dimensions"]["didatica"]["score"], 3, v)
+        self.assertLess(v["overall"], 3.0)
         joined = " ".join(v["critical_issues"]).lower()
         self.assertTrue("whose" in joined or "n" in joined, v)
-        self.assertLess(v["overall"], 3.5)
+        brief = feynman_gate.briefing(v)
+        self.assertIn("0,2%", brief)
+        self.assertIn("didatica", brief)
+        self.assertNotEqual(v.get("verdict"), "PASS")
+        self.assertNotEqual(v.get("verdict"), "FAIL")
+        self.assertNotIn("pass", v)
 
-    def test_fixture_b_teaches_instruments_and_derives_pass(self):
+    def test_fixture_b_teaches_instruments_and_still_names_improvements(self):
         v = feynman_gate.review(FIXTURE_B_PASS, _mock(FIXTURE_B_REVIEW))
-        self.assertEqual(v["verdict"], "PASS", v)
-        self.assertTrue(v["pass"], v)
         self.assertEqual(v["critical_issues"], [])
-        self.assertTrue(v["dimensions"]["didatica"]["pass"], v)
-        self.assertTrue(v["dimensions"]["feynman"]["pass"], v)
-        self.assertTrue(v["dimensions"]["mundo"]["pass"], v)
-        self.assertGreaterEqual(v["overall"], 3.5)
+        self.assertGreaterEqual(v["dimensions"]["didatica"]["score"], 3)
+        self.assertGreaterEqual(v["dimensions"]["feynman"]["score"], 3)
+        self.assertGreaterEqual(v["dimensions"]["mundo"]["score"], 3)
+        for name in feynman_gate.DIMENSIONS:
+            score = v["dimensions"][name]["score"]
+            fb = v["dimensions"][name]["feedback"]
+            self.assertLessEqual(score, 4, name)
+            self.assertNotEqual(score, 5, name)
+            self.assertTrue(fb.strip(), name)
+            self.assertNotIn("no issues", fb.lower())
+            self.assertNotIn("sem issues", fb.lower())
+        brief = feynman_gate.briefing(v)
+        for name in feynman_gate.DIMENSIONS:
+            self.assertIn(name, brief)
+        self.assertIn("Mata v. Avianca", brief)
+        self.assertIn("Suggestions:", brief)
         self.assertLess(len(FIXTURE_B_PASS.split()), 250)
+        self.assertNotEqual(v.get("verdict"), "PASS")
+        self.assertNotEqual(v.get("verdict"), "FAIL")
+        self.assertNotIn("pass", v)
 
-    def test_local_idiom_without_world_fails_mundo(self):
+    def test_local_idiom_without_world_is_a_mundo_hole(self):
         v = feynman_gate.review(FIXTURE_LOCAL_IDIOM_FAIL, _mock(FIXTURE_LOCAL_REVIEW))
-        self.assertEqual(v["verdict"], "FAIL", v)
-        self.assertFalse(v["dimensions"]["mundo"]["pass"], v)
+        self.assertLess(v["dimensions"]["mundo"]["score"], 3, v)
         self.assertTrue(any("local idiom" in c for c in v["critical_issues"]), v)
+        self.assertTrue(v["dimensions"]["mundo"]["feedback"].strip())
 
-    def test_glossary_heading_does_not_pass(self):
+    def test_glossary_heading_does_not_satisfy_didatica(self):
         v = feynman_gate.review(
             FIXTURE_GLOSSARY_H2_DOES_NOT_PASS, _mock(FIXTURE_GLOSS_H2_REVIEW)
         )
-        self.assertEqual(v["verdict"], "FAIL", v)
-        self.assertFalse(v["dimensions"]["didatica"]["pass"], v)
+        self.assertLess(v["dimensions"]["didatica"]["score"], 3, v)
+        self.assertTrue(v["critical_issues"], v)
 
-    def test_bibliography_heading_does_not_pass(self):
+    def test_bibliography_heading_does_not_satisfy_mundo(self):
         v = feynman_gate.review(
             FIXTURE_BIBLIO_H2_DOES_NOT_PASS, _mock(FIXTURE_BIBLIO_H2_REVIEW)
         )
-        self.assertEqual(v["verdict"], "FAIL", v)
-        self.assertFalse(v["dimensions"]["mundo"]["pass"], v)
+        self.assertLess(v["dimensions"]["mundo"]["score"], 3, v)
+        self.assertTrue(any("local idiom" in c for c in v["critical_issues"]), v)
 
     def test_assume_known_does_not_waive(self):
         waived = FIXTURE_A_FAIL + "\n\nCalibração: o operador já sabe do 0818.\n"
         v = feynman_gate.review(waived, _mock(FIXTURE_A_REVIEW))
-        self.assertEqual(v["verdict"], "FAIL", v)
         joined = " ".join(v["critical_issues"]).lower()
         self.assertTrue("estabelecido" in joined or "assume" in joined or "sibling" in joined, v)
+        self.assertLess(v["overall"], 3.0)
 
-    def test_pass_rule_recomputed_not_trusted_from_model(self):
+    def test_scores_recomputed_and_clamped_not_trusted_from_model(self):
         payload = _review_json(
-            scores={"didatica": 2},
+            scores={"didatica": 5},
             critical=[],
-            suggestions=["ensinar o termo"],
+            suggestions=["ensinar o termo", "nome no mundo", "derivar o número"],
         )
         payload["pass"] = True
         payload["overall"] = 5.0
+        payload["verdict"] = "PASS"
         v = feynman_gate.parse_review(json.dumps(payload))
-        self.assertFalse(v["pass"])
-        self.assertEqual(v["verdict"], "FAIL")
-        self.assertEqual(v["dimensions"]["didatica"]["score"], 2)
+        self.assertEqual(v["dimensions"]["didatica"]["score"], 4)
+        self.assertLessEqual(v["overall"], 4.0)
+        self.assertEqual(v["verdict"], "NOTES")
+        self.assertNotIn("pass", v)
+        for name in feynman_gate.DIMENSIONS:
+            self.assertLessEqual(v["dimensions"][name]["score"], 4)
 
-    def test_pass_rule_needs_all_dims_critical_and_overall(self):
+    def test_critical_issues_are_briefing_flags_not_a_ticket(self):
         almost = _review_json(
-            scores={name: 3 for name in feynman_gate.DIMENSIONS},
+            scores={name: 4 for name in feynman_gate.DIMENSIONS},
             critical=["0,2% lacks whose evaluation, of what, n"],
-            suggestions=[],
+            suggestions=["fetch n", "teach the rate", "name the instrument"],
         )
         v = feynman_gate.parse_review(json.dumps(almost))
-        self.assertFalse(v["pass"])
-        self.assertEqual(v["verdict"], "FAIL")
+        self.assertEqual(
+            v["critical_issues"],
+            ["0,2% lacks whose evaluation, of what, n"],
+        )
+        self.assertEqual(v["verdict"], "NOTES")
+        self.assertNotIn("pass", v)
+
+    def test_empty_feedback_becomes_axis_duty_hole(self):
+        payload = _review_json(
+            scores={name: 4 for name in feynman_gate.DIMENSIONS},
+            critical=[],
+            suggestions=[],
+            feedback={name: "" for name in feynman_gate.DIMENSIONS},
+        )
+        payload["dimensions"]["didatica"]["feedback"] = "no issues found"
+        v = feynman_gate.parse_review(json.dumps(payload))
+        for name in feynman_gate.DIMENSIONS:
+            fb = v["dimensions"][name]["feedback"]
+            self.assertTrue(fb.strip(), name)
+            self.assertNotIn("no issues", fb.lower())
+            self.assertIn("eixo", fb)
+        brief = feynman_gate.briefing(v)
+        for name in feynman_gate.DIMENSIONS:
+            self.assertIn(name, brief)
+        self.assertNotIn("no issues", brief.lower())
+        self.assertTrue(v["suggestions"])
 
     def test_briefing_uses_model_feedback_not_canned_thin_spots(self):
         v = feynman_gate.review(FIXTURE_A_FAIL, _mock(FIXTURE_A_REVIEW))
@@ -299,40 +361,51 @@ class ReviewParsesCannedJson(unittest.TestCase):
         self.assertIn("0,2%", brief)
         self.assertNotIn("thin spots", brief)
         self.assertNotIn("the round is not skipped because the gate passed lightly", brief)
-        pass_v = feynman_gate.review(FIXTURE_B_PASS, _mock(FIXTURE_B_REVIEW))
-        pass_b = feynman_gate.briefing(pass_v)
-        self.assertTrue(len(pass_b) > 40)
-        self.assertIn("Suggestions:", pass_b)
-        self.assertIn("Mata v. Avianca", pass_b)
-        self.assertNotIn("thin spots", pass_b)
+        for name in feynman_gate.DIMENSIONS:
+            self.assertIn(f"{name} (", brief)
+        strong = feynman_gate.review(FIXTURE_B_PASS, _mock(FIXTURE_B_REVIEW))
+        strong_b = feynman_gate.briefing(strong)
+        self.assertTrue(len(strong_b) > 40)
+        self.assertIn("Suggestions:", strong_b)
+        self.assertIn("Mata v. Avianca", strong_b)
+        self.assertNotIn("thin spots", strong_b)
+        self.assertNotIn("/5)", strong_b)
 
-    def test_cli_exits_one_on_fail(self):
+    def test_cli_does_not_exit_one_on_low_score(self):
         import subprocess
         proc = subprocess.run(
             [sys.executable, str(REPO / "tools" / "feynman_gate.py")],
             input=FIXTURE_A_FAIL, text=True, capture_output=True,
         )
-        self.assertEqual(proc.returncode, 1)
-        self.assertIn("FEYNMAN: FAIL", proc.stdout)
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotIn("FEYNMAN: FAIL", proc.stdout)
+        self.assertNotIn("FEYNMAN: PASS", proc.stdout)
+        self.assertIn("not a ticket", proc.stdout)
 
 
 class RitoHonorsTheReviewer(unittest.TestCase):
-    def test_acceptance_pass_still_fails_unexplained_rates(self):
+    def test_unexplained_rates_are_briefing_not_a_publish_block(self):
         canned = dict(tr.CANNED)
         canned["author_correction"] = FIXTURE_A_FAIL
         canned["feynman_rewrite_1"] = FIXTURE_A_FAIL
         canned["feynman_rewrite_2"] = FIXTURE_A_FAIL
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(rito.StageFailure) as ctx:
-                tr._green_run(tmp, canned=canned)
-            self.assertIn("feynman", str(ctx.exception).lower())
-            blog = Path(tmp) / "blog"
-            self.assertFalse((blog / f"{tr.SLUG}.html").exists())
+            manifest, run_dir, log, blog = tr._green_run(tmp, canned=canned)
+            self.assertEqual(manifest["status"], "completed")
+            self.assertTrue((blog / f"{tr.SLUG}.html").exists())
+            notes = manifest["feynman_gate"]
+            self.assertTrue(notes["critical_issues"], notes)
+            self.assertLess(notes["overall"], 3.0)
+            self.assertNotEqual(notes.get("verdict"), "FAIL")
+            self.assertNotEqual(notes.get("verdict"), "PASS")
+            g1 = json.loads((run_dir / "08a_FEYNMAN_GATE_1.json").read_text())
+            joined = " ".join(g1["critical_issues"])
+            self.assertIn("0,2%", joined)
             evs = [e for e in __import__("eventlog").read(log=Path(tmp) / "log.jsonl")
                    if e["type"] == "artefato.published"]
-            self.assertEqual(evs, [])
+            self.assertEqual(len(evs), 1)
 
-    def test_loop_runs_two_evals_and_two_lastros_even_when_first_review_would_pass(self):
+    def test_loop_runs_two_evals_and_two_lastros_even_when_first_review_is_strong(self):
         canned = dict(tr.CANNED)
         canned["feynman_review"] = json.dumps(FIXTURE_B_REVIEW, ensure_ascii=False)
         with tempfile.TemporaryDirectory() as tmp:
@@ -346,33 +419,40 @@ class RitoHonorsTheReviewer(unittest.TestCase):
             self.assertTrue((run_dir / "08f_FEYNMAN_REWRITE_2.md").is_file())
             g1 = json.loads((run_dir / "08a_FEYNMAN_GATE_1.json").read_text())
             g2 = json.loads((run_dir / "08d_FEYNMAN_GATE_2.json").read_text())
-            self.assertEqual(g1["verdict"], "PASS")
-            self.assertEqual(g2["verdict"], "PASS")
-            self.assertGreaterEqual(g1["overall"], 3.5)
+            for gate in (g1, g2):
+                self.assertEqual(gate["verdict"], "NOTES")
+                self.assertNotIn("pass", gate)
+                for name in feynman_gate.DIMENSIONS:
+                    self.assertLessEqual(gate["dimensions"][name]["score"], 4)
+                    self.assertTrue(gate["dimensions"][name]["feedback"].strip())
             prompt_a = (run_dir / "prompts" / "09_feynman_grounding_a.md").read_text()
             prompt_b = (run_dir / "prompts" / "12_feynman_grounding_b.md").read_text()
             self.assertIn("feynman_briefing", prompt_a)
             self.assertIn("feynman_briefing", prompt_b)
             self.assertTrue((blog / f"{tr.SLUG}.html").is_file())
 
-    def test_mid_loop_fail_does_not_abort_or_skip_round_two(self):
+    def test_mid_loop_low_score_does_not_abort_or_skip_round_two(self):
         canned = dict(tr.CANNED)
         canned["author_correction"] = FIXTURE_A_FAIL
         canned["feynman_rewrite_1"] = FIXTURE_A_FAIL
         canned["feynman_rewrite_2"] = FIXTURE_B_PASS
-        canned["feynman_review"] = None  # content-aware mock: A→FAIL, B→PASS
+        canned["feynman_review"] = None  # content-aware mock: A thin, B taught
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = tr._green_run(tmp, canned=canned)
             self.assertEqual(manifest["status"], "completed")
             g1 = json.loads((run_dir / "08a_FEYNMAN_GATE_1.json").read_text())
             g2 = json.loads((run_dir / "08d_FEYNMAN_GATE_2.json").read_text())
-            self.assertEqual(g1["verdict"], "FAIL")
+            self.assertLess(g1["overall"], 3.0)
+            self.assertTrue(g1["critical_issues"])
             self.assertTrue((run_dir / "08b_FEYNMAN_GROUNDING_A.md").is_file())
             self.assertTrue((run_dir / "08e_FEYNMAN_GROUNDING_B.md").is_file())
             self.assertTrue((run_dir / "08f_FEYNMAN_REWRITE_2.md").is_file())
-            self.assertEqual(manifest["feynman_gate"]["verdict"], "PASS")
+            close = manifest["feynman_gate"]
+            self.assertGreaterEqual(close["overall"], 3.0)
+            self.assertNotEqual(close.get("verdict"), "FAIL")
+            self.assertNotEqual(close.get("verdict"), "PASS")
             self.assertTrue((blog / f"{tr.SLUG}.html").is_file())
-            self.assertEqual(g2["verdict"], "FAIL")  # rewrite_1 still fixture A
+            self.assertLess(g2["overall"], 3.0)  # rewrite_1 still fixture A
 
     def test_fixture_b_survives_the_rite(self):
         canned = dict(tr.CANNED)
@@ -383,7 +463,13 @@ class RitoHonorsTheReviewer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = tr._green_run(tmp, canned=canned)
             self.assertEqual(manifest["status"], "completed")
-            self.assertEqual(manifest["feynman_gate"]["verdict"], "PASS")
+            close = manifest["feynman_gate"]
+            self.assertEqual(close["verdict"], "NOTES")
+            for name in feynman_gate.DIMENSIONS:
+                self.assertLessEqual(close["dimensions"][name]["score"], 4)
+                self.assertNotEqual(close["dimensions"][name]["score"], 5)
+                self.assertTrue(close["dimensions"][name]["feedback"].strip())
+                self.assertNotIn("no issues", close["dimensions"][name]["feedback"].lower())
             self.assertTrue((blog / f"{tr.SLUG}.html").is_file())
 
     def test_reviewer_is_invoked_on_review_route(self):
@@ -393,7 +479,6 @@ class RitoHonorsTheReviewer(unittest.TestCase):
             seen.append((route, feynman_gate.REVIEWER_MARKER in prompt, max_tokens))
             return tr._complete_fn(tr.CANNED, tr.LLM_ORDER)(route, prompt, max_tokens)
 
-        # use the stock complete via a spy around _green_run internals
         canned = dict(tr.CANNED)
         canned["feynman_review"] = json.dumps(FIXTURE_B_REVIEW, ensure_ascii=False)
         with tempfile.TemporaryDirectory() as tmp:
@@ -415,7 +500,7 @@ class RitoHonorsTheReviewer(unittest.TestCase):
                 intent=tr.INTENT, skill="report", dispatch_id=did,
                 log=log, blog_dir=blog,
             )
-            reviewer_calls = [s for s in seen if s.startswith("reviewer:")]
+            reviewer_calls = [s for s in seen if isinstance(s, str) and s.startswith("reviewer:")]
             self.assertGreaterEqual(len(reviewer_calls), 3, seen)  # gate1, gate2, close
             self.assertTrue(all(s == "reviewer:review" for s in reviewer_calls), seen)
 

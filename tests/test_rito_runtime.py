@@ -232,9 +232,9 @@ def _review_payload_for(prompt, canned):
         return canned["feynman_review"]
     if "n=205" in prompt or "n=216" in prompt or "Dahl et al." in prompt:
         return json.dumps({
-            "overall": 5.0,
+            "overall": 4.0,
             "dimensions": {
-                name: {"score": 5, "feedback": f"{name}: instruments taught"}
+                name: {"score": 4, "feedback": f"{name}: instruments taught; still name one next hole on this page"}
                 for name in _fg.DIMENSIONS
             },
             "critical_issues": [],
@@ -273,9 +273,9 @@ def _review_payload_for(prompt, canned):
             "suggestions": ["Name a paper, product, or case in the prose."],
         }, ensure_ascii=False)
     return json.dumps({
-        "overall": 5.0,
+        "overall": 4.0,
         "dimensions": {
-            name: {"score": 5, "feedback": f"{name}: ok for the canned page"}
+            name: {"score": 4, "feedback": f"{name}: ok for the canned page; still name one next hole"}
             for name in _fg.DIMENSIONS
         },
         "critical_issues": [],

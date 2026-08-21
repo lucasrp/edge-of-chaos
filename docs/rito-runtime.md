@@ -18,11 +18,11 @@ pinning the pipeline, not scoring the artifact.
 1. `grounding1_dossier` (producer callable) → 2. `first_authorial_draft` (chat) →
 3. `gap_critique` (review) → 4. `grounding2_targeted` (review) → 5. `provisional_rewrite`
 (chat) → 6. `fact_audit` (review) → 7. `author_correction` (chat) →
-Feynman content loop (hard contract, two deterministic iterations -- a score does not skip a lastro, a low score does not extra-loop): `feynman_gate_1` (review route / LLM reviewer notes, 8 axes 0-5) -> `feynman_grounding_a` (review, fresh lastro aimed at the briefing) -> `feynman_rewrite_1` (chat) -> `feynman_gate_2` -> `feynman_grounding_b` -> `feynman_rewrite_2` ->
+Feynman content loop (hard contract, two deterministic iterations -- a score does not skip a lastro, a low score does not extra-loop): `feynman_gate_1` (review route / LLM reviewer notes, 8 axes 0-4, ceiling 4, written hole on every axis) -> `feynman_grounding_a` (review, fresh lastro aimed at the briefing) -> `feynman_rewrite_1` (chat) -> `feynman_gate_2` -> `feynman_grounding_b` -> `feynman_rewrite_2` ->
 8. `treatment_cleanup`
 (chat, or deterministic copy of rewrite 2 when the scan is clean) -> 9. `final_html` (runtime render, pinned)
--> close tooth `feynman_gate.review` (LLM reviewer; FAIL = StageFailure, no publish; not a loop controller) ->
-10. `final_review` (review, fail-closed ACCEPTANCE header) → 11. `publication` (publisher
+-> close `feynman_gate.review` (LLM reviewer notes stored; scores/critical_issues are NOT a StageFailure / not a publish ticket; not a loop controller) ->
+10. `final_review` (review, fail-closed ACCEPTANCE header — the only publish ticket) → 11. `publication` (publisher
 seam). A run that didn't publish didn't finish the rite. Stage 11 of the experiment
 (`blind_reading_package`) is experiment apparatus, NOT a production stage — but the runtime
 keeps `02_FIRST_AUTHORIAL_DRAFT.md` sealed and addressable in the run dir so a later blind

@@ -1,11 +1,12 @@
 """Feynman page reviewer — judge ONLY the page in front of you.
 
 Old-edge review-gate reviewer (3e6a407 REVIEWER_SYSTEM + DIMENSIONS), adapted
-to FREE form: substance over skeleton. A model scores eight axes 0-5 with
-written feedback. The rite always runs two evaluate → lastro → rewrite
-rounds; a score does not skip a lastro and a low score does not extra-loop.
-The notes are a briefing for the next lastro, not a ticket that blesses
-or aborts the loop.
+to FREE form: substance over skeleton. A model scores eight axes 0-4 with
+written feedback (ceiling 4: a 5 would mean "nothing to say"). Every axis
+must name a page-specific improvement. The rite always runs two evaluate
+→ lastro → rewrite rounds; a score does not skip a lastro and a low score
+does not extra-loop. The notes are a briefing for the next lastro, not a
+ticket that blesses or aborts the loop. There is no minimum score to pass.
 
 No mandatory H2, no forced SVG, no YAML keys, no openai/xAI client.
 
@@ -16,7 +17,7 @@ Glossary and bibliography are CONTENT duties, not form:
 - Bibliography / world lastro: the work is hung on named things in the world
   (paper, product, case, term of field) in the prose. A Bibliography H2 does
   not pass. Absence of that H2 does not fail if the outside names are in the
-  prose. FAIL-level if the page never leaves the local idiom.
+  prose. Critical issue (briefing flag) if the page never leaves the local idiom.
 
 Calibration, sibling pages, and "operator already knows" do not waive.
 """
@@ -28,19 +29,20 @@ from html import unescape
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Locked FAIL rule (quoted in tests and the operator report)
+# Locked critical-issue rule (quoted in tests and the operator report)
 # ---------------------------------------------------------------------------
 
 CRITICAL_RULE = (
     "A percentage on this page without whose evaluation, of what, and n "
-    "is a critical fail. Naming the institution (Harvey, Stanford) and the "
+    "is a critical issue (briefing flag, not a ticket). Naming the institution "
+    "(Harvey, Stanford) and the "
     "defect label (invention, misgrounded) is not enough. Calibration, a "
     "sibling page, an assume-known, a Glossário H2, or a Bibliography H2 "
-    "does not waive. FAIL also if the page never leaves the local idiom: "
+    "does not waive. Flag also if the page never leaves the local idiom: "
     "no named thing in the world in the prose."
 )
 
-PASS_THRESHOLD = 3.5
+SCORE_MAX = 4
 REVIEW_MAX_TOKENS = 4_000
 REVIEWER_MARKER = "OLD-EDGE-STYLE PAGE REVIEWER"
 
@@ -111,7 +113,8 @@ DIMENSION_SPECS = {
         "it does, not what it is. A percentage needs whose evaluation, of "
         "what, and n. A heading named Glossário does not pass. Absence of "
         "that heading does not fail if the terms are taught inline. "
-        "Score 5 = a stranger understands everything. "
+        "Score 4 = a stranger understands; still name one next term or rate "
+        "to tighten on THIS page. "
         "Score 3 = most things explained, a few insider terms slip through. "
         "Score 1 = internal notes."
     ),
@@ -149,15 +152,18 @@ Language: respond in Portuguese (PT-BR) for feedback strings. JSON keys stay in 
 
 ## Scoring Scale
 
-Rate each dimension 0-5:
+Rate each dimension 0-4. There is no 5. A 5 would mean "nothing to say" and there is always something that can improve. Never emit 5.
 - 0: Completely missing or broken
 - 1: Present but severely deficient — major rework needed
-- 2: Below minimum bar — significant issues
-- 3: Meets minimum bar — acceptable with minor fixes
-- 4: Good quality — minor suggestions only
-- 5: Excellent — no issues found
+- 2: Below a working bar — significant issues
+- 3: Working bar — still name one concrete next improvement citing THIS page
+- 4: Strong — and STILL name one concrete next improvement citing THIS page
 
-## Critical Issues (blocking, CONTENT only)
+Never write "no issues found". Never leave feedback empty. Every dimension MUST point to something that can be improved, written, page-specific. Empty or canned thin_spots are forbidden.
+
+There is NO minimum score to pass. The score only contextualizes the next lastro (how thin that axis is). It is not a ticket. You do not bless the page. You do not fail the page.
+
+## Critical Issues (briefing flags, CONTENT only — not a ticket)
 
 Flag as critical_issues if ANY of these. Do NOT flag missing headings.
 - A percentage without whose evaluation / of what / n. Naming the institution (Harvey, Stanford) and the defect label (invention, misgrounded) is not enough. Calibration, a sibling page, an assume-known, a Glossário H2, or a Bibliography H2 does not waive.
@@ -187,8 +193,9 @@ Respond with ONLY valid JSON (no markdown fences, no text outside JSON):
 }}
 
 Notes:
-- overall = weighted average (profundidade 15%, historia 12%, feynman 12%, prosa 8%, honestidade 10%, consistencia 8%, didatica 20%, mundo 15%). The runtime recomputes this; still fill it.
-- suggestions: 3-7 specific, actionable, PAGE-SPECIFIC improvements the next lastro can fetch or the rewrite can apply.
+- overall = weighted average (profundidade 15%, historia 12%, feynman 12%, prosa 8%, honestidade 10%, consistencia 8%, didatica 20%, mundo 15%). The runtime recomputes this; still fill it. It is briefing context, not a pass ticket.
+- suggestions: MUST be 3-7 specific, actionable, PAGE-SPECIFIC improvements the next lastro can fetch or the rewrite can apply. Never empty. Never canned.
+- Each dimension.feedback MUST name one concrete next improvement citing THIS page (PT-BR). Never "no issues found". Never blank.
 - Do not invent a source. If you need a name, n, or instrument that is not on the page, say so in the notes so the lastro can fetch it.
 """
 
@@ -222,12 +229,72 @@ def _strip_fences(raw: str) -> str:
     return text
 
 
-def parse_review(raw: str) -> dict:
-    """Parse reviewer JSON and recompute overall + pass rule.
+# Duty of each axis, used when the model leaves feedback blank or writes
+# "no issues". Always a hole to chase — never empty, never canned thin_spots.
+AXIS_DUTY_HOLE = {
+    "profundidade": (
+        "eixo profundidade: ainda falta um detalhe concreto, dado, número ou "
+        "exemplo real citado nesta página — nunca 'sem issues'."
+    ),
+    "historia": (
+        "eixo historia: ainda dá para fechar melhor o arco (porta → tensão → "
+        "resolução) citando a abertura ou o fim desta página."
+    ),
+    "feynman": (
+        "eixo feynman: ainda dá para tornar visível a derivação antes do "
+        "resultado, citando o ponto desta página em que o raciocínio some."
+    ),
+    "prosa": (
+        "eixo prosa: ainda dá para trocar um trecho telegráfico desta página "
+        "por prosa com transição."
+    ),
+    "honestidade": (
+        "eixo honestidade: ainda dá para nomear o buraco real onde o "
+        "pensamento desta página para — heading 'O que Não Sei' não conta."
+    ),
+    "consistencia": (
+        "eixo consistencia: esta página ainda precisa carregar o claim "
+        "sozinha; cite o ponto em que ela remete a irmão/calibração."
+    ),
+    "didatica": (
+        "eixo didatica: ainda falta ensinar na prosa um termo ou taxa desta "
+        "página (whose / of what / n); Glossário H2 não conta."
+    ),
+    "mundo": (
+        "eixo mundo: ainda falta pendurar o trabalho num nome do mundo na "
+        "prosa desta página; Bibliografia H2 não conta."
+    ),
+}
 
-    Pass (computed, never trusted from the model) is informational for the
-    close tooth: ALL dimensions >= 3 AND zero critical_issues AND weighted
-    overall >= 3.5. The loop ignores this. It is not a skip switch.
+_NO_ISSUE_RE = re.compile(
+    r"(?i)^(n/?a|ok\.?|none|sem (?:issues?|problemas?|notas?)|"
+    r"no issues?(?:\s+found)?|nothing to (?:say|improve)|"
+    r"sem nada a (?:dizer|melhorar)|excellent(?:\s+—\s+no issues found)?)$"
+)
+
+
+def _is_blank_or_no_issues(text: str) -> bool:
+    fb = (text or "").strip()
+    if not fb:
+        return True
+    low = fb.lower()
+    if "no issues" in low or "sem issues" in low or "nothing to say" in low:
+        return True
+    return bool(_NO_ISSUE_RE.match(fb))
+
+
+def _feedback_or_hole(name: str, feedback: str) -> str:
+    if _is_blank_or_no_issues(feedback):
+        return AXIS_DUTY_HOLE[name]
+    return feedback.strip()
+
+
+def parse_review(raw: str) -> dict:
+    """Parse reviewer JSON and recompute overall. No pass/fail ticket.
+
+    Scores are clamped to 0..4 (a model 5 is stored as 4). overall is the
+    weighted average so the lastro can see which axis is thinner. critical_issues
+    are briefing flags, not a StageFailure switch.
     """
     text = _strip_fences(raw)
     match = re.search(r"\{.*\}", text, re.DOTALL)
@@ -248,25 +315,22 @@ def finalize_verdict(obj: dict) -> dict:
             score = int(data.get("score", 0))
         except (TypeError, ValueError):
             score = 0
-        score = max(0, min(5, score))
-        feedback = str(data.get("feedback") or data.get("reason") or "").strip()
+        score = max(0, min(SCORE_MAX, score))
+        feedback = _feedback_or_hole(
+            name, str(data.get("feedback") or data.get("reason") or "")
+        )
         dimensions[name] = {
             "score": score,
             "feedback": feedback,
-            "pass": score >= 3,
             "reason": feedback,
         }
     overall = sum(dimensions[name]["score"] * DIMENSION_WEIGHTS[name] for name in DIMENSIONS)
     critical = [str(x) for x in (obj.get("critical_issues") or []) if str(x).strip()]
     suggestions = [str(x) for x in (obj.get("suggestions") or []) if str(x).strip()]
-    passed = (
-        all(dimensions[name]["score"] >= 3 for name in DIMENSIONS)
-        and len(critical) == 0
-        and overall >= PASS_THRESHOLD
-    )
+    if not suggestions:
+        suggestions = [AXIS_DUTY_HOLE[name] for name in DIMENSIONS[:3]]
     return {
-        "verdict": "PASS" if passed else "FAIL",
-        "pass": passed,
+        "verdict": "NOTES",
         "overall": round(overall, 3),
         "dimensions": dimensions,
         "critical_issues": critical,
@@ -281,11 +345,12 @@ def finalize_verdict(obj: dict) -> dict:
 
 
 def review(page: str, complete_fn) -> dict:
-    """Rite tooth: call the review-route LLM, parse JSON, apply the pass rule.
+    """Rite tooth: call the review-route LLM, parse JSON, clamp scores.
 
-    No tools. Page only. Does not itself raise on FAIL — the caller decides.
-    Mid-loop the rite records the notes and continues. The close tooth may
-    StageFailure. The loop never consults pass/verdict to skip a round.
+    No tools. Page only. Does not raise on a low score or a critical issue —
+    those are briefing flags. Mid-loop the rite records the notes and
+    continues. The close tooth may store notes; it must not StageFailure.
+    The loop never consults a score to skip a round.
     """
     prompt = reviewer_prompt(page)
     raw = _call_complete(complete_fn, prompt)
@@ -298,37 +363,34 @@ def briefing(verdict: dict) -> str:
     """Page-specific notes for the next lastro. Always non-empty.
 
     Uses the model's feedback / critical_issues / suggestions. Not the
-    canned three thin_spots. Not a PASS/FAIL ticket. A high score still
-    produces notes the lastro can chase.
+    canned three thin_spots. Not a PASS/FAIL ticket. Every axis is listed
+    with a written hole — empty / "no issues" becomes the axis duty.
+    A high score still produces notes the lastro can chase.
     """
     lines = [
         "Anotações do revisor (briefing para o próximo lastro — não é "
-        "ticket de passar/falhar; as duas rodadas sempre correm):"
+        "ticket de passar/falhar; as duas rodadas sempre correm; o score "
+        "só contextualiza o quão fino está o eixo):"
     ]
     dims = verdict.get("dimensions") or {}
     for name in DIMENSIONS:
         data = dims.get(name) or {}
         score = data.get("score", "?")
-        fb = (data.get("feedback") or data.get("reason") or "").strip()
-        if fb:
-            lines.append(f"- {name} ({score}/5): {fb}")
-        else:
-            lines.append(f"- {name} ({score}/5)")
+        fb = _feedback_or_hole(
+            name, data.get("feedback") or data.get("reason") or ""
+        )
+        lines.append(f"- {name} ({score}/{SCORE_MAX}): {fb}")
     critical = verdict.get("critical_issues") or []
     if critical:
-        lines.append("Critical issues (content):")
+        lines.append("Critical issues (briefing flags, not a ticket):")
         for item in critical:
             lines.append(f"- {item}")
-    suggestions = verdict.get("suggestions") or []
-    if suggestions:
-        lines.append("Suggestions:")
-        for item in suggestions:
-            lines.append(f"- {item}")
-    if len(lines) == 1:
-        lines.append(
-            "- (revisor não deixou notas; o lastro ainda busca um nome no "
-            "mundo e ensina o termo que falta)"
-        )
+    suggestions = [str(x) for x in (verdict.get("suggestions") or []) if str(x).strip()]
+    if not suggestions:
+        suggestions = [AXIS_DUTY_HOLE[name] for name in DIMENSIONS[:3]]
+    lines.append("Suggestions:")
+    for item in suggestions:
+        lines.append(f"- {item}")
     return "\n".join(lines)
 
 
@@ -647,7 +709,8 @@ def judge(page: str) -> dict:
     """Deterministic helper (CLI / tests). Not the rite tooth.
 
     The rite calls review() — the old-edge LLM reviewer. This stays so a
-    host without a transport can still smoke-check a page.
+    host without a transport can still smoke-check a page. Scores cap at 4.
+    Not a pass/fail ticket.
     """
     visible = _visible_text(page)
     body = _prose_without_form_sections(visible)
@@ -659,10 +722,9 @@ def judge(page: str) -> dict:
     for name in DIMENSIONS:
         ok, reason = _DIM_FN[name](body)
         dimensions[name] = {
-            "pass": ok,
             "reason": reason,
             "feedback": reason,
-            "score": 5 if ok else 1,
+            "score": SCORE_MAX if ok else 1,
         }
         if not ok:
             reasons.append(f"{name}: {reason}")
@@ -679,15 +741,14 @@ def judge(page: str) -> dict:
     overall = sum(
         dimensions[name]["score"] * DIMENSION_WEIGHTS[name] for name in DIMENSIONS
     )
-    passed = not critical and all(dimensions[name]["pass"] for name in DIMENSIONS)
+    suggestions = reasons[:7] or [AXIS_DUTY_HOLE[name] for name in DIMENSIONS[:3]]
     return {
-        "verdict": "PASS" if passed else "FAIL",
-        "pass": passed,
+        "verdict": "NOTES",
         "critical_issues": critical,
         "dimensions": dimensions,
         "overall": round(overall, 3),
         "reasons": reasons,
-        "suggestions": [],
+        "suggestions": suggestions,
         "rule": CRITICAL_RULE,
     }
 
@@ -750,7 +811,10 @@ LOOP_PROMPTS = {
 
 
 def header(verdict: dict) -> str:
-    return f"FEYNMAN: {verdict.get('verdict', 'FAIL')}"
+    return (
+        f"FEYNMAN: NOTES overall={verdict.get('overall', 0)} "
+        f"(briefing, not a ticket)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -841,4 +905,4 @@ if __name__ == "__main__":
     verdict = judge(src)
     print(header(verdict))
     print(json.dumps(verdict, ensure_ascii=False, indent=2))
-    sys.exit(0 if verdict["verdict"] == "PASS" else 1)
+    sys.exit(0)
