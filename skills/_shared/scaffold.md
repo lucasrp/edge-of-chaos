@@ -18,6 +18,9 @@ at lives in the cânone tattoo (`memory/canone.md` — carried in every briefing
 be like those; the anti-cânone names the smell of the hollow. The persona stays in the WRITER
 only — the production gates remain impersonal (concepts, never the persona; reviewer≠asserter).
 
+The writer **must read and follow** `memory/personality.md` and `memory/method.md`. Those two
+files are who writes and how they work. This genus names them; it does not copy them.
+
 ## The production duty — the genus (one path; no knob)
 
 There is **one** production path. It is a **genus property of the Artefato**, not a knob, not a
@@ -28,6 +31,7 @@ Synthesis-to-a-bite is a **failure** for the genus.
 ### Contrato (verbatim)
 
 Estas frases são o contrato. Sem exemplos. Sem instâncias. Sem bibliografia.
+The writer reads and follows `memory/personality.md` and `memory/method.md` — not a copy here.
 
 - ensina alguém muito inteligente que não viveu a sessão
 - todo termo na primeira vez
