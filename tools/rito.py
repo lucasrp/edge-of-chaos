@@ -58,10 +58,10 @@ STAGES = [
     (5, "provisional_rewrite", "05_PROVISIONAL_REWRITE.md", "chat", 14_000),
     (6, "fact_audit", "06_FACT_AUDIT.md", "review", 9_000),
     (7, "author_correction", "07_AUDITED_FINAL.md", "chat", 14_000),
-    (8, "feynman_gate_1", "08a_FEYNMAN_GATE_1.json", None, None),
+    (8, "feynman_gate_1", "08a_FEYNMAN_GATE_1.json", "review", 4_000),
     (9, "feynman_grounding_a", "08b_FEYNMAN_GROUNDING_A.md", "review", 10_000),
     (10, "feynman_rewrite_1", "08c_FEYNMAN_REWRITE_1.md", "chat", 14_000),
-    (11, "feynman_gate_2", "08d_FEYNMAN_GATE_2.json", None, None),
+    (11, "feynman_gate_2", "08d_FEYNMAN_GATE_2.json", "review", 4_000),
     (12, "feynman_grounding_b", "08e_FEYNMAN_GROUNDING_B.md", "review", 10_000),
     (13, "feynman_rewrite_2", "08f_FEYNMAN_REWRITE_2.md", "chat", 14_000),
     (14, "treatment_cleanup", "08_BLIND_SAFE_FINAL.md", "chat", 14_000),
@@ -352,22 +352,28 @@ def _llm_stage(run, manifest, name, prompt, complete_fn, outputs) -> str:
 # --- the runtime -----------------------------------------------------------------------------
 
 
-def _run_feynman_gate_stage(run, manifest, name, page) -> dict[str, Any]:
-    """Deterministic content gate. Records the verdict; does not raise.
-    The close tooth after rewrite 2 is what refuses publication.
+def _run_feynman_gate_stage(run, manifest, name, page, complete_fn) -> dict[str, Any]:
+    """LLM reviewer notes (old-edge review-gate). Records the verdict; does not raise.
+
+    Two rounds always run. A score does not skip a lastro. A low score does
+    not extra-loop. Mid-loop never StageFailure. The close tooth after
+    rewrite 2 is what may refuse publication.
     """
     prior = _completed_output(run, manifest, name)
     if prior is not None:
         return json.loads(prior)
     import feynman_gate as _fg
-    _begin(run, manifest, name)
+    prompt = _fg.reviewer_prompt(page)
+    _begin(run, manifest, name, prompt)
     try:
-        verdict = _fg.judge(page)
+        verdict = _fg.review(page, complete_fn)
         write_text(
             run.output_for(name),
             json.dumps(verdict, ensure_ascii=False, indent=2, sort_keys=True),
         )
-        _stage_record(manifest, name)["verdict"] = verdict["verdict"]
+        rec = _stage_record(manifest, name)
+        rec["verdict"] = verdict.get("verdict")
+        rec["overall"] = verdict.get("overall")
         _finish(run, manifest, name)
     except BaseException as exc:
         _fail(run, manifest, name, exc)
@@ -449,16 +455,18 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
                      "fact_audit", "author_correction"):
             _llm_stage(run, manifest, name, prompts[name](outputs), complete_fn, outputs)
 
-        # Feynman content loop (hard contract): draft → gate 1 → lastro A → rewrite
-        # → gate 2 → lastro B → rewrite → close. Never skip a lastro because the
-        # gate PASSed lightly; a FAIL names holes, a PASS names thin spots.
+        # Feynman content loop (hard contract): two deterministic iterations.
+        # evaluate (LLM reviewer notes) -> new lastro -> rewrite -> evaluate ->
+        # new lastro -> rewrite. A score does not skip a lastro. A low score
+        # does not extra-loop. Mid-loop never StageFailure.
         page = outputs["author_correction"]
         for gate_name, ground_name, rewrite_name in (
             ("feynman_gate_1", "feynman_grounding_a", "feynman_rewrite_1"),
             ("feynman_gate_2", "feynman_grounding_b", "feynman_rewrite_2"),
         ):
             facing = yaml_rite.reader_facing_text(page)
-            verdict = _run_feynman_gate_stage(run, manifest, gate_name, facing)
+            verdict = _run_feynman_gate_stage(
+                run, manifest, gate_name, facing, complete_fn)
             outputs[gate_name] = json.dumps(verdict, ensure_ascii=False, indent=2)
             outputs["feynman_page"] = facing
             outputs["feynman_gate_verdict"] = outputs[gate_name]
@@ -508,12 +516,13 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         reader_facing = yaml_rite.reader_facing_text(blind_safe)
         outputs["reader_facing"] = reader_facing
 
-        # Close tooth: the sealed page must PASS the content gate. Mid-loop gates
-        # never publish; ACCEPTANCE PASS / assume-known / sibling do not waive.
-        final_verdict = _feynman_gate.judge(reader_facing)
+        # Close tooth: review the sealed page (LLM reviewer). The two rounds
+        # already ran -- this is not a loop controller. ACCEPTANCE PASS /
+        # assume-known / sibling do not waive.
+        final_verdict = _feynman_gate.review(reader_facing, complete_fn)
         manifest["feynman_gate"] = final_verdict
         run.save(manifest)
-        if final_verdict["verdict"] != "PASS":
+        if final_verdict.get("verdict") != "PASS":
             exc = StageFailure(
                 f"feynman gate rejected publication: {final_verdict['verdict']} "
                 f"{final_verdict.get('critical_issues') or final_verdict.get('reasons')}"

@@ -1,8 +1,13 @@
-"""Feynman page gate — judge ONLY the page in front of you.
+"""Feynman page reviewer — judge ONLY the page in front of you.
 
-Deterministic content tooth the rite honors (StageFailure, no publish).
-Adapted from old review-gate.py (3e6a407) to the FREE form: substance over
-skeleton. No mandatory H2, no forced SVG, no YAML keys, no openai/xAI client.
+Old-edge review-gate reviewer (3e6a407 REVIEWER_SYSTEM + DIMENSIONS), adapted
+to FREE form: substance over skeleton. A model scores eight axes 0-5 with
+written feedback. The rite always runs two evaluate → lastro → rewrite
+rounds; a score does not skip a lastro and a low score does not extra-loop.
+The notes are a briefing for the next lastro, not a ticket that blesses
+or aborts the loop.
+
+No mandatory H2, no forced SVG, no YAML keys, no openai/xAI client.
 
 Glossary and bibliography are CONTENT duties, not form:
 - Glossary: every load-bearing term is taught on first use (a stranger can
@@ -11,7 +16,7 @@ Glossary and bibliography are CONTENT duties, not form:
 - Bibliography / world lastro: the work is hung on named things in the world
   (paper, product, case, term of field) in the prose. A Bibliography H2 does
   not pass. Absence of that H2 does not fail if the outside names are in the
-  prose. FAIL if the page never leaves the local idiom.
+  prose. FAIL-level if the page never leaves the local idiom.
 
 Calibration, sibling pages, and "operator already knows" do not waive.
 """
@@ -34,6 +39,10 @@ CRITICAL_RULE = (
     "does not waive. FAIL also if the page never leaves the local idiom: "
     "no named thing in the world in the prose."
 )
+
+PASS_THRESHOLD = 3.5
+REVIEW_MAX_TOKENS = 4_000
+REVIEWER_MARKER = "OLD-EDGE-STYLE PAGE REVIEWER"
 
 # Old weights minus structural-skeleton (15) and forced-SVG (8). Those 23
 # points go to the two content duties Lucas kept: didatica (glossary) and
@@ -60,8 +69,272 @@ DIMENSIONS = (
     "mundo",
 )
 
+# Adapted from 3e6a407 tools/review-gate.py DIMENSIONS to FREE form.
+DIMENSION_SPECS = {
+    "profundidade": (
+        "Substance, not placeholders. Concrete details, data, numbers, real "
+        "examples. No empty or stub page. Score the thought, not the length."
+    ),
+    "historia": (
+        "The page tells a STORY — a narrative arc (setup → tension → "
+        "exploration → resolution), not a section skeleton. Headings do not "
+        "make an arc. The opening is a door onto the object, not a scoreboard "
+        "or an ID plate. The end closes the opening."
+    ),
+    "feynman": (
+        "Locked genus: 'deriva antes de ir buscar fora.' Derive first; the "
+        "process of thinking is visible; the hole sits inline where the "
+        "author's knowledge stopped. Explanations teach someone intelligent "
+        "but unfamiliar. No jargon without definition. A dumped result with "
+        "no derivation is a low score."
+    ),
+    "prosa": (
+        "Flowing prose, not telegram / bullet-only. Transitions. Reflective, "
+        "not robotic. Titles evocative, not merely descriptive."
+    ),
+    "honestidade": (
+        "Specific uncertainty where thought actually stops — a real hole, "
+        "named. NOT a required H2 'O que Não Sei'. Missing that heading does "
+        "not fail. A boilerplate honesty section does not pass. Waiver "
+        "language around a number is a defect."
+    ),
+    "consistencia": (
+        "THIS PAGE CARRIES. A sibling page, a calibration, or 'já está "
+        "estabelecido' / assume-known cannot save a number or a claim. "
+        "Lineage one-liner is fine; deferring the briefing to a prior piece "
+        "is not."
+    ),
+    "didatica": (
+        "Glossary-as-content, not form. Locked: 'todo termo na primeira vez. "
+        "o nome da ferramenta pelo que ela faz, não pelo que ela é.' Every "
+        "load-bearing term is taught on first use; a tool is named by what "
+        "it does, not what it is. A percentage needs whose evaluation, of "
+        "what, and n. A heading named Glossário does not pass. Absence of "
+        "that heading does not fail if the terms are taught inline. "
+        "Score 5 = a stranger understands everything. "
+        "Score 3 = most things explained, a few insider terms slip through. "
+        "Score 1 = internal notes."
+    ),
+    "mundo": (
+        "Bibliography-as-content, not form. Locked: 'contextualizar o "
+        "trabalho com o mundo.' Named things in the world live IN THE PROSE "
+        "(paper, product, case, field term). An H2 Bibliografia / References "
+        "does not pass. Missing that H2 does not fail if the names are in "
+        "the prose. Low score (and a critical issue) if the page never "
+        "leaves the local idiom: no world name in the prose."
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# Old-edge reviewer prompt (page only, no tools)
+# ---------------------------------------------------------------------------
+
+def _dimension_block() -> str:
+    return "\n".join(
+        f"- **{name}**: {DIMENSION_SPECS[name]}" for name in DIMENSIONS
+    )
+
+
+REVIEWER_SYSTEM = """You are {marker}.
+
+You are the old Edge review-gate reviewer, adapted to FREE-FORM pages (content, not H2). Your job: evaluate the page AS-IS against the dimensions and give structured, SPECIFIC written feedback. Cite phrases and numbers from THIS page. Your notes feed a later grounding (lastro) and a rewrite. You do not bless the page. You do not abort a loop. You do not skip a round. Two iterations always run regardless of your scores.
+
+IMPORTANT: You are evaluating the artifact AS-IS. You have no tools and no external context. Judge ONLY the page in front of you. If a claim seems unverified, flag it. If context seems missing, note it. A sibling page, a calibration, or "the operator already knows" cannot save this page.
+
+Language: respond in Portuguese (PT-BR) for feedback strings. JSON keys stay in English.
+
+## Evaluation Dimensions
+
+{dimensions}
+
+## Scoring Scale
+
+Rate each dimension 0-5:
+- 0: Completely missing or broken
+- 1: Present but severely deficient — major rework needed
+- 2: Below minimum bar — significant issues
+- 3: Meets minimum bar — acceptable with minor fixes
+- 4: Good quality — minor suggestions only
+- 5: Excellent — no issues found
+
+## Critical Issues (blocking, CONTENT only)
+
+Flag as critical_issues if ANY of these. Do NOT flag missing headings.
+- A percentage without whose evaluation / of what / n. Naming the institution (Harvey, Stanford) and the defect label (invention, misgrounded) is not enough. Calibration, a sibling page, an assume-known, a Glossário H2, or a Bibliography H2 does not waive.
+- The page never leaves the local idiom: no named thing in the world in the prose.
+- 3+ load-bearing terms unused or unexplained.
+- assume-known / "já está estabelecido" carrying a number or a claim.
+
+Do NOT restore or require: mandatory Glossário H2, mandatory "O que Não Sei" H2, mandatory Bibliografia H2, forced SVG, executive_summary, YAML spec keys. Missing those headings is not a defect. Heading-only glossary or bibliography does not satisfy didática or mundo.
+
+## Output Format
+
+Respond with ONLY valid JSON (no markdown fences, no text outside JSON):
+{{
+  "overall": 0.0,
+  "dimensions": {{
+    "profundidade": {{"score": 0, "feedback": "..."}},
+    "historia": {{"score": 0, "feedback": "..."}},
+    "feynman": {{"score": 0, "feedback": "..."}},
+    "prosa": {{"score": 0, "feedback": "..."}},
+    "honestidade": {{"score": 0, "feedback": "..."}},
+    "consistencia": {{"score": 0, "feedback": "..."}},
+    "didatica": {{"score": 0, "feedback": "..."}},
+    "mundo": {{"score": 0, "feedback": "..."}}
+  }},
+  "critical_issues": [],
+  "suggestions": []
+}}
+
+Notes:
+- overall = weighted average (profundidade 15%, historia 12%, feynman 12%, prosa 8%, honestidade 10%, consistencia 8%, didatica 20%, mundo 15%). The runtime recomputes this; still fill it.
+- suggestions: 3-7 specific, actionable, PAGE-SPECIFIC improvements the next lastro can fetch or the rewrite can apply.
+- Do not invent a source. If you need a name, n, or instrument that is not on the page, say so in the notes so the lastro can fetch it.
+"""
+
+
+def reviewer_prompt(page: str) -> str:
+    """System + page. No tools. Judge only this page."""
+    system = REVIEWER_SYSTEM.format(
+        marker=REVIEWER_MARKER,
+        dimensions=_dimension_block(),
+    )
+    body = page if isinstance(page, str) else ""
+    return (
+        f"{system}\n\n"
+        f"## Page to review\n\n"
+        f"{body}\n\n"
+        f"Review ONLY the page above. Return ONLY the JSON object."
+    )
+
+
+def _call_complete(complete_fn, prompt: str, max_tokens: int = REVIEW_MAX_TOKENS) -> str:
+    """Rite transport is complete_fn(route, prompt, max_tokens). Tests may pass that."""
+    return complete_fn("review", prompt, max_tokens)
+
+
+def _strip_fences(raw: str) -> str:
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3].strip()
+    return text
+
+
+def parse_review(raw: str) -> dict:
+    """Parse reviewer JSON and recompute overall + pass rule.
+
+    Pass (computed, never trusted from the model) is informational for the
+    close tooth: ALL dimensions >= 3 AND zero critical_issues AND weighted
+    overall >= 3.5. The loop ignores this. It is not a skip switch.
+    """
+    text = _strip_fences(raw)
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise ValueError(f"no JSON in reviewer output: {text[:300]!r}")
+    obj = json.loads(match.group(0))
+    return finalize_verdict(obj)
+
+
+def finalize_verdict(obj: dict) -> dict:
+    raw_dims = obj.get("dimensions") or {}
+    dimensions = {}
+    for name in DIMENSIONS:
+        data = raw_dims.get(name) or {}
+        if not isinstance(data, dict):
+            data = {}
+        try:
+            score = int(data.get("score", 0))
+        except (TypeError, ValueError):
+            score = 0
+        score = max(0, min(5, score))
+        feedback = str(data.get("feedback") or data.get("reason") or "").strip()
+        dimensions[name] = {
+            "score": score,
+            "feedback": feedback,
+            "pass": score >= 3,
+            "reason": feedback,
+        }
+    overall = sum(dimensions[name]["score"] * DIMENSION_WEIGHTS[name] for name in DIMENSIONS)
+    critical = [str(x) for x in (obj.get("critical_issues") or []) if str(x).strip()]
+    suggestions = [str(x) for x in (obj.get("suggestions") or []) if str(x).strip()]
+    passed = (
+        all(dimensions[name]["score"] >= 3 for name in DIMENSIONS)
+        and len(critical) == 0
+        and overall >= PASS_THRESHOLD
+    )
+    return {
+        "verdict": "PASS" if passed else "FAIL",
+        "pass": passed,
+        "overall": round(overall, 3),
+        "dimensions": dimensions,
+        "critical_issues": critical,
+        "suggestions": suggestions,
+        "reasons": [
+            f"{name}: {dimensions[name]['feedback']}"
+            for name in DIMENSIONS
+            if dimensions[name]["score"] < 3
+        ],
+        "rule": CRITICAL_RULE,
+    }
+
+
+def review(page: str, complete_fn) -> dict:
+    """Rite tooth: call the review-route LLM, parse JSON, apply the pass rule.
+
+    No tools. Page only. Does not itself raise on FAIL — the caller decides.
+    Mid-loop the rite records the notes and continues. The close tooth may
+    StageFailure. The loop never consults pass/verdict to skip a round.
+    """
+    prompt = reviewer_prompt(page)
+    raw = _call_complete(complete_fn, prompt)
+    if not (isinstance(raw, str) and raw.strip()):
+        raise ValueError("reviewer returned an empty response")
+    return parse_review(raw)
+
+
+def briefing(verdict: dict) -> str:
+    """Page-specific notes for the next lastro. Always non-empty.
+
+    Uses the model's feedback / critical_issues / suggestions. Not the
+    canned three thin_spots. Not a PASS/FAIL ticket. A high score still
+    produces notes the lastro can chase.
+    """
+    lines = [
+        "Anotações do revisor (briefing para o próximo lastro — não é "
+        "ticket de passar/falhar; as duas rodadas sempre correm):"
+    ]
+    dims = verdict.get("dimensions") or {}
+    for name in DIMENSIONS:
+        data = dims.get(name) or {}
+        score = data.get("score", "?")
+        fb = (data.get("feedback") or data.get("reason") or "").strip()
+        if fb:
+            lines.append(f"- {name} ({score}/5): {fb}")
+        else:
+            lines.append(f"- {name} ({score}/5)")
+    critical = verdict.get("critical_issues") or []
+    if critical:
+        lines.append("Critical issues (content):")
+        for item in critical:
+            lines.append(f"- {item}")
+    suggestions = verdict.get("suggestions") or []
+    if suggestions:
+        lines.append("Suggestions:")
+        for item in suggestions:
+            lines.append(f"- {item}")
+    if len(lines) == 1:
+        lines.append(
+            "- (revisor não deixou notas; o lastro ainda busca um nome no "
+            "mundo e ensina o termo que falta)"
+        )
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Visible text (markdown or HTML). Form headings do not count as teaching.
+# Kept for the deterministic helper `judge()` (CLI / tests), not the rite tooth.
 # ---------------------------------------------------------------------------
 
 _BLOCK_CLOSE = re.compile(r"(?i)</(?:p|div|h[1-6]|li|tr|blockquote|section|article)>")
@@ -147,7 +420,7 @@ def _paragraphs(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Detectors
+# Detectors (deterministic helper only)
 # ---------------------------------------------------------------------------
 
 PCT_RE = re.compile(r"(?<![\d.])(\d{1,3}(?:[.,]\d+)?)\s*%")
@@ -298,6 +571,7 @@ def _opening(text: str, n: int = 500) -> str:
 
 # ---------------------------------------------------------------------------
 # Dimension judges — each returns (pass: bool, reason: str)
+# Deterministic helper only. The rite tooth is review().
 # ---------------------------------------------------------------------------
 
 def _dim_profundidade(text: str) -> tuple[bool, str]:
@@ -314,7 +588,6 @@ def _dim_historia(text: str) -> tuple[bool, str]:
     if _percentages(opening) and WAIVER_RE.search(opening):
         return False, "opens on a scoreboard the sibling already carried"
     if _SLUG.match(opening.lstrip()) or re.match(r"^#(?![\s#])[a-z][\w\-]{3,}", text.lstrip()):
-        # first visible token is a slug — ID plate, not a door
         first = ( _paragraphs(text) or [opening] )[0]
         if _SLUG.search(first) and not re.search(r"[?¿]|por que|o que ", first, re.I):
             return False, "opens on an ID plate, not a door"
@@ -371,16 +644,10 @@ _DIM_FN = {
 
 
 def judge(page: str) -> dict:
-    """Structured content verdict for the page in front of you.
+    """Deterministic helper (CLI / tests). Not the rite tooth.
 
-    Returns {
-      verdict: PASS|FAIL,
-      critical_issues: [str],
-      dimensions: {name: {pass, reason, score}},
-      overall: float,
-      reasons: [str],
-    }
-    Calibration / assume-known / sibling / form H2 do not waive.
+    The rite calls review() — the old-edge LLM reviewer. This stays so a
+    host without a transport can still smoke-check a page.
     """
     visible = _visible_text(page)
     body = _prose_without_form_sections(visible)
@@ -394,12 +661,12 @@ def judge(page: str) -> dict:
         dimensions[name] = {
             "pass": ok,
             "reason": reason,
+            "feedback": reason,
             "score": 5 if ok else 1,
         }
         if not ok:
             reasons.append(f"{name}: {reason}")
 
-    # Critical issues — the old gate's blocking list, content not form.
     rate_defects = _rate_defects(body)
     if rate_defects:
         critical.extend(rate_defects)
@@ -413,65 +680,38 @@ def judge(page: str) -> dict:
         dimensions[name]["score"] * DIMENSION_WEIGHTS[name] for name in DIMENSIONS
     )
     passed = not critical and all(dimensions[name]["pass"] for name in DIMENSIONS)
-    thin_spots = []
-    if passed:
-        thin_spots = [
-            "Deepen world lastro: name one more outside paper, product, or case "
-            "in the prose if the claim can bear it.",
-            "Didática: any remaining number or load-bearing term taught on first "
-            "use with whose evaluation, of what, and n.",
-            "Feynman: keep the derivation visible; write the step that was skipped.",
-        ]
     return {
         "verdict": "PASS" if passed else "FAIL",
+        "pass": passed,
         "critical_issues": critical,
         "dimensions": dimensions,
         "overall": round(overall, 3),
         "reasons": reasons,
-        "thin_spots": thin_spots,
+        "suggestions": [],
         "rule": CRITICAL_RULE,
     }
 
 
-def briefing(verdict: dict) -> str:
-    """What the next lastro goes after. Always non-empty: a FAIL names holes;
-    a PASS still names remaining thin spots. The round is never skipped.
-    """
-    if verdict.get("critical_issues") or verdict.get("verdict") != "PASS":
-        lines = ["FAIL holes the next lastro must fill:"]
-        for item in verdict.get("critical_issues") or []:
-            lines.append(f"- {item}")
-        for item in verdict.get("reasons") or []:
-            if item not in lines[-3:]:
-                lines.append(f"- {item}")
-        return "\n".join(lines)
-    lines = [
-        "PASS, but the next lastro still fills these thin spots "
-        "(the round is not skipped because the gate passed lightly):"
-    ]
-    for item in verdict.get("thin_spots") or []:
-        lines.append(f"- {item}")
-    return "\n".join(lines)
-
-
-def _default_ground_prompt(outputs: dict, letter: str) -> str:
-    page = (
+def _page_from(outputs: dict) -> str:
+    return (
         outputs.get("feynman_page")
         or outputs.get("reader_facing")
         or outputs.get("author_correction")
         or ""
     )
-    brief = outputs.get("feynman_briefing") or briefing(
-        {"verdict": "FAIL", "critical_issues": ["gate briefing missing"], "reasons": []}
-    )
+
+
+def _default_ground_prompt(outputs: dict, letter: str) -> str:
+    page = _page_from(outputs)
+    brief = outputs.get("feynman_briefing") or briefing({})
     verdict_txt = outputs.get("feynman_gate_verdict") or ""
     return (
         f"Produce NEW lastro (fresh facts, names of instruments, n, sources in the "
-        f"world) aimed at the holes or thin spots the Feynman content gate named "
-        f"in round {letter}. Do not rewrite the article. Do not invent a fact or a "
-        f"citation. FETCH and cite each source with a snippet. If the briefing is a "
-        f"PASS thin-spot list, still bring new lastro that fills those spots.\n\n"
-        f"BRIEFING:\n{brief}\n\nGATE JSON:\n{verdict_txt}\n\nPAGE:\n{page}"
+        f"world) aimed at the reviewer notes in the briefing for round {letter}. "
+        f"Do not rewrite the article. Do not invent a fact or a citation. FETCH "
+        f"and cite each source with a snippet. A high score does not skip this "
+        f"lastro. A low score does not add an extra loop. Two rounds always run.\n\n"
+        f"BRIEFING:\n{brief}\n\nREVIEW JSON:\n{verdict_txt}\n\nPAGE:\n{page}"
     )
 
 
@@ -495,7 +735,13 @@ def _default_rewrite_prompt(outputs: dict, letter: str) -> str:
     )
 
 
+def _default_review_prompt(outputs: dict) -> str:
+    return reviewer_prompt(_page_from(outputs))
+
+
 LOOP_PROMPTS = {
+    "feynman_gate_1": _default_review_prompt,
+    "feynman_gate_2": _default_review_prompt,
     "feynman_grounding_a": lambda o: _default_ground_prompt(o, "A"),
     "feynman_rewrite_1": lambda o: _default_rewrite_prompt(o, "A"),
     "feynman_grounding_b": lambda o: _default_ground_prompt(o, "B"),
@@ -546,7 +792,7 @@ pass threshold: passa=true iff score_0_10 >= 7.
 
 
 def feynman_gate(text, complete_fn):
-    """Legacy LLM judge. Not the rite tooth. Prefer judge()."""
+    """Legacy LLM judge. Not the rite tooth. Prefer review()."""
     prompt = (
         f"{RUBRIC}\n\n=== TEXT TO JUDGE ===\n{text}\n=== END TEXT ===\n\n"
         "Return ONLY the JSON object."

@@ -225,11 +225,76 @@ def _prompts():
     return {stage: mk(stage) for stage in stages}
 
 
+def _review_payload_for(prompt, canned):
+    """Canned JSON for the LLM reviewer. Explicit override wins; else page-aware."""
+    import feynman_gate as _fg
+    if canned.get("feynman_review"):
+        return canned["feynman_review"]
+    if "n=205" in prompt or "n=216" in prompt or "Dahl et al." in prompt:
+        return json.dumps({
+            "overall": 5.0,
+            "dimensions": {
+                name: {"score": 5, "feedback": f"{name}: instruments taught"}
+                for name in _fg.DIMENSIONS
+            },
+            "critical_issues": [],
+            "suggestions": [
+                "Name one more outside paper if the claim can bear it.",
+                "Keep whose/of-what/n on every rate callback.",
+                "Write the derivation step that was skipped.",
+            ],
+        }, ensure_ascii=False)
+    if "0,2%" in prompt:
+        return json.dumps({
+            "overall": 1.8,
+            "dimensions": {
+                name: {"score": (1 if name in ("didatica", "consistencia") else 2),
+                       "feedback": f"{name}: unexplained rate / waiver"}
+                for name in _fg.DIMENSIONS
+            },
+            "critical_issues": [
+                "0,2% lacks whose evaluation, of what, n -- Harvey + invention is not the instrument",
+                "17% lacks whose evaluation, of what, n",
+                "ja esta estabelecido carrying the rates",
+            ],
+            "suggestions": ["Fetch whose/of-what/n for each rate."],
+        }, ensure_ascii=False)
+    if "#foo-bar-baz" in prompt or "01KYBTM" in prompt:
+        return json.dumps({
+            "overall": 1.5,
+            "dimensions": {
+                name: {"score": (1 if name == "mundo" else 2),
+                       "feedback": f"{name}: local idiom"}
+                for name in _fg.DIMENSIONS
+            },
+            "critical_issues": [
+                "page never leaves the local idiom -- no named thing in the world in the prose"
+            ],
+            "suggestions": ["Name a paper, product, or case in the prose."],
+        }, ensure_ascii=False)
+    return json.dumps({
+        "overall": 5.0,
+        "dimensions": {
+            name: {"score": 5, "feedback": f"{name}: ok for the canned page"}
+            for name in _fg.DIMENSIONS
+        },
+        "critical_issues": [],
+        "suggestions": [
+            "Name one more outside paper if the claim can bear it.",
+            "Keep whose/of-what/n on every rate callback.",
+            "Write the derivation step that was skipped.",
+        ],
+    }, ensure_ascii=False)
+
+
 def _complete_fn(canned, order):
-    """Fake transport: returns the canned output for each LLM stage in rite order."""
+    """Fake transport: canned cognitive outputs; reviewer prompts return JSON."""
+    import feynman_gate as _fg
     queue = [canned[name] for name in order]
 
     def complete(route, prompt, max_tokens):
+        if isinstance(prompt, str) and _fg.REVIEWER_MARKER in prompt:
+            return _review_payload_for(prompt, canned)
         if not queue:
             raise RuntimeError("transport exhausted: rite asked for more stages than canned")
         return queue.pop(0)
@@ -309,10 +374,10 @@ class StageTableTest(unittest.TestCase):
         self.assertEqual(routes["provisional_rewrite"], "chat")
         self.assertEqual(routes["fact_audit"], "review")
         self.assertEqual(routes["author_correction"], "chat")
-        self.assertIsNone(routes["feynman_gate_1"])
+        self.assertEqual(routes["feynman_gate_1"], "review")
         self.assertEqual(routes["feynman_grounding_a"], "review")
         self.assertEqual(routes["feynman_rewrite_1"], "chat")
-        self.assertIsNone(routes["feynman_gate_2"])
+        self.assertEqual(routes["feynman_gate_2"], "review")
         self.assertEqual(routes["feynman_grounding_b"], "review")
         self.assertEqual(routes["feynman_rewrite_2"], "chat")
         self.assertEqual(routes["treatment_cleanup"], "chat")
