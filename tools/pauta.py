@@ -6,9 +6,13 @@ vira etapa do DISPATCH, gate de entrada simétrico ao Close. Estado = fold do ev
 (`pauta.proposta` / `pauta.silencio` / `pauta.veto`), ADR-0006 — nenhum arquivo próprio.
 
 O Seam senta na linha de capacidade (design round1, Variant 2): o TOOL sorteia e julga;
-o AGENTE lê o wake e aterra. `sortear()` roda ANTES da leitura do wake (a leitura sai
-mirada, §3.1); os passos 2–5 do funil (catálogo → ~12 sugestões → shortlist A → grounding)
-são trabalho agêntico do chamador; `propose()` recebe os 2–3 sobreviventes ATERRADOS e
+o AGENTE lê o wake e aterra. Direção na escolha do assunto; contextualização ampla.
+A primeira leitura é panorâmica (sessões / insights / fios / claims / corpus / os
+quatro briefs sem filtro / mundo). `sortear()` escolhe o ASSUNTO (GATE = abordagem;
+objeto = polo de onde o lastro desse assunto pode originar) — não coleia olhar
+nem texto (emenda operador 2026-08-21, revisa §3.1). Os passos do funil após o
+panorama (sorteio → catálogo-como-polo-do-assunto → ~12 sugestões →
+shortlist A → grounding) são trabalho agêntico do chamador; `propose()` recebe os 2–3 sobreviventes ATERRADOS e
 julga/pena — o juízo nunca sai do módulo, e o módulo nunca ingere veredito de agente,
 só material (fontes/lastro).
 
@@ -49,8 +53,11 @@ _AXES = (("objeto", OBJETOS), ("abordagem", ABORDAGENS))
 
 
 def sortear(constraints=None, rng=None):
-    """O passo 1 do funil: {objeto, abordagem} independentes, pesos UNIFORMES, ANTES de
-    ler o wake (§3.1 — a leitura já sai mirada). PURO: nenhum evento, nenhum estado.
+    """Sorteia {objeto, abordagem} independentes, pesos UNIFORMES. A célula
+    direciona a ESCOLHA DO ASSUNTO (abordagem = gate; objeto = polo de origem
+    do lastro desse assunto). Contextualização é sempre ampla — o sorteio não
+    coleia leitura nem escrita (emenda operador 2026-08-21; revisa §3.1). PURO:
+    nenhum evento, nenhum estado.
 
     Voz trava campos: um eixo presente em `constraints` não é sorteado (célula travada
     ainda é célula — o nome carrega o setup). Valor fora da matriz → ValueError (fail
@@ -100,7 +107,8 @@ N_SUGESTOES = 12
 N_SHORTLIST = 6
 N_ATERRAR = 3
 
-# Catálogo por objeto (§3.2): ONDE o wake mira — nunca um pool de temas (§3.3).
+# Catálogo por objeto (§3.2): direção na escolha do assunto; contextualização ampla.
+# Polo de origem do lastro do assunto — nunca um pool de temas (§3.3).
 _CATALOGO = {
     "mundo": "sources do agent.yaml e o mundo externo (source keys; X-first para "
              "perguntas de comunidade/prática)",
@@ -115,13 +123,22 @@ _CATALOGO = {
 
 
 def catalogo(cell):
-    """O passo 2 do funil: a mira da leitura do wake para a célula sorteada. Devolve
-    ONDE olhar (por objeto) e os números do funil — NUNCA temas (pool fixo no repo é
-    violação assinada §3.3; as ~12 sugestões são função do wake, trabalho do agente)."""
+    """direção na escolha do assunto; contextualização ampla.
+
+    origem da evidência do candidato; o wake lê o panorama. A célula aponta QUAL
+    assunto escolher (e de onde o lastro desse assunto pode originar). Olhar e
+    texto são sempre amplos — o catálogo não coleia a leitura nem a escrita.
+    Devolve o polo do lastro (por objeto) e os números do funil — NUNCA temas
+    (pool fixo no repo é violação assinada §3.3; as ~12 sugestões são função do
+    wake). objeto=atividade não veta âncora no mundo nem no mentee.
+    """
     if not _cell_ok(cell):
         raise ValueError(f"célula fora da matriz: {cell!r}")
     return {"objeto": cell["objeto"], "abordagem": cell["abordagem"],
             "catalogo": _CATALOGO[cell["objeto"]],
+            "nota": ("direção na escolha do assunto; contextualização ampla — "
+                     "a célula escolhe o assunto e de onde o lastro pode vir; "
+                     "olhar e texto leem o panorama"),
             "n_sugestoes": N_SUGESTOES, "n_shortlist": N_SHORTLIST,
             "n_aterrar": N_ATERRAR}
 
@@ -409,9 +426,13 @@ def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text=
     material = json.dumps([dict(_material(s), idx=i) for i, s in enumerate(sugs)],
                           ensure_ascii=False)
     prompt = (
-        "Você é a shortlist da Pauta (Ato-1). Ranqueie os candidatos por MÉRITO DENTRO "
-        f"DO PÓLO da célula (abordagem={cell['abordagem']}, objeto={cell['objeto']}; "
-        f"catálogo do pólo: {cat['catalogo']}). Aponte também o candidato mais "
+        "Você é a shortlist da Pauta (Ato-1). Direção na escolha do assunto; "
+        "contextualização ampla. Ranqueie por MÉRITO no ASSUNTO da célula "
+        f"(abordagem={cell['abordagem']}, objeto={cell['objeto']}; "
+        f"polo de origem do lastro: {cat['catalogo']}). A contextualização é "
+        "sempre ampla: um candidato de atividade DEVE se pendurar em coisas "
+        "nomeadas do mundo e do mentorado; não ignore contexto de mundo/mentee. "
+        "Aponte também o candidato mais "
         "SERENDÍPICO (fora do circuito habitual) para o slot estrutural de "
         "serendipidade.\n"
         f"Candidatos (com idx):\n{material}\n\n"

@@ -26,15 +26,16 @@
 | **Forma** | roster de producers (report, research, descoberta, map, plan, prototype, meta-dica, …) | que desenvolvimento e momento de leitura |
 
 - Qualquer objeto × qualquer abordagem. **Serendipidade = valor-coringa: desamarra o eixo onde aparece** (objeto=ser → catálogo sem limite; abordagem=ser → sem lente fixa). {ser, ser} = liberdade máxima, ~1/28 batidas por aritmética dos sorteios.
-- **Sorteio:** {objeto, abordagem} sorteados independentes, **pesos uniformes**, ANTES de ler o wake (leitura já sai mirada). Sem blocklist de células: célula inviável morre em silêncio; 3 silêncios da mesma célula no log = evidência de poda.
-- **Gate pendura SÓ na abordagem** (7 gates). Objeto re-mira o catálogo, nunca acrescenta critério. Forma nasce na sugestão (`{tema, forma}`), critério = que desenvolvimento o candidato precisa + que momento de leitura serve; a coluna formas-default poda o absurdo.
+- **Sorteio:** {objeto, abordagem} sorteados independentes, **pesos uniformes**. Direção na escolha do assunto; contextualização ampla. A célula escolhe QUAL assunto (abordagem = gate; objeto = polo de origem do lastro desse assunto) — não coleia olhar nem texto (emenda operador 2026-08-21; revisa a cláusula "leitura já sai mirada"). Sem blocklist de células: célula inviável morre em silêncio; 3 silêncios da mesma célula no log = evidência de poda.
+- **Gate pendura SÓ na abordagem** (7 gates). Objeto aponta o polo do assunto (origem do lastro), nunca acrescenta critério e nunca coleia a contextualização (sempre ampla: atividade ainda se ancora no mundo e no mentorado). Forma nasce na sugestão (`{tema, forma}`), critério = que desenvolvimento o candidato precisa + que momento de leitura serve; a coluna formas-default poda o absurdo.
 - **Admissão de abordagem nova:** só se o gate dela julgaria candidatos DIFERENTE das 7 existentes. Candidata em observação: risco/pre-mortem.
 
 ## 3. O funil
 
 ```
-1. SORTEIO    {objeto, abordagem} — uniforme; Voz trava campos
-2. WAKE       catálogo da célula (mundo→sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre)
+1. WAKE       panorama (sessões interativas · insights · fios · claims · corpus · 4 briefs sem filtro · mundo) — lei das âncoras
+2. SORTEIO    {objeto, abordagem} — uniforme; Voz trava campos. direção na escolha do assunto; contextualização ampla
+   CATÁLOGO   polo do assunto / origem do lastro (mundo→sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre) — não coleia olhar nem texto
 3. SUGESTÕES  ~12, baratas, função do wake — NUNCA pool fixo no repo
 4. SHORTLIST A ~6, mérito dentro do pólo + 1 slot estrutural de serendipidade
               + checks: delta_voz · filtro direction/wayfind-aberto · substrato
@@ -138,3 +139,6 @@ religada) sorteou `si` e produziu artefatos sobre o próprio dispatch/pipeline d
 errada sem mudar o contrato: a evidência do objeto vem do mentorado, nunca do edge sobre si
 mesmo. Introspecção legítima continua existindo como ABORDAGEM (`curiosidade do edge` —
 sujeito invertido: o edge olha o mundo/mentee com curiosidade própria, não se olha).
+
+## 10. DIREÇÃO NA ESCOLHA DO ASSUNTO; CONTEXTUALIZAÇÃO AMPLA (operador 2026-08-21, vinculante — revisa §3.1 "leitura já sai mirada" e o passo WAKE "catálogo da célula")
+**Direção na escolha do assunto; contextualização ampla.** A primeira leitura é holística (Passo 1 do heartbeat antigo: sessões interativas, insights, fios, claims, corpus check, os quatro briefs sem filtro, o mundo). A célula escolhe QUAL assunto (abordagem = gate; objeto = de onde o lastro desse assunto pode originar) — não coleia o olhar nem o texto. Candidato de atividade DEVE se pendurar em coisas nomeadas do mundo e do mentorado. Lei das âncoras (§8) ganha dente.

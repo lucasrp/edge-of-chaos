@@ -31,14 +31,21 @@ autoriza**: portfolio/map/frontier não entram no plano e não podem alterá-lo.
 A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
 `docs/agencia/pauta-tabela-normativa.md`). O funil, na ordem assinada:
 
-1. **SORTEIO antes do wake** — `tools/edge-python tools/pauta.py sortear` (Voz trava campos:
-   `--lock objeto=mentorado`). A célula `{objeto × abordagem}` sai ANTES de qualquer leitura — a
-   leitura já sai mirada. Sem blocklist: célula inviável morre em silêncio logado.
-2. **Grounding INICIAL mirado** — run the mechanical entry-driver
-   (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
-   recall) ATRAVÉS do catálogo da célula (`tools/pauta.py catalogo --cell '<json>'`: mundo→
-   sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre). READ the latest
-   `user_requested` artefatos (the quente's anchors carry them) — first-order sinal de pauta.
+1. **Olhar holístico PRIMEIRO** — run the mechanical entry-driver
+   (`tools/edge-python tools/predispatch.py`) and read the panorama, unfiltered: sessões
+   interativas, insights, fios, claims, corpus check, the four briefs (briefing + quente +
+   delta + recall), and the world. Old heartbeat Passo 1 spirit: the first look is
+   panoramic. Lei das âncoras — wake é insumo, não coleira. READ the latest
+   `user_requested` artefatos (the quente's anchors carry them) — first-order sinal de
+   pauta.
+2. **SORTEIO = escolha do assunto** — `tools/edge-python tools/pauta.py sortear`
+   (Voz trava campos: `--lock objeto=mentorado`). **direção na escolha do assunto; contextualização ampla.** A célula `{objeto × abordagem}` picks WHICH SUBJECT
+   (abordagem = gate; objeto = where lastro for that subject can originate). It does
+   not aim the look or the write. Then `tools/pauta.py catalogo --cell '<json>'` names
+   that subject-polo (mundo→sources · atividade→conversas/obra ·
+   mentorado→leveling/fog · ser→livre). `objeto=atividade` does **not** forbid (it
+   encourages) hanging the candidate on named things in the world and on the mentee.
+   Sem blocklist: célula inviável morre em silêncio logado.
 3. **~12 SUGESTÕES** baratas, função do wake que você acabou de ler — NUNCA um pool fixo do
    repo. Cada uma `{tema, forma, semente}` (a forma nasce na sugestão).
 4. **SHORTLIST A** — `tools/pauta.py shortlist --cell '<json>' --sugestoes '<json>'

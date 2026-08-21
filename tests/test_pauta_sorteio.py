@@ -1,8 +1,10 @@
-"""Pauta R1 — o sorteio (spec assinada: docs/agencia/pauta-tabela-normativa.md §2/§3.1).
+"""Pauta R1 — o sorteio (spec assinada: docs/agencia/pauta-tabela-normativa.md §2/§3.1,
+emenda operador 2026-08-21).
 
-{objeto, abordagem} sorteados INDEPENDENTES com pesos uniformes, ANTES de ler o wake — a
-leitura já sai mirada. Voz trava campos (campo travado não é sorteado; célula travada ainda
-é célula). Sem blocklist de células: {ser, ser} é sorteável (~1/28). Puro: nenhum evento.
+{objeto, abordagem} sorteados INDEPENDENTES com pesos uniformes. Direção na
+escolha do assunto; contextualização ampla. Voz trava campos (campo travado não é
+sorteado; célula travada ainda é célula). Sem blocklist de células: {ser, ser} é
+sorteável (~1/28). Puro: nenhum evento.
 """
 import random
 import sys
@@ -43,7 +45,7 @@ class DrawIsUniformAndIndependent(unittest.TestCase):
         self.assertGreater(ser_ser, 0, "sem blocklist: {ser,ser} tem de ser sorteável")
 
     def test_draw_is_pure_no_log_parameter(self):
-        # O sorteio roda ANTES do wake e não pena evento — a assinatura não aceita log.
+        # O sorteio não ingere wake e não pena evento — a assinatura não aceita log.
         import inspect
         self.assertNotIn("log", inspect.signature(pauta.sortear).parameters)
 

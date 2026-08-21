@@ -21,8 +21,8 @@ def sug(i, tema=None):
     return {"tema": tema or f"tema-{i}", "forma": "report", "semente": f"do wake {i}"}
 
 
-class CatalogoAimsTheWake(unittest.TestCase):
-    def test_every_objeto_has_a_catalog_aim_and_ser_is_unbound(self):
+class CatalogoIsEvidenceOrigin(unittest.TestCase):
+    def test_every_objeto_has_a_catalog_origin_and_ser_is_unbound(self):
         for o in pauta.OBJETOS:
             cat = pauta.catalogo({"objeto": o, "abordagem": "fog"})
             self.assertEqual(cat["objeto"], o)
@@ -35,7 +35,24 @@ class CatalogoAimsTheWake(unittest.TestCase):
     def test_catalogo_carries_the_funnel_numbers_not_a_theme_pool(self):
         cat = pauta.catalogo({"objeto": "mundo", "abordagem": "fog"})
         self.assertEqual(cat["n_sugestoes"], 12)
-        self.assertNotIn("temas", cat)  # onde olhar, nunca o quê dizer
+        self.assertNotIn("temas", cat)  # origem do lastro, nunca o quê dizer
+
+    def test_catalogo_directs_subject_not_context(self):
+        # operador 2026-08-21: direção na escolha do assunto; contextualização ampla.
+        # lastro-from-objeto stays (atividade → conversas/obra).
+        LOCK = "direção na escolha do assunto; contextualização ampla"
+        self.assertNotIn("leitura já sai mirada", pauta.sortear.__doc__)
+        doc = pauta.catalogo.__doc__ or ""
+        self.assertNotIn("ONDE o wake mira", doc)
+        self.assertNotIn("a mira da leitura", doc.lower())
+        self.assertIn(LOCK, doc)
+        self.assertIn("origem da evidência do candidato", doc)
+        self.assertIn("o wake lê o panorama", doc)
+        skill = (REPO / "skills" / "beat" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn(LOCK, skill)
+        cat = pauta.catalogo({"objeto": "atividade", "abordagem": "fog"})
+        self.assertIn("obra", cat["catalogo"])  # lastro origin of atividade stays
+        self.assertIn(LOCK, cat["nota"])
 
 
 class ShortlistJudgesSemantically(unittest.TestCase):
@@ -135,7 +152,7 @@ class ShortlistJudgesSemantically(unittest.TestCase):
         for pt in out["aterrar"]:
             self.assertIn("explorer", pt)
             self.assertIn(pt["tema"], [c["tema"] for c in out["A"]])
-            # mirado no pólo: o aim cita o catálogo da célula
+            # lastro-from-objeto: o explorer cita a origem da evidência da célula
             self.assertIn("mundo", pt["explorer"])
 
     def test_malformed_merit_rank_raises_fail_closed(self):

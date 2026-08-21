@@ -96,3 +96,12 @@ research) reescritos para a estrada da Pauta.
   **Honra ADR-0006** (log-verdade), **ADR-0002** (silêncio logado, nunca espera),
   **ADR-0016-shape** (gate identity-held no dispatch), lei do risco da tabela §4 (nenhum gate
   contém "pergunta ao operador").
+
+## Emenda do operador (2026-08-21)
+
+Direção na escolha do assunto; contextualização ampla. A primeira leitura do wake
+é panorâmica (sessões interativas, insights, fios, claims, corpus, os quatro briefs
+sem filtro, mundo). O sorteio escolhe QUAL assunto (gate = abordagem; objeto = de
+onde o lastro desse assunto pode originar) — não coleia olhar nem texto. Revisado
+o §3.1 "a leitura já sai mirada". Candidato de atividade ancora no mundo e no
+mentorado. Lei das âncoras (wake é insumo, não coleira) fica e ganha dente.

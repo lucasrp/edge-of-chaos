@@ -564,9 +564,12 @@ is what stops a vent becoming a curated decision (ADR-0008, the Zep failure).
 > simétrico ao Close. Estado = fold de `pauta.proposta`/`pauta.silencio`/`pauta.veto` (ADR-0006).
 
 **Pauta**:
-O módulo da **escolha** — `propose(constraints) → PROPOSTA | silêncio`. Sorteia
-`{objeto × abordagem}` uniforme **antes de ler o wake** (a leitura sai mirada), roda o funil
-(catálogo da célula → ~12 sugestões baratas → shortlist A → 2–3 aterrados) e julga no gate da
+O módulo da **escolha** — `propose(constraints) → PROPOSTA | silêncio`. Direção na
+escolha do assunto; contextualização ampla. A primeira leitura é panorâmica
+(sessões / insights / fios / claims / corpus / briefs / mundo); sorteia
+`{objeto × abordagem}` uniforme como QUAL assunto (gate + polo de origem do lastro;
+emenda operador 2026-08-21), roda o funil
+(catálogo = polo do assunto → ~12 sugestões baratas → shortlist A → 2–3 aterrados) e julga no gate da
 abordagem — AND mecânico sobre evidência, **nunca rebaixa critério**. Rotação/budget = política
 de alocação AQUI (a `forma` nasce na sugestão `{tema, forma}`); célula inviável morre em
 **silêncio logado** (3 consecutivos = evidência de poda, nunca blocklist a priori).
