@@ -105,3 +105,13 @@ sem filtro, mundo). O sorteio escolhe QUAL assunto (gate = abordagem; objeto = d
 onde o lastro desse assunto pode originar) — não coleia olhar nem texto. Revisado
 o §3.1 "a leitura já sai mirada". Candidato de atividade ancora no mundo e no
 mentorado. Lei das âncoras (wake é insumo, não coleira) fica e ganha dente.
+
+## Emenda do operador (2026-08-21, escolha)
+
+O que parece mais útil agora: briefing de conhecimento útil face aos
+desafios atuais. O leitor sai sabendo algo novo. Gates e propose julgam
+esse briefing — não um next-step, dica-clique, abrir-obra ou realocação.
+Explorer lê o panorama (polo = origem do lastro, não visor). Entre os que
+passam pisos+gate, o mais útil vence. Chore de uma vez REPROVA. Fóssil,
+emprego de outro install, recap sem nome novo e o edge sobre si não são
+assunto. `user_requested` é insumo, não gradiente. Matriz/sorteio ficam.

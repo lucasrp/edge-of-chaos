@@ -7,14 +7,17 @@ vira etapa do DISPATCH, gate de entrada simétrico ao Close. Estado = fold do ev
 
 O Seam senta na linha de capacidade (design round1, Variant 2): o TOOL sorteia e julga;
 o AGENTE lê o wake e aterra. Direção na escolha do assunto; contextualização ampla.
-A primeira leitura é panorâmica (sessões / insights / fios / claims / corpus / os
+Objetivo da escolha (emenda operador 2026-08-21): o que parece mais útil agora —
+briefing de conhecimento útil face aos desafios ATUAIS do mentee; o leitor sai
+sabendo algo novo. A primeira leitura é panorâmica (sessões / insights / fios / claims / corpus / os
 quatro briefs sem filtro / mundo). `sortear()` escolhe o ASSUNTO (GATE = abordagem;
 objeto = polo de onde o lastro desse assunto pode originar) — não coleia olhar
 nem texto (emenda operador 2026-08-21, revisa §3.1). Os passos do funil após o
 panorama (sorteio → catálogo-como-polo-do-assunto → ~12 sugestões →
 shortlist A → grounding) são trabalho agêntico do chamador; `propose()` recebe os 2–3 sobreviventes ATERRADOS e
 julga/pena — o juízo nunca sai do módulo, e o módulo nunca ingere veredito de agente,
-só material (fontes/lastro).
+só material (fontes/lastro). Entre os que passam pisos+gate, o briefing mais útil
+vence (não o primeiro da ordem).
 
 R2 (o funil inteiro): todo juízo é SEMÂNTICO via `completer` (tools/llm_routes.
 completer_for na vida real; fake roteirizado nos testes) e `voz_recall_fn` — NUNCA
@@ -107,6 +110,22 @@ N_SUGESTOES = 12
 N_SHORTLIST = 6
 N_ATERRAR = 3
 
+# Objetivo da escolha (operador 2026-08-21). Vive no módulo — skill, shortlist,
+# aterrar e propose/gate leem a MESMA prosa. Sem janela «nesta semana».
+OBJETIVO = (
+    "O que parece mais útil agora: briefing de conhecimento útil face aos "
+    "desafios ATUAIS do mentee. O leitor sai sabendo algo novo. Faro = nome "
+    "de fora + ponte ao trabalho vivo DESTE mentee. Disco ≠ emprego: obra "
+    "seca pode pendurar como contexto, não vence assunto. Sem janela "
+    "«nesta semana»."
+)
+OBJETIVO_REPROVA = (
+    "NÃO é assunto: chore de uma vez (WABA, Cloudflare 0 zones, clique no "
+    "cockpit, poll PENDING_REVIEW); fóssil (obra seca há meses como assunto); "
+    "emprego de outro install; recap do corpus sem nome novo; o edge falando "
+    "da própria install."
+)
+
 # Catálogo por objeto (§3.2): direção na escolha do assunto; contextualização ampla.
 # Polo de origem do lastro do assunto — nunca um pool de temas (§3.3).
 _CATALOGO = {
@@ -153,17 +172,21 @@ GATES = {
          "veredito quando existir — mas ausência de âncora JAMAIS reprova (operador "
          "2026-07-25: wake é insumo, não coleira; a guarda contra lacuna falsa é o "
          "delta_voz reverso — domínio na Voz mata a claim)"},
-        {"id": "b", "exigencia": "caminho concreto de vir a saber: primeiro passo "
-         "executável + material verificado; entrega em modo afirmação-com-evidência"},
+        {"id": "b", "exigencia": "caminho concreto de vir a saber: o briefing NOMEIA "
+         "o que o mentee ainda não sabe e como reconhecer no chão vivo; o briefing "
+         "em si É o vir-a-saber — NÃO exige ticket, passo executável ou próximo-clique; "
+         "entrega em modo afirmação-com-evidência"},
     ],
     "operacional": [  # assinado provisório — revisar (§7)
         {"id": "a", "exigencia": "situação RECORRENTE do dia do mentee, evidenciada no "
          "runtime (>=2 ocorrências na janela ou rotina observada, citada); chore de uma "
          "vez só reprova"},
-        {"id": "b", "exigencia": "dica usável na PRÓXIMA ocorrência, zero pré-requisito, "
-         "trade-off nomeado"},
+        {"id": "b", "exigencia": "conhecimento usável quando a situação voltar — ensina "
+         "o mecanismo, trade-off nomeado; zero chore de uma vez; NÃO exige dica-clique "
+         "na próxima ocorrência"},
         {"id": "c", "exigencia": "mecanismo em 3-5 linhas (por que funciona) — diagnóstico "
-         "profundo rebaixado a serviço do porquê, nunca entregável"},
+         "profundo PODE ser o entregável quando é o conhecimento útil; chore de uma "
+         "vez REPROVA"},
     ],
     "estrategico": [
         {"id": "a", "exigencia": "nomeia a decisão não-tomada (o fork) — SUBSTÂNCIA, "
@@ -175,24 +198,24 @@ GATES = {
         {"id": "b", "exigencia": "o custo de seguir sem decidir é real e discernível "
          "no material (explícito ou implícito-mas-derivável) — reprove só quando não "
          "há custo algum, nunca porque a frase não tem forma de aposta"},
-        {"id": "c", "exigencia": "abre obra ou muda rumo (espelho do zero-pré-requisito "
-         "do operacional)"},
+        {"id": "c", "exigencia": "o briefing muda o que ele vê no fork (nome + custo + "
+         "conhecimento); NÃO exige abrir obra nem mudar rumo neste turno"},
     ],
     "meta_dica": [
         {"id": "a", "exigencia": "jeito-de-trabalhar recorrente do mentee, observado e "
          "citado"},
         {"id": "b", "exigencia": "custo do hábito atual evidenciado no runtime — hábito "
          "neutro NÃO é alvo; sem custo citado é opinião de estilo"},
-        {"id": "c", "exigencia": "método substituto testável na próxima semana, com "
-         "mecanismo + trade-off"},
+        {"id": "c", "exigencia": "método substituto nomeado com mecanismo + trade-off; "
+         "o briefing É o método — SEM janela «nesta semana» e SEM ticket da semana"},
     ],
     "tempo_gasto": [
         {"id": "a", "exigencia": "mede o sumidouro com dado citado (proxy do session "
          "store vale, afirmado)"},
         {"id": "b", "exigencia": "confronta com prioridade declarada (Direction/objetivo "
          "citado): você diz que A é prioridade; as horas foram pra B"},
-        {"id": "c", "exigencia": "realocação explícita: de onde, pra onde, o que ganha, "
-         "com trade-off"},
+        {"id": "c", "exigencia": "diz o desencontro e o conhecimento que o torna visível "
+         "(de onde / pra onde, com trade-off); NÃO exige realocação-ticket"},
     ],
     "curiosidade": [
         {"id": "a", "exigencia": "pergunta genuína do edge: nomeia o que muda no MODELO "
@@ -211,7 +234,7 @@ GATES = {
 }
 
 _MATERIAL_FIELDS = ("tema", "forma", "faceta", "lastro", "fontes", "substrato_ref",
-                    "semente", "evidencia")
+                    "semente", "evidencia", "nome_de_fora", "ponte", "desafio_vivo")
 
 # Piso substrato (§4.3) com a nuance fog(a)/vibe-coded (adv r1 #14): log delegado como
 # evidência SOBRE o mentee reprova; log delegado como prova de que uma obra vibe-coded
@@ -305,10 +328,12 @@ def default_voz_recall():
     return organ
 
 
-def delta_voz_check(tema, *, voz_recall_fn, completer):
+def delta_voz_check(tema, *, voz_recall_fn, completer, cand=None):
     """O órgão delta_voz (§4.2): a Voz é BASELINE, não blocklist. Recall da Voz no tema
     → UM juízo semântico citando o recall (cite-or-abort: veredito sem citação é
-    inválido). Saídas: noop (pousar onde a cabeça já está SEM delta novo) · review
+    inválido). Julga o CANDIDATO (tema + lastro/semente/nome-de-fora/ponte), nunca
+    só o string do tema — nome de fora num tema já-na-Voz é o caso BOM.
+    Saídas: noop (pousar onde a cabeça já está SEM delta novo) · review
     (incerto) · delta (delta genuíno — redigest com delta novo é o caso BOM).
     `dominio`: guarda reversa — a Voz mostra domínio (uso/decisão assinada, não mera
     menção) e o claim de lacuna morre. Todo veredito carrega `recall_status: "full"`
@@ -323,18 +348,27 @@ def delta_voz_check(tema, *, voz_recall_fn, completer):
     if not recall:
         return {"outcome": "delta", "dominio": False, "recall_status": "full",
                 "cita": "recall da Voz vazio no tema — baseline sem cobertura"}
+    extra = {}
+    if isinstance(cand, dict):
+        extra = {k: cand[k] for k in ("lastro", "semente", "nome_de_fora", "ponte",
+                                      "desafio_vivo", "evidencia") if cand.get(k)}
+    material = (f"Material do candidato (lastro/semente/nome-de-fora/ponte):\n"
+                f"{json.dumps(extra, ensure_ascii=False)}\n"
+                if extra else "")
     prompt = (
         "Você é o órgão delta_voz da Pauta (Ato-1). A Voz do mentee é a BASELINE, não "
         "blocklist: o candidato compete contra onde a cabeça do mentee JÁ está. Tema "
         "repetido com delta novo é o caso bom (Redigest = pousar onde a cabeça já está "
-        "sem delta).\n"
+        "sem delta). Julgue o candidato INTEIRO, não só o string do tema — nome de "
+        "fora + ponte nova num tema já-na-Voz É delta.\n"
         f"Tema candidato: {tema}\n"
+        f"{material}"
         f"Recall da Voz no tema:\n{recall}\n\n"
         'Responda SÓ JSON: {"outcome": "noop"|"review"|"delta", '
         '"cita": "<trecho literal do recall que fundamenta>", "dominio": true|false}\n'
         "- noop: o candidato pousa onde a cabeça já está SEM delta novo.\n"
         "- review: incerto — deixe passar com flag.\n"
-        "- delta: delta genuíno sobre a baseline.\n"
+        "- delta: delta genuíno sobre a baseline (inclui faro novo no mesmo tema).\n"
         "- dominio: true SÓ se o recall mostra DOMÍNIO (uso real/decisão assinada), "
         "não mera menção lexical.")
     out = _ask(completer, prompt, context=f"delta_voz({tema!r})",
@@ -362,6 +396,12 @@ def run_gate(cell, cand, *, completer):
             "Você é o gate da Pauta (Ato-1). Julgue UM critério, binário, sobre o "
             "material bruto do candidato — nenhum critério é adjetivo: exige que o "
             "material nomeie/cite/evidencie/proponha.\n"
+            f"{OBJETIVO} {OBJETIVO_REPROVA}\n"
+            "Um briefing de conhecimento útil (nome de fora + ponte + desafio vivo) "
+            "PASSA este critério quando o material evidencia o briefing — não reprove "
+            "por falta de passo executável, dica-clique, abrir-obra ou realocação. "
+            "Chore de uma vez / fóssil-como-assunto / emprego de outro install / "
+            "recap sem nome novo / o edge sobre si REPROVAM.\n"
             f"Célula: abordagem={ab}, objeto={cell['objeto']}.\n"
             f"Critério ({crit['id']}): {crit['exigencia']}\n"
             f"Material do candidato:\n{material}\n\n"
@@ -406,11 +446,12 @@ def _batch_cut(completer, items, instrucao, context):
 def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text="",
               n=N_SHORTLIST):
     """O passo 4 do funil: das ~12 sugestões (função do wake — entram como argumento,
-    NUNCA pool do repo) para a shortlist A (~6 = mérito dentro do pólo + 1 slot
-    estrutural de serendipidade), com os checks assinados (§3.4): substrato ·
-    filtro direction/wayfind-aberto · delta_voz (roda SÓ aqui, §7). Devolve também o
-    hook de grounding: 2–3 pontos de dispatch de explorer mirados no pólo (§3.5) —
-    o agente aterra; seca declarada é lastro."""
+    NUNCA pool do repo) para a shortlist A (~6 = mérito = conhecimento útil nos
+    desafios vivos + 1 slot estrutural de serendipidade), com os checks assinados
+    (§3.4): substrato · filtro direction/wayfind-aberto · delta_voz (roda SÓ aqui,
+    §7). Devolve também o hook de grounding: 2–3 pontos de dispatch de explorer
+    no panorama (§3.5) — polo é origem do lastro, não o visor; o agente aterra;
+    seca declarada é lastro."""
     if not _cell_ok(cell):
         raise ValueError(f"célula fora da matriz: {cell!r}")
     sugs = [dict(s) for s in (sugestoes or []) if isinstance(s, dict)
@@ -427,11 +468,15 @@ def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text=
                           ensure_ascii=False)
     prompt = (
         "Você é a shortlist da Pauta (Ato-1). Direção na escolha do assunto; "
-        "contextualização ampla. Ranqueie por MÉRITO no ASSUNTO da célula "
-        f"(abordagem={cell['abordagem']}, objeto={cell['objeto']}; "
-        f"polo de origem do lastro: {cat['catalogo']}). A contextualização é "
-        "sempre ampla: um candidato de atividade DEVE se pendurar em coisas "
-        "nomeadas do mundo e do mentorado; não ignore contexto de mundo/mentee. "
+        "contextualização ampla. "
+        f"{OBJETIVO} {OBJETIVO_REPROVA} "
+        "Ranqueie por MÉRITO: briefing de conhecimento útil face aos desafios "
+        "ATUAIS do mentee (nome de fora + ponte ao trabalho vivo). "
+        f"Célula: abordagem={cell['abordagem']}, objeto={cell['objeto']}; "
+        f"polo de origem do lastro: {cat['catalogo']}. NÃO ranqueie por encaixe "
+        "no pólo — o polo origina lastro, não o assunto. A contextualização é "
+        "sempre ampla: um candidato DEVE se pendurar em coisas nomeadas do "
+        "mundo e do mentorado. Fóssil e chore perdem para briefing vivo. "
         "Aponte também o candidato mais "
         "SERENDÍPICO (fora do circuito habitual) para o slot estrutural de "
         "serendipidade.\n"
@@ -527,7 +572,7 @@ def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text=
         kept = []
         for cand in A:
             dv = delta_voz_check(cand["tema"], voz_recall_fn=voz_recall_fn,
-                                 completer=completer)
+                                 completer=completer, cand=cand)
             cand["delta_voz"] = dv
             if dv.get("recall_status") == "unavailable":
                 kept.append(cand)  # rail escuro: declarado, nunca corta nem finge
@@ -545,13 +590,39 @@ def shortlist(cell, sugestoes, *, completer, voz_recall_fn=None, direction_text=
     else:
         trace["delta_voz"] = "nao-rodado (sem voz_recall_fn — declarado no propose)"
 
-    # O hook de grounding (§3.5): 2–3 pontos de dispatch de explorer, mirados no pólo.
+    # O hook de grounding (§3.5): 2–3 explorers no panorama — polo origina lastro,
+    # não é o visor (emenda operador 2026-08-21).
     aterrar = [{"tema": c["tema"], "forma": c.get("forma"),
-                "explorer": (f"aterra '{c['tema']}' mirado no pólo "
-                             f"{cell['objeto']}: {cat['catalogo']} — seca declarada "
-                             "é lastro (§3.5)")}
+                "explorer": (f"aterra '{c['tema']}' no panorama — mundo + mentorado + "
+                             f"obra viva + nome de fora. Polo {cell['objeto']} é "
+                             f"origem do lastro ({cat['catalogo']}), não o visor. "
+                             f"{OBJETIVO} Seca declarada é lastro (§3.5).")}
                for c in A[:N_ATERRAR]]
     return {"A": A, "cortados": cortados, "aterrar": aterrar, "trace": trace}
+
+
+def _pick_useful(passers, *, completer):
+    """Entre os que passaram pisos+gate, o briefing mais útil vence.
+    Um único passer: sem juízo extra (os testes de um-candidato não mudam)."""
+    if len(passers) == 1:
+        return passers[0], None
+    material = json.dumps(
+        [dict(_material(c), idx=i) for i, (c, *_) in enumerate(passers)],
+        ensure_ascii=False)
+    prompt = (
+        f"{OBJETIVO} {OBJETIVO_REPROVA}\n"
+        "Entre os candidatos que passaram pisos+gate, escolha o briefing de "
+        "conhecimento mais útil agora (desafios atuais, nome de fora, leitor "
+        "sai sabendo algo novo). NÃO escolha o primeiro por ordem.\n"
+        f"Candidatos:\n{material}\n\n"
+        'Responda SÓ JSON: {"idx": <int>, "evidencia": "<por que este>"}')
+    n = len(passers)
+    out = _ask(completer, prompt, context="propose/escolha",
+               fields={"idx": lambda v: (isinstance(v, int) and not isinstance(v, bool)
+                                         and 0 <= v < n),
+                       "evidencia": _nonblank})
+    return passers[out["idx"]], {"idx": out["idx"], "evidencia": out["evidencia"],
+                                 "n_passers": n}
 
 
 def propose(cell, candidates, *, dispatch_id, constraints=None,
@@ -579,8 +650,9 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
     delta_voz (computado via `voz_recall_fn`, ou DECLARADO indisponível com
     `recall_status: "unavailable"` — o fold alarma a taxa; noop corta; guarda reversa
     §4.2: domínio na Voz mata claim de lacuna do fog) → gate da abordagem (`run_gate`:
-    um critério por juiz, AND mecânico, Δ mente NUNCA dentro). Primeiro que passa TUDO
-    vence. Nenhum → silêncio LOGADO com `reason_kind` ("processo" = funil seco |
+    um critério por juiz, AND mecânico, Δ mente NUNCA dentro). Os que passam TUDO
+    entram num juízo de escolha: o briefing mais útil vence (não o primeiro da
+    ordem). Um único passer vence direto. Nenhum → silêncio LOGADO com `reason_kind` ("processo" = funil seco |
     "editorial" = juízo reprovou), nunca raise-and-wait (lei do risco). Falha do juiz
     LEVANTA (infra fail-closed via `_ask`), nunca silêncio de conteúdo.
 
@@ -719,6 +791,7 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
 
     judge = completer if completer is not None else default_completer()
     por_candidato = []
+    passers = []
     for cand in viaveis:
         floors = {}
         # Piso substrato: SEMPRE re-julgado aqui do material bruto (adv r1 #1 — a
@@ -735,7 +808,7 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
         dv = None
         if voz_recall_fn is not None:
             dv = delta_voz_check(cand["tema"], voz_recall_fn=voz_recall_fn,
-                                 completer=judge)
+                                 completer=judge, cand=cand)
         if dv is None:
             dv = {"recall_status": "unavailable",
                   "nota": "recall da Voz indisponível — piso declarado, não fingido"}
@@ -756,11 +829,22 @@ def propose(cell, candidates, *, dispatch_id, constraints=None,
         # O gate da abordagem (§5) — AND mecânico, nunca rebaixa critério.
         gate = run_gate(cell, cand, completer=judge)
         if gate["passa"]:
-            gate_trace = {"floors": floors, "gate_abordagem": gate}
-            return _pen_proposta(cand["tema"], cand["forma"], cand["lastro"],
-                                 cand, gate_trace, dv)
-        por_candidato.append({"tema": cand.get("tema"), "morreu": "gate da abordagem",
-                              "criterios": gate["criterios"]})
+            passers.append((cand, floors, gate, dv))
+        else:
+            por_candidato.append({"tema": cand.get("tema"), "morreu": "gate da abordagem",
+                                  "criterios": gate["criterios"]})
+
+    if passers:
+        picked, escolha = _pick_useful(passers, completer=judge)
+        cand, floors, gate, dv = picked
+        gate_trace = {"floors": floors, "gate_abordagem": gate, "objetivo": OBJETIVO}
+        if escolha:
+            gate_trace["escolha"] = escolha
+        gate_trace["ato2"] = (
+            "lastro semeia pointers da escolha; o gather do producer é panorâmico "
+            "(mundo + mentorado + obra viva + nome de fora) — o polo não coleia o write")
+        return _pen_proposta(cand["tema"], cand["forma"], cand["lastro"],
+                             cand, gate_trace, dv)
 
     return eventlog.append("pauta.silencio", "pauta", {
         "objeto": cell["objeto"], "abordagem": cell["abordagem"],

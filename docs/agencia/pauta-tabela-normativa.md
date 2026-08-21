@@ -37,13 +37,13 @@
 2. SORTEIO    {objeto, abordagem} — uniforme; Voz trava campos. direção na escolha do assunto; contextualização ampla
    CATÁLOGO   polo do assunto / origem do lastro (mundo→sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre) — não coleia olhar nem texto
 3. SUGESTÕES  ~12, baratas, função do wake — NUNCA pool fixo no repo
-4. SHORTLIST A ~6, mérito dentro do pólo + 1 slot estrutural de serendipidade
+4. SHORTLIST A ~6, mérito = conhecimento útil nos desafios vivos + 1 slot estrutural de serendipidade
               + checks: delta_voz · filtro direction/wayfind-aberto · substrato
-5. GROUNDING  2–3 aterrados, explorers mirados no pólo; seca declarada é lastro
-6. GATE       AND da abordagem sobre evidência → PROPOSTA (1) | silêncio (0) — nunca rebaixa critério
+5. GROUNDING  2–3 aterrados, explorers no panorama (polo = origem do lastro, não visor); seca declarada é lastro
+6. GATE       AND da abordagem sobre evidência; entre os que passam, o briefing mais útil → PROPOSTA (1) | silêncio (0) — nunca rebaixa critério
 ```
 
-**PROPOSTA** (evento `pauta.proposta`, meia página, pointers): `{abordagem, objeto, forma, tema, faceta, lastro, gate_trace, delta_voz, origem, depth}`. Não carrega outline/ângulo desenvolvido — isso é agência do producer (Ato-2). O lastro da Pauta semeia o gather do producer (grounding pra ESCOLHER ≠ grounding pra DESENVOLVER; encadeiam, não duplicam).
+**PROPOSTA** (evento `pauta.proposta`, meia página, pointers): `{abordagem, objeto, forma, tema, faceta, lastro, gate_trace, delta_voz, origem, depth}`. Não carrega outline/ângulo desenvolvido — isso é agência do producer (Ato-2). O lastro da Pauta semeia **pointers** do gather do producer (grounding pra ESCOLHER ≠ grounding pra DESENVOLVER; encadeiam, não duplicam). O gather do Ato-2 é panorâmico (mundo + mentorado + obra viva + nome de fora) — o polo não coleia o write.
 
 **Nome carrega o setup (operador 2026-07-25):** o artefato publicado informa NO NOME a célula usada — slug prefixado `{abordagem}-{objeto}--<tema>-<install><data>` (ex.: `fog-mentorado--a-fronteira-que-voce-nao-nomeou-ed-0725`) e o título rendido exibe o par (ex.: `fog × mentorado — …`). A forma já é carimbada pelo skill no publish. Vale para todo caminho, inclusive Voz fast-path (campos travados também são célula). Mecânico no publish da PROPOSTA — não é opção do producer.
 
@@ -61,29 +61,29 @@
 
 ### fog — "esclarecer o que eu não sei e dizer como saber"
 (a) lacuna ancorada em uma de 3 fontes: **declarada** (mentor/wayfind marcou — Q2) · **nunca-abordada** (existe no mundo/produto, zero Voz) · **vibe-coded** (existe e foi feito sem participação direta do mentee — logs delegados provam existência E ausência);
-(b) caminho concreto de vir a saber: primeiro passo executável + material verificado (imprimível quando houver — leveling calibra forma, nunca placar).
+(b) caminho concreto de vir a saber: o briefing NOMEIA o que o mentee ainda não sabe e como reconhecer no chão vivo; o briefing em si É o vir-a-saber — NÃO exige ticket / passo executável / próximo-clique (imprimível quando houver — leveling calibra forma, nunca placar).
 Entrega em modo **afirmação-com-evidência** (lei do risco). Falso-positivo guardado pelo delta_voz reverso.
 
 ### operacional — "dicas para o dia a dia" *(assinado provisório — revisar)*
 (a) situação **recorrente** do dia do mentee, evidenciada no runtime (≥2 ocorrências na janela ou rotina observada, citada);
-(b) dica usável na **próxima ocorrência**, **zero pré-requisito**, trade-off nomeado;
-(c) **mecanismo** em 3–5 linhas (por que funciona) — diagnóstico profundo rebaixado a serviço do porquê, nunca entregável.
+(b) conhecimento usável quando a situação voltar — ensina o mecanismo, trade-off nomeado; zero chore de uma vez; NÃO exige dica-clique na próxima ocorrência;
+(c) **mecanismo** em 3–5 linhas (por que funciona) — diagnóstico profundo PODE ser o entregável quando é o conhecimento útil.
 Chore de uma vez só REPROVA → ticket por outro rail, não artefato. Registro: "dica de quem acompanha há anos", não listicle.
 
 ### estratégico — a encruzilhada com dono
 (a) cita a Direction que toca (id no trace) — **set: gate normal; proposed: exigência extra** — o artefato serve de evidência para o mentee RATIFICAR ou DERRUBAR o fio (testa, não constrói sobre);
 (b) nomeia a decisão não-tomada + custo de seguir sem decidi-la (afirmado como aposta);
-(c) abre obra ou muda rumo (espelho do zero-pré-requisito do operacional).
+(c) o briefing muda o que ele vê no fork (nome + custo + conhecimento); NÃO exige abrir obra nem mudar rumo neste turno.
 
 ### meta-dica de trabalho — o método, não a tarefa
 (a) jeito-de-trabalhar recorrente do mentee, observado e citado;
 (b) **custo do hábito atual evidenciado no runtime** (hábito neutro NÃO é alvo — sem custo citado é opinião de estilo);
-(c) método substituto testável na próxima semana, mecanismo + trade-off.
+(c) método substituto nomeado com mecanismo + trade-off; o briefing É o método — SEM janela «nesta semana» e SEM ticket da semana.
 
 ### tempo gasto — o espelho de horas
 (a) mede o sumidouro com dado citado (proxy do session store vale, afirmado);
 (b) **confronta com prioridade declarada** (Direction/objetivo citado): "você diz que A é prioridade; as horas foram pra B";
-(c) realocação explícita: de onde → pra onde → o que ganha, com trade-off.
+(c) diz o desencontro e o conhecimento que o torna visível (de onde / pra onde, com trade-off); NÃO exige realocação-ticket.
 
 ### curiosidade do edge — sujeito invertido
 (a) pergunta genuína do edge: nomeia o que muda no MODELO dele (cortex/persona/modelo-de-domínio) com a resposta;
@@ -142,3 +142,6 @@ sujeito invertido: o edge olha o mundo/mentee com curiosidade própria, não se 
 
 ## 10. DIREÇÃO NA ESCOLHA DO ASSUNTO; CONTEXTUALIZAÇÃO AMPLA (operador 2026-08-21, vinculante — revisa §3.1 "leitura já sai mirada" e o passo WAKE "catálogo da célula")
 **Direção na escolha do assunto; contextualização ampla.** A primeira leitura é holística (Passo 1 do heartbeat antigo: sessões interativas, insights, fios, claims, corpus check, os quatro briefs sem filtro, o mundo). A célula escolhe QUAL assunto (abordagem = gate; objeto = de onde o lastro desse assunto pode originar) — não coleia o olhar nem o texto. Candidato de atividade DEVE se pendurar em coisas nomeadas do mundo e do mentorado. Lei das âncoras (§8) ganha dente.
+
+## 11. O QUE PARECE MAIS ÚTIL AGORA (operador 2026-08-21, vinculante — revisa o entregável da escolha)
+**Objetivo:** briefing de conhecimento útil face aos desafios ATUAIS do mentee. O leitor sai sabendo algo novo. Faro = nome de fora + ponte ao trabalho vivo DESTE mentee. Sem janela «nesta semana». Disco ≠ emprego: obra seca pode pendurar como contexto, não vence assunto. Chore de uma vez (WABA, 0 zones, clique) é outro rail e REPROVA. Fóssil / emprego de outro install / recap sem nome novo / o edge falando de si não são assunto. Célula/sorteio = só a escolha do assunto; contextualização sempre ampla. Explorer lê o panorama (polo não é visor). Gates julgam o briefing — não exigem passo executável, dica-clique, abrir-obra ou realocação. Entre os que passam pisos+gate, o briefing mais útil vence (não o primeiro da ordem). `user_requested` recente é insumo do look, não o gradiente da proposta.
