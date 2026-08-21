@@ -58,10 +58,16 @@ STAGES = [
     (5, "provisional_rewrite", "05_PROVISIONAL_REWRITE.md", "chat", 14_000),
     (6, "fact_audit", "06_FACT_AUDIT.md", "review", 9_000),
     (7, "author_correction", "07_AUDITED_FINAL.md", "chat", 14_000),
-    (8, "treatment_cleanup", "08_BLIND_SAFE_FINAL.md", "chat", 14_000),
-    (9, "final_html", "09_FINAL.html", None, None),
-    (10, "final_review", "10_FINAL_REVIEW.md", "review", 9_000),
-    (11, "publication", "11_PUBLICATION.json", None, None),
+    (8, "feynman_gate_1", "08a_FEYNMAN_GATE_1.json", None, None),
+    (9, "feynman_grounding_a", "08b_FEYNMAN_GROUNDING_A.md", "review", 10_000),
+    (10, "feynman_rewrite_1", "08c_FEYNMAN_REWRITE_1.md", "chat", 14_000),
+    (11, "feynman_gate_2", "08d_FEYNMAN_GATE_2.json", None, None),
+    (12, "feynman_grounding_b", "08e_FEYNMAN_GROUNDING_B.md", "review", 10_000),
+    (13, "feynman_rewrite_2", "08f_FEYNMAN_REWRITE_2.md", "chat", 14_000),
+    (14, "treatment_cleanup", "08_BLIND_SAFE_FINAL.md", "chat", 14_000),
+    (15, "final_html", "09_FINAL.html", None, None),
+    (16, "final_review", "10_FINAL_REVIEW.md", "review", 9_000),
+    (17, "publication", "11_PUBLICATION.json", None, None),
 ]
 
 LLM_STAGES = tuple(name for _, name, _, route, _ in STAGES if route)
@@ -345,6 +351,30 @@ def _llm_stage(run, manifest, name, prompt, complete_fn, outputs) -> str:
 
 # --- the runtime -----------------------------------------------------------------------------
 
+
+def _run_feynman_gate_stage(run, manifest, name, page) -> dict[str, Any]:
+    """Deterministic content gate. Records the verdict; does not raise.
+    The close tooth after rewrite 2 is what refuses publication.
+    """
+    prior = _completed_output(run, manifest, name)
+    if prior is not None:
+        return json.loads(prior)
+    import feynman_gate as _fg
+    _begin(run, manifest, name)
+    try:
+        verdict = _fg.judge(page)
+        write_text(
+            run.output_for(name),
+            json.dumps(verdict, ensure_ascii=False, indent=2, sort_keys=True),
+        )
+        _stage_record(manifest, name)["verdict"] = verdict["verdict"]
+        _finish(run, manifest, name)
+    except BaseException as exc:
+        _fail(run, manifest, name, exc)
+        raise
+    return json.loads(read_text(run.output_for(name)))
+
+
 def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skill="report",
              dispatch_id=None, log=eventlog.LOG, blog_dir=None,
              publish_fn=DEFAULT_PUBLISH, publish_meta=None, resume=False) -> dict[str, Any]:
@@ -371,6 +401,11 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
     else:
         manifest = _new_manifest(slug, intent, skill, dispatch_id)
         run.save(manifest)
+
+    import feynman_gate as _feynman_gate
+    prompts = dict(prompts)
+    for _fname, _ffactory in _feynman_gate.LOOP_PROMPTS.items():
+        prompts.setdefault(_fname, _ffactory)
 
     missing = [name for name in LLM_STAGES if name not in prompts]
     if missing:
@@ -414,9 +449,30 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
                      "fact_audit", "author_correction"):
             _llm_stage(run, manifest, name, prompts[name](outputs), complete_fn, outputs)
 
+        # Feynman content loop (hard contract): draft → gate 1 → lastro A → rewrite
+        # → gate 2 → lastro B → rewrite → close. Never skip a lastro because the
+        # gate PASSed lightly; a FAIL names holes, a PASS names thin spots.
+        page = outputs["author_correction"]
+        for gate_name, ground_name, rewrite_name in (
+            ("feynman_gate_1", "feynman_grounding_a", "feynman_rewrite_1"),
+            ("feynman_gate_2", "feynman_grounding_b", "feynman_rewrite_2"),
+        ):
+            facing = yaml_rite.reader_facing_text(page)
+            verdict = _run_feynman_gate_stage(run, manifest, gate_name, facing)
+            outputs[gate_name] = json.dumps(verdict, ensure_ascii=False, indent=2)
+            outputs["feynman_page"] = facing
+            outputs["feynman_gate_verdict"] = outputs[gate_name]
+            outputs["feynman_briefing"] = _feynman_gate.briefing(verdict)
+            _llm_stage(run, manifest, ground_name,
+                       prompts[ground_name](outputs), complete_fn, outputs)
+            page = _llm_stage(run, manifest, rewrite_name,
+                              prompts[rewrite_name](outputs), complete_fn, outputs)
+            # Leaks in a loop rewrite are cleaned by treatment_cleanup (the close),
+            # same as a leaky author_correction was. Do not abort the second round.
+
         # 8 — treatment cleanup: deterministic byte-copy when the scan is clean, else the
         # SAME AUTHOR route rewrites (run.py's conditional stage, promoted as-is)
-        audited = outputs["author_correction"]
+        audited = outputs["feynman_rewrite_2"]
         cleanup_leaks = treatment_leaks(audited)
         cleanup_stage = _stage_record(manifest, "treatment_cleanup")
         if cleanup_stage["status"] == "completed":
@@ -431,7 +487,7 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             write_text(run.output_for("treatment_cleanup"), audited)
             _stage_record(manifest, "treatment_cleanup")["execution"] = {
                 "mode": "deterministic_copy",
-                "reason": "author correction already passed the treatment scan"}
+                "reason": "feynman rewrite 2 already passed the treatment scan"}
             _finish(run, manifest, "treatment_cleanup")
             blind_safe = read_text(run.output_for("treatment_cleanup"))
         outputs["treatment_cleanup"] = blind_safe
@@ -451,6 +507,21 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         # Markdown drafts stay the pinned renderer; leftover YAML still renders to HTML.
         reader_facing = yaml_rite.reader_facing_text(blind_safe)
         outputs["reader_facing"] = reader_facing
+
+        # Close tooth: the sealed page must PASS the content gate. Mid-loop gates
+        # never publish; ACCEPTANCE PASS / assume-known / sibling do not waive.
+        final_verdict = _feynman_gate.judge(reader_facing)
+        manifest["feynman_gate"] = final_verdict
+        run.save(manifest)
+        if final_verdict["verdict"] != "PASS":
+            exc = StageFailure(
+                f"feynman gate rejected publication: {final_verdict['verdict']} "
+                f"{final_verdict.get('critical_issues') or final_verdict.get('reasons')}"
+            )
+            manifest.update({"status": "failed", "failed_stage": "feynman_gate",
+                             "finished_at": now()})
+            run.save(manifest)
+            raise exc
 
         # 9 — final_html: YAML → spec_to_html; markdown stays the pinned renderer.
         if _completed_output(run, manifest, "final_html") is None:
@@ -599,9 +670,9 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
                     and (stage.get("execution") or {}).get("mode") == "deterministic_copy"):
                 # the conditional stage's no-LLM branch: legal ONLY when byte-identical to
                 # the author correction (the same-author continuity proof is the byte copy)
-                correction = run.output_for("author_correction")
-                if not (path.is_file() and correction.is_file()
-                        and path.read_bytes() == correction.read_bytes()):
+                source = run.output_for("feynman_rewrite_2")
+                if not (path.is_file() and source.is_file()
+                        and path.read_bytes() == source.read_bytes()):
                     failures.append("cleanup-copy-not-identical")
                 continue
             prompt = stage.get("prompt") or {}

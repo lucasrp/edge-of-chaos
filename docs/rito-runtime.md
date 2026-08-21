@@ -17,9 +17,14 @@ pinning the pipeline, not scoring the artifact.
 
 1. `grounding1_dossier` (producer callable) → 2. `first_authorial_draft` (chat) →
 3. `gap_critique` (review) → 4. `grounding2_targeted` (review) → 5. `provisional_rewrite`
-(chat) → 6. `fact_audit` (review) → 7. `author_correction` (chat) → 8. `treatment_cleanup`
-(chat, or deterministic copy when the scan is clean) → 9. `final_html` (runtime render, pinned)
-→ 10. `final_review` (review, fail-closed ACCEPTANCE header) → 11. `publication` (publisher
+(chat) → 6. `fact_audit` (review) → 7. `author_correction` (chat) →
+Feynman content loop (hard contract, 2 rounds): `feynman_gate_1` (deterministic) →
+`feynman_grounding_a` (review, fresh lastro) → `feynman_rewrite_1` (chat) →
+`feynman_gate_2` → `feynman_grounding_b` → `feynman_rewrite_2` →
+8. `treatment_cleanup`
+(chat, or deterministic copy of rewrite 2 when the scan is clean) → 9. `final_html` (runtime render, pinned)
+→ close tooth `feynman_gate.judge` (FAIL = StageFailure, no publish) →
+10. `final_review` (review, fail-closed ACCEPTANCE header) → 11. `publication` (publisher
 seam). A run that didn't publish didn't finish the rite. Stage 11 of the experiment
 (`blind_reading_package`) is experiment apparatus, NOT a production stage — but the runtime
 keeps `02_FIRST_AUTHORIAL_DRAFT.md` sealed and addressable in the run dir so a later blind

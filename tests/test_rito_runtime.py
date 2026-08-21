@@ -176,7 +176,18 @@ CANNED = {
     "author_correction": (
         "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
         "> o indice vence onde a estrutura importa."),
-    "final_review": (
+        "feynman_grounding_a": (
+        "# Lastro fresco\n\nNenhum buraco quantitativo neste texto de teste. "
+        "O indice e o buscador ja estao no mundo da peca."),
+    "feynman_rewrite_1": (
+        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
+        "> o indice vence onde a estrutura importa."),
+    "feynman_grounding_b": (
+        "# Lastro fresco B\n\nAinda sem taxa sem universo. O indice continua o objeto."),
+    "feynman_rewrite_2": (
+        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
+        "> o indice vence onde a estrutura importa."),
+"final_review": (
         "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
         "Revisao qualitativa: util por si so."),
 }
@@ -188,13 +199,22 @@ YAML_CANNED = {
     "provisional_rewrite": YAML_PROVISIONAL,
     "fact_audit": "# Fact audit\n\n## Verdict\nPASS\n\n## Claim ledger\ntudo sustentado.",
     "author_correction": YAML_AUTHOR_CORRECTION,
-    "final_review": (
+        "feynman_grounding_a": (
+        "# Lastro fresco\n\nNenhum buraco quantitativo neste texto de teste. "
+        "O indice e o buscador ja estao no mundo da peca."),
+    "feynman_rewrite_1": YAML_AUTHOR_CORRECTION,
+    "feynman_grounding_b": (
+        "# Lastro fresco B\n\nAinda sem taxa sem universo. O indice continua o objeto."),
+    "feynman_rewrite_2": YAML_AUTHOR_CORRECTION,
+"final_review": (
         "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
         "Revisao qualitativa: util por si so."),
 }
 
 LLM_ORDER = ["first_authorial_draft", "gap_critique", "grounding2_targeted",
-             "provisional_rewrite", "fact_audit", "author_correction", "final_review"]
+             "provisional_rewrite", "fact_audit", "author_correction",
+             "feynman_grounding_a", "feynman_rewrite_1",
+             "feynman_grounding_b", "feynman_rewrite_2", "final_review"]
 
 
 def _prompts():
@@ -275,7 +295,10 @@ class StageTableTest(unittest.TestCase):
             [name for _, name, _, _, _ in rito.STAGES],
             ["grounding1_dossier", "first_authorial_draft", "gap_critique",
              "grounding2_targeted", "provisional_rewrite", "fact_audit",
-             "author_correction", "treatment_cleanup", "final_html", "final_review",
+             "author_correction",
+             "feynman_gate_1", "feynman_grounding_a", "feynman_rewrite_1",
+             "feynman_gate_2", "feynman_grounding_b", "feynman_rewrite_2",
+             "treatment_cleanup", "final_html", "final_review",
              "publication"])
 
     def test_author_and_reviewer_routes_are_the_experiments(self):
@@ -286,6 +309,12 @@ class StageTableTest(unittest.TestCase):
         self.assertEqual(routes["provisional_rewrite"], "chat")
         self.assertEqual(routes["fact_audit"], "review")
         self.assertEqual(routes["author_correction"], "chat")
+        self.assertIsNone(routes["feynman_gate_1"])
+        self.assertEqual(routes["feynman_grounding_a"], "review")
+        self.assertEqual(routes["feynman_rewrite_1"], "chat")
+        self.assertIsNone(routes["feynman_gate_2"])
+        self.assertEqual(routes["feynman_grounding_b"], "review")
+        self.assertEqual(routes["feynman_rewrite_2"], "chat")
         self.assertEqual(routes["treatment_cleanup"], "chat")
         self.assertEqual(routes["final_review"], "review")
         self.assertIsNone(routes["final_html"])
@@ -400,9 +429,14 @@ class FullRiteTest(unittest.TestCase):
         canned = dict(CANNED)
         canned["author_correction"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
                                        "mecanismo da rodada 3.")
+        canned["feynman_rewrite_1"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
+                                       "mecanismo da rodada 3.")
+        canned["feynman_rewrite_2"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
+                                       "mecanismo da rodada 3.")
         canned["treatment_cleanup"] = ("# Relatorio exp-teste\n\nAqui eu explico o mecanismo "
                                        "da rodada 3.")
-        order = LLM_ORDER[:6] + ["treatment_cleanup"] + LLM_ORDER[6:]
+        # loop (4 LLM stages) sits between author_correction and treatment_cleanup
+        order = LLM_ORDER[:10] + ["treatment_cleanup"] + LLM_ORDER[10:]
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = _green_run(tmp, canned=canned, order=order)
             stage = next(s for s in manifest["stages"] if s["name"] == "treatment_cleanup")
@@ -771,7 +805,7 @@ class ReaderFacingProbeReviewTest(unittest.TestCase):
                 intent=INTENT, skill="report", dispatch_id=did,
                 log=log, blog_dir=blog,
             )
-            review_prompt = (run_dir / "prompts" / "10_final_review.md").read_text()
+            review_prompt = (run_dir / "prompts" / "16_final_review.md").read_text()
             sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
             self.assertTrue(yaml_rite.is_yaml_draft(sealed))
             self.assertIn("rodada 3", review_prompt)
