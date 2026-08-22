@@ -1,4 +1,4 @@
-"""S-ATTEST (conductor integration, Goal 3 slice 2) — the close-owned, unforgeable assembly
+"""S-ATTEST (Goal 3 slice 2) — the close-owned, unforgeable assembly
 attestation. Verifies the deep-dive genus OBLIGATION (A2/A6/A7), the genus-split defaulting, and the
 honest NG7 residual (A8c). Asserts ONLY on `assembly-grounding:*` violations (other genus checks are
 orthogonal here)."""
@@ -59,7 +59,7 @@ class GenusSplitDefaulting(unittest.TestCase):
     def test_bare_deep_dive_pre_mint_is_lenient(self):
         # absent is NOT struck on its own (codex P1): the improve stage runs check_genus BEFORE the mint,
         # so striking absent there would plateau a valid improver. Enforcement rides the MINTED attestation
-        # (a conductor-on deep-dive with no provenance is minted single-context and struck — see
+        # (a deep-dive with no provenance is minted single-context and struck — see
         # test_deep_dive_with_no_assembly_fails_closed_when_conductor_on).
         self.assertEqual(_ag_violations(_art("research")), [])
 

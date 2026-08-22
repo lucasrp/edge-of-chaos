@@ -28,7 +28,7 @@ CAND = {"tema": "o ciclo do teu dispatch", "forma": "report", "faceta": "custo",
         "fontes": ["state/events/log.jsonl"]}
 
 SPEC_FIELDS = ("abordagem", "objeto", "forma", "tema", "faceta", "lastro",
-               "gate_trace", "delta_voz", "origem", "depth", "dispatch_id", "slug_prefix")
+               "gate_trace", "delta_voz", "origem", "dispatch_id", "slug_prefix")
 
 SUBSTRATO_OK = json.dumps({"reprova": []})
 PASSA_A = json.dumps({"veredito": "passa", "evidencia": "cita a"})

@@ -29,28 +29,43 @@ autoriza**: portfolio/map/frontier não entram no plano e não podem alterá-lo.
 ## Ato 1 — the trunk: o funil da Pauta → PROPOSTA | silêncio
 
 A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
-`docs/agencia/pauta-tabela-normativa.md`). O funil, na ordem assinada:
+`docs/agencia/pauta-tabela-normativa.md`). **Objetivo:** Trazer um conceito que o mentee ainda não tem, e que pode ajudar a decidir o que o trabalho já está apontando. O trabalho é o sensor da decisão (não o calor do corpus). Faro = nome de fora + ponte à decisão viva DESTE mentee. Disco ≠ emprego. Sem janela «nesta semana». **Reprova:** chore, fóssil, outro install, recap, edge sobre si, calor do corpus. O funil, na ordem assinada:
 
-1. **SORTEIO antes do wake** — `tools/edge-python tools/pauta.py sortear` (Voz trava campos:
-   `--lock objeto=mentorado`). A célula `{objeto × abordagem}` sai ANTES de qualquer leitura — a
-   leitura já sai mirada. Sem blocklist: célula inviável morre em silêncio logado.
-2. **Grounding INICIAL mirado** — run the mechanical entry-driver
-   (`tools/edge-python tools/predispatch.py`) and read its briefs (briefing + quente + delta +
-   recall) ATRAVÉS do catálogo da célula (`tools/pauta.py catalogo --cell '<json>'`: mundo→
-   sources · atividade→conversas/obra · mentorado→leveling/fog · ser→livre). READ the latest
-   `user_requested` artefatos (the quente's anchors carry them) — first-order sinal de pauta.
-3. **~12 SUGESTÕES** baratas, função do wake que você acabou de ler — NUNCA um pool fixo do
-   repo. Cada uma `{tema, forma, semente}` (a forma nasce na sugestão).
+1. **Olhar holístico PRIMEIRO** — run the mechanical entry-driver
+   (`tools/edge-python tools/predispatch.py`) and read the panorama, unfiltered: sessões
+   interativas, insights, fios, claims, corpus check, the four briefs (briefing + quente +
+   delta + recall), and the world. Old heartbeat Passo 1 spirit: the first look is
+   panoramic. Lei das âncoras — wake é insumo, não coleira. READ the latest
+   `user_requested` artefatos (the quente's anchors carry them) — first-order *input*
+   to the look, never the gradient of the subject. A recent chore-ask stays on the
+   chore rail.
+2. **SORTEIO = escolha do assunto** — `tools/edge-python tools/pauta.py sortear`
+   (Voz trava campos: `--lock objeto=mentorado`). **direção na escolha do assunto; contextualização ampla.** A célula `{objeto × abordagem}` picks WHICH SUBJECT
+   (abordagem = gate; objeto = where lastro for that subject can originate). It does
+   not aim the look or the write. Then `tools/pauta.py catalogo --cell '<json>'` names
+   that subject-polo (mundo→sources · atividade→conversas/obra ·
+   mentorado→leveling/fog · ser→livre). `objeto=atividade` does **not** forbid (it
+   encourages) hanging the candidate on named things in the world and on the mentee.
+   Sem blocklist: célula inviável morre em silêncio logado.
+3. **~12 SUGESTÕES** — NUNCA pool fixo do repo. Cada uma `{tema, forma, semente}`.
+   MIX (vinculante na INVENÇÃO, não só no juiz): trazer um CONCEITO que o mentee
+   ainda não tem, e que pode ajudar a DECIDIR o que o trabalho vivo já está
+   apontando. O trabalho (emprego deste mentee) é o sensor da decisão — não o
+   calor do corpus do agent. Faro = nome de fora + ponte à decisão. Chore,
+   fóssil-como-assunto, emprego de outro install, recap, o edge falando de si
+   NÃO entram nas 12. Wake informa; não vira o assunto.
 4. **SHORTLIST A** — `tools/pauta.py shortlist --cell '<json>' --sugestoes '<json>'
-   [--direction state/direction.md]`: mérito dentro do pólo + 1 slot estrutural de
+   [--direction state/direction.md]`: mérito = briefing de conhecimento útil
+   face aos desafios vivos (não encaixe no pólo) + 1 slot estrutural de
    serendipidade, com os checks semânticos (substrato · filtro direction/wayfind-aberto ·
-   delta_voz — a Voz é baseline, não blocklist).
-5. **GROUNDING** — para cada ponto em `aterrar` (2–3), dispatch um explorer mirado no pólo
-   (subagentes em paralelo no MESMO turno, bloqueante). Seca declarada É lastro; nunca produção
-   sem mundo dentro.
+   delta_voz — a Voz é baseline, não blocklist; julga o candidato inteiro).
+5. **GROUNDING** — para cada ponto em `aterrar` (2–3), dispatch um explorer no
+   panorama (mundo + mentorado + obra viva + nome de fora). Polo é origem do
+   lastro, não o visor. Subagentes em paralelo no MESMO turno, bloqueante.
+   Seca declarada É lastro; nunca produção sem mundo dentro.
 6. **PROPOSTA | silêncio** — `tools/pauta.py propose --cell '<json>' --candidates '<json>'
    --dispatch-id "$EDGE_DISPATCH_PLAN_ID"`: pisos + gate da abordagem em AND (nunca rebaixa
-   critério) → `pauta.proposta` ou `pauta.silencio` no log. Se silêncio, **finish without
+   critério); entre os que passam, o briefing mais útil vence. → `pauta.proposta` ou `pauta.silencio` no log. Se silêncio, **finish without
    publishing** — an unused wake is honest (lei do risco: silêncio logado, nunca espera).
 7. **O dente** — re-derive o plano (gate zero acima). Sem `pauta.proposta` viva, Ato-2 não
    abre — uniforme para autônomo e comandado.
@@ -70,7 +85,7 @@ a ordem TRAVA os campos que nomeia e o funil roda só nos graus de liberdade res
   eixos que a ordem pinar (célula travada ainda é célula — o nome carrega o setup);
 - `tools/edge-python tools/pauta.py propose --cell '<json>' --candidates '<json do grounding>'
   --dispatch-id "$EDGE_DISPATCH_PLAN_ID" --constraints
-  '{"origem":"voz","tema":"<da ordem>","forma":"<da ordem>","depth":"<se pedida>"}'`.
+  '{"origem":"voz","tema":"<da ordem>","forma":"<da ordem>"}'`.
 
 A palavra do operador é **PROPOSTA-ok por autoridade**: nenhum juízo LLM roda, os pisos entram
 em modo-declara e o recibo `gate_trace.waived` lista exatamente o que NÃO rodou e por quê
@@ -104,15 +119,15 @@ nunca confere autoridade (o log é a verdade, ADR-0006).
 
 
 
-The proposal weighs **origem**: an artefato **pedido pelo usuário** (`origin: user_requested`,
-declared at the wake — `predispatch.py --origin user_requested`) is exactly where the mentee's
-cognition is NOW, first-order signal that outweighs anything the beat would pick alone; a beat
-artefato (`origin: beat`, the default) is exploration. The dispatch stamps the origin and the
-publisher carries it onto the published artefato — everything that learns from artefatos weighs
-user_requested above beat. **Read it, don't just weigh it in the abstract**: at the grounding
-inicial, READ the latest `user_requested` artefatos — the quente's anchors carry them (the
-`artefatos user_requested` anchor) — as first-order sinal de pauta: what the mentee ASKED for
-recently is the gradient the proposta follows; the beat's own picks are exploration around it.
+The proposal READS **origem**. An artefato **pedido pelo usuário** (`origin: user_requested`,
+declared at the wake — `predispatch.py --origin user_requested`) is first-order *input* to
+the panoramic look — the quente's anchors carry them. It is **not** the gradient the
+proposta follows. Heartbeat subject = useful knowledge on live challenges. A recent ask
+that is a one-shot chore (WABA, verify, cockpit click, 0 zones) stays on the chore rail;
+do not let it re-aim the subject after the panorama. A beat artefato (`origin: beat`) is
+exploration around the live work, not around the last ticket. The dispatch still stamps
+origin and the publisher carries it — learning from artefatos may weigh user_requested
+above beat *as corpus*, never as the subject of this heartbeat.
 
 ## Ato 2 — the branches: um agente por artefato, rounds próprios
 
@@ -121,6 +136,9 @@ the SAME turn — blocking; the lei do turno above rules here too):
 
 - Each branch-agent runs exactly `skills/<decision.producer>` on the shared scaffold
   (`skills/_shared/scaffold.md`) and produces **one Artefato** in its form.
+  The Pauta lastro seeds **pointers** (grounding to CHOOSE ≠ grounding to DEVELOP).
+  Ato-2 gather is panoramic — mundo + mentorado + live work + outside name. The
+  cell polo does not collar the write.
 - **O slug do artefato começa com `decision.slug_prefix`** (`{abordagem}-{objeto}--`, §3 da
   tabela: o nome carrega o setup — não é opção do producer). O post-gate do heartbeat verifica
   mecanicamente: slug sem o prefixo da célula é gap.

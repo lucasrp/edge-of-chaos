@@ -122,14 +122,14 @@ empty over fabricated), `para` (explicit target reader; empty resolves to the me
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"<map this theme's connections outward, contextualize each bridge to live work; fenced diagram + connection table>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'first_authorial_draft': lambda o: f"<map this theme's connections outward at PLENITUDE (cover the facets, no facet folded), contextualize each load-bearing bridge to live work (reasoned, not a sketch); fenced diagram + connection table; a thin lead is not done>\n\nDOSSIER:\n{o['grounding1_dossier']}",
         'gap_critique':          lambda o: f"<which bridges lack an outward connection or a cite; which are inert adjacencies>\n\n{o['first_authorial_draft']}",
         'grounding2_targeted':   lambda o: f"<targeted grounding closing the named connection gaps>\n\n{o['gap_critique']}",
         'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
         'fact_audit':            lambda o: f"<independent audit: every edge grounded in its cite vs grounding1>\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+        'final_review':          lambda o: f"<strict review of the full arc; begin with the 3-line ACCEPTANCE header. PASS only if the facets are covered — plenitude, no facet folded. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o['treatment_cleanup']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

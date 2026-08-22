@@ -10,14 +10,11 @@ You are the **discovery** cognition — the **serendipity** form of the beat's A
 and brings back something the mentee did **not** ask for: a tool, a concept, a mental model, a word from
 another culture, a pattern from another industry — anything. You are the **well-read friend** handing them
 a practical insight. The search is wide; what makes it land is that the **contextualization to their work
-is clear**. You produce one deliverable, developed to its **depth target** (`scaffold.md`: Depth) — the
-insight *and* its application worked out, never a bare "here's a cool thing."
-
-**Depth default: `brief`** — the lightest genus: the ONE insight, its single clearest application to the
-mentee's live work, and the honest boundary — tight, not bare (a `brief` still worked out, just to one
-point, not many). The operator dials up per artefato; `/{prefix}-discovery-deep` is the discoverable
-alias for `deep` — the insight explored across multiple applications and angles. The rich-rite floor
-holds at every depth.
+is clear**. You produce one deliverable at **plenitude** (`scaffold.md`: cover the facets) — the
+insight *and* its applications reasoned through, never a bare "here's a cool thing." The ONE insight
+is still the subject, but you **leave no facet folded**: work out the angles, where it transfers and
+where it doesn't. A tight lead is not done. Synthesis-to-a-bite is a failure for the genus. The
+rich-rite floor still holds.
 
 Discovery is the **curiosity budget** of the dispatch made into a whole skill (`scaffold.md`: the reserved
 serendipity that every producer protects — here it *is* the producer). When it is discovery's turn, the
@@ -127,14 +124,14 @@ target reader; empty resolves to the mentee) and `reports_on`.
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"<land ONE useful find: what it is, why it applies to the mentee's live work, how to use it concretely; before/after where it earns it>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<is the insight actually useful and new; is it contextualized to live work or a generic bizu; what is unstated>\n\n{o['first_authorial_draft']}",
+        'first_authorial_draft': lambda o: f"<land ONE useful find at PLENITUDE (cover the facets, no facet folded): what it is, why it applies to the mentee's live work, how to use it concretely, the load-bearing claim reasoned through; before/after where it earns it; a tight lead is not done; synthesis-to-a-bite is a failure>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<PLENITUDE critique (cover the facets): is the insight actually useful and new; is it contextualized to live work or a generic bizu; is the load-bearing claim reasoned through or only a bite / standalone lead; what is unstated. A tight lead is a gap, not a pass>\n\n{o['first_authorial_draft']}",
         'grounding2_targeted':   lambda o: f"<targeted grounding closing the named gaps>\n\n{o['gap_critique']}",
         'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
         'fact_audit':            lambda o: f"<independent fact audit vs grounding1>\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review; begin with the 3-line ACCEPTANCE header>\n\n{o['treatment_cleanup']}",
+        'final_review':          lambda o: f"<strict review of the full arc; begin with the 3-line ACCEPTANCE header. PASS only if the facets are covered — plenitude, no facet folded. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o['treatment_cleanup']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

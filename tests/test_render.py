@@ -343,5 +343,71 @@ class InlineTagSafelistRendersNotEscapes(unittest.TestCase):
         self.assertIn("<i>raw</i>", out)
 
 
+class MarkdownMermaidKatexTest(unittest.TestCase):
+    SAMPLE = (
+        "# Titulo\n"
+        "\n"
+        "Paragrafo com \\(W_q\\) inline.\n"
+        "\n"
+        "```mermaid\n"
+        "graph TD\n"
+        "  A --> B\n"
+        "```\n"
+        "\n"
+        "\\[\n"
+        "S(a,b)=\\theta f(A\\cap B)\n"
+        "\\]\n"
+        "\n"
+        "depois.\n"
+    )
+
+    def _page(self):
+        return render.render_markdown_page(self.SAMPLE, "Titulo")
+
+    def test_mermaid_fence_is_one_pre_not_split_paragraphs(self):
+        page = self._page()
+        self.assertEqual(page.count("<pre class=\"mermaid\">"), 1)
+        self.assertIn("graph TD", page)
+        self.assertIn("A --&gt; B", page)
+        self.assertNotIn("<p>" + "```" + "mermaid</p>", page)
+        self.assertNotIn("<p>graph TD</p>", page)
+        start = page.index("<pre class=\"mermaid\">")
+        end = page.index("</pre>", start)
+        block = page[start:end]
+        self.assertIn("graph TD", block)
+        self.assertIn("A --&gt; B", block)
+
+    def test_display_math_is_one_block(self):
+        page = self._page()
+        self.assertEqual(page.count("<div class=\"math-display\">"), 1)
+        self.assertNotIn("<p>" + chr(92) + "[</p>", page)
+        self.assertNotIn("<p>" + chr(92) + "]</p>", page)
+        start = page.index("<div class=\"math-display\">")
+        end = page.index("</div>", start)
+        block = page[start:end]
+        self.assertIn(chr(92) + "[", block)
+        self.assertIn("S(a,b)=" + chr(92) + "theta f(A" + chr(92) + "cap B)", block)
+        self.assertIn(chr(92) + "]", block)
+
+    def test_inline_math_stays_in_paragraph(self):
+        page = self._page()
+        self.assertIn("<p>Paragrafo com " + chr(92) + "(W_q" + chr(92) + ") inline.</p>", page)
+
+    def test_head_loads_mermaid_katex_and_auto_render(self):
+        head = self._page().split("</head>", 1)[0]
+        self.assertIn("mermaid@", head)
+        self.assertIn("katex@", head)
+        self.assertIn("auto-render", head)
+        self.assertIn("renderMathInElement", head)
+        self.assertIn("mermaid.initialize", head)
+
+    def test_single_line_display_math(self):
+        md = "# T" + chr(10)*2 + chr(92) + "[S=1" + chr(92) + "]" + chr(10)
+        page = render.render_markdown_page(md, "T")
+        self.assertEqual(page.count("<div class=\"math-display\">"), 1)
+        self.assertIn(chr(92) + "[S=1" + chr(92) + "]", page)
+        self.assertNotIn("<p>" + chr(92) + "[S=1" + chr(92) + "]</p>", page)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

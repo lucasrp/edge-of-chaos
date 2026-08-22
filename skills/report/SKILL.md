@@ -5,14 +5,11 @@ description: Produce one Artefato in its prose-synthesis form — a focused, Idi
   the Artefato genus (vs prototype's interactive page). Invoked as /{prefix}-report or run inside the beat.
 ---
 You are the **report** cognition — the **prose-synthesis** form of the beat's Artefato (CONTEXT.md:
-*Artefato*). Given one Worthwhile theme and the evidence gathered for it, you produce a synthesis the
-mentee did not already know, **developed to its depth target** (`scaffold.md`: Depth). One deliverable,
-whole at its target (it is transient — it cools — but while it lives it is whole).
-
-**Depth default: `standard`** — the arc and the load-bearing claims reasoned through, tailored to the
-mentee, not every facet exhausted. The **operator sets depth per artefato** (an override named in the
-invocation); `/{prefix}-report-deep` is the discoverable alias for `deep` (plenitude). The rich-rite
-floor (the four moves present) holds at **every** depth — depth only sets how far *above* it you develop.
+*Artefato*). The duty lives in `skills/_shared/scaffold.md`. Read it. Do not restate it. Do not add
+a second duty. Given one Worthwhile theme and the evidence gathered for it, execute that genus:
+door, derive in the open, this-page, the world. One deliverable, whole (it is transient — it cools
+— but while it lives it is whole). A tight lead is not done. Synthesis-to-a-bite is a failure for
+the genus. Plenitude is those moves developed, not cover-every-facet.
 
 You are a **thin specialization** of the shared producer scaffold (ADR-0012): you do **not** write your
 own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply the theme and the producing
@@ -51,15 +48,11 @@ The scaffold names three role-defined slots; report maps each to its prose-synth
   and implementation traces establish execution and evidence. Reading both does not make their
   vocabularies or actions interchangeable.
 - **`converge`** (loop2 critic) — judge whether the synthesis **changes what the mentee does next**
-  (leitura cega 2026-07-05, vencedor v2-plus-visual) and is **developed to plenitude**: the arc whole,
-  the load-bearing claims reasoned through with their implications drawn out, tailored to the mentee,
-  and the ending landing on his live work. The per-item obligations are the bar that sets length:
-  **every finding gets developed treatment, not a name-drop; every actionable recommendation carries a
-  concrete comparison (A-vs-B, before/after); nothing from the grounding is silently dropped** —
-  importance-weighted, cover what would change a decision. Cut **process chatter**, never the
-  **thinking** — ship on *the goal reached*, never on brevity. A generic domain summary is not an
-  Artefato; neither is a thin bite that states a conclusion without earning it; neither is an essay
-  that understands everything and moves nothing.
+  (leitura cega 2026-07-05, vencedor v2-plus-visual) and satisfies `scaffold.md`: door in the first
+  block, derivation visible, a stranger who did not live the session can restate claim and why
+  (score 5), the work placed in the world. Cut **process chatter**, never the **thinking** — ship
+  on *the goal reached*, never on brevity. A generic domain summary is not an Artefato; neither is
+  a thin bite that states a conclusion without earning it; neither is cover-every-facet padding.
 - **`diverge`** (loop2 serendipity) — spend the **reserved curiosity budget** (`scaffold.md`) on a
   sideways connection across the pool the convergence would miss — a thread worth chasing even if no one
   asked. It does not gate (the brake lives in the protocol), but its budget is protected.
@@ -78,25 +71,13 @@ is EMERGENT** — it grows because a hard idea got a handle, never toward a numb
 length target or cap.
 
 Frame in the mentee's **Idiom** — their coined terms kept verbatim (the Idiom standing page).
-**Contextualization is CALIBRATED, not exhaustive** (leitura cega 2026-07-05): infer what the reader
-knows from the human side of the dialogue, never from implementation the edge/IA performed. A reader
-who directs an implementation does not thereby inherit the executor's code vocabulary; a reader who
-personally reasons through a technical trade-off does. Never re-explain what the human evidence shows
-is known (pure tax); spend the entire contextualization budget on what is **genuinely new** in THIS synthesis, giving each new thing one
-concrete handle (a worked example, a number, a before/after). Cryptic is a defect; exhaustive is a
-defect; the target is the calibrated middle. **Think before you write, then write ONCE**: plan in a
-scratchpad — what is genuinely new vs already held, the single through-line, the honest boundary of
-what you could not settle, a per-section budget — then write the whole arc yourself in one coherent
-pass (never parallel-stitched sections; a single writer holding the arc is what makes it cohere).
-Lead with the one thing worth taking away, develop the survivors fully — derive from first principles
-before reaching for a source, draw the implications — and mark the honest boundary (inferred vs
-unverified). **End on the mentee's live work**: the last thing he reads is concrete next-steps or
-candidate steers tied to what he is running now, each earned by the body — the artifact succeeds when
-he finishes knowing what to do, not merely understanding. **Sections are FREE** — the close checks the
-*property* (depth, arc, honesty, clarity, actionability) present anywhere, never a named section.
-Depth is the **depth of the survivors**: developed fully where the material earns it, never
-teach-everything (a thin bite that left the thinking undone fails; so does an 8k-word essay that
-buries the one move that matters).
+Execute `scaffold.md`. Do not assume the session. **Think before you write, then write ONCE**: plan
+in a scratchpad — the through-line, the honest boundary, then write the whole arc yourself in one
+coherent pass (never parallel-stitched sections). Lead with the door, derive in the open, place the
+work in the world. **End on the mentee's live work**: the last thing he reads is concrete next-steps
+or candidate steers tied to what he is running now, each earned by the body. **Sections are FREE** —
+no mandatory Glossary, no mandatory "O que não sei". A thin bite that left the thinking undone fails;
+so does cover-every-facet padding that buries the one move that matters.
 
 ## Visual idiom — prose first; a table ONLY for a genuine A-vs-B comparison
 
@@ -160,14 +141,14 @@ that becomes the canonical reading; omit when no experiment closes).
         return llm_routes.completer_for(route, max_tokens=max_tokens)(prompt)
 
     prompts = {
-        'first_authorial_draft': lambda o: f"<the produce guidance, this theme; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; CALIBRATE: contextualize the genuinely-new, ASSUME the operator's known (edge + his domain — re-explaining the known is enfadonho); prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<PEDAGOGICAL critique: where does this fail to TEACH the genuinely-new? where is it cryptic / contextualization thin? name ONLY the gaps a reader can't cross — not every possible elaboration (the known needs no handle)>\n\n{o['first_authorial_draft']}",
+        'first_authorial_draft': lambda o: f"<the produce guidance, this theme; duty is skills/_shared/scaffold.md — execute it, do not restate it; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target; synthesis-to-a-bite is a failure>\n\nDOSSIER:\n{o['grounding1_dossier']}",
+        'gap_critique':          lambda o: f"<critique of the FULL ARC against skills/_shared/scaffold.md: where is there no door in the first block? where is a load-bearing claim asserted not reasoned? where is it a bite / lead that stands alone without the arc? where would a stranger who did not live the session fail to restate claim and why? where is the world absent? A tight lead is a gap, not a pass>\n\n{o['first_authorial_draft']}",
         'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
-        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, keeping the calibration (assume the known), folding critique+the new grounding2 into contextualizing prose>\n\n{o['grounding2_targeted']}",
+        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, executing skills/_shared/scaffold.md, folding critique+the new grounding2 into contextualizing prose>\n\n{o['grounding2_targeted']}",
         'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
         'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
         'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review of the READER-FACING page (rendered HTML if the sealed draft is YAML; markdown as-is); begin with the 3-line ACCEPTANCE header>\n\n{o.get('reader_facing') or o['treatment_cleanup']}",
+        'final_review':          lambda o: f"<strict review of the READER-FACING page (rendered HTML if the sealed draft is YAML; markdown as-is); begin with the 3-line ACCEPTANCE header. PASS only if skills/_shared/scaffold.md holds — door, derivation visible, score 5 (a stranger understands), the world present. Cover-every-facet padding is not a pass. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o.get('reader_facing') or o['treatment_cleanup']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

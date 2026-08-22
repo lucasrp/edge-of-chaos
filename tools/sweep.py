@@ -1086,7 +1086,7 @@ def embed_and_signal(slug, body, cites, embed_fn=None, log=eventlog.LOG):
 
 
 def _maybe_consolidate():
-    """Communities consolidation behind EDGE_COMMUNITIES=1 (dark by default, padrão EDGE_CONDUCTOR).
+    """Communities consolidation behind EDGE_COMMUNITIES=1 (dark by default).
     Vazão×confiança: a vazão é automática atrás do knob; a confiança fica no harm-bearing. Best-effort
     como o graph-ingest — NUNCA derruba um sweep (grafo/LLM fora → skip logado).
 

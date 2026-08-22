@@ -176,7 +176,18 @@ CANNED = {
     "author_correction": (
         "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
         "> o indice vence onde a estrutura importa."),
-    "final_review": (
+        "feynman_grounding_a": (
+        "# Lastro fresco\n\nNenhum buraco quantitativo neste texto de teste. "
+        "O indice e o buscador ja estao no mundo da peca."),
+    "feynman_rewrite_1": (
+        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
+        "> o indice vence onde a estrutura importa."),
+    "feynman_grounding_b": (
+        "# Lastro fresco B\n\nAinda sem taxa sem universo. O indice continua o objeto."),
+    "feynman_rewrite_2": (
+        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
+        "> o indice vence onde a estrutura importa."),
+"final_review": (
         "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
         "Revisao qualitativa: util por si so."),
 }
@@ -188,13 +199,22 @@ YAML_CANNED = {
     "provisional_rewrite": YAML_PROVISIONAL,
     "fact_audit": "# Fact audit\n\n## Verdict\nPASS\n\n## Claim ledger\ntudo sustentado.",
     "author_correction": YAML_AUTHOR_CORRECTION,
-    "final_review": (
+        "feynman_grounding_a": (
+        "# Lastro fresco\n\nNenhum buraco quantitativo neste texto de teste. "
+        "O indice e o buscador ja estao no mundo da peca."),
+    "feynman_rewrite_1": YAML_AUTHOR_CORRECTION,
+    "feynman_grounding_b": (
+        "# Lastro fresco B\n\nAinda sem taxa sem universo. O indice continua o objeto."),
+    "feynman_rewrite_2": YAML_AUTHOR_CORRECTION,
+"final_review": (
         "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
         "Revisao qualitativa: util por si so."),
 }
 
 LLM_ORDER = ["first_authorial_draft", "gap_critique", "grounding2_targeted",
-             "provisional_rewrite", "fact_audit", "author_correction", "final_review"]
+             "provisional_rewrite", "fact_audit", "author_correction",
+             "feynman_grounding_a", "feynman_rewrite_1",
+             "feynman_grounding_b", "feynman_rewrite_2", "final_review"]
 
 
 def _prompts():
@@ -205,11 +225,76 @@ def _prompts():
     return {stage: mk(stage) for stage in stages}
 
 
+def _review_payload_for(prompt, canned):
+    """Canned JSON for the LLM reviewer. Explicit override wins; else page-aware."""
+    import feynman_gate as _fg
+    if canned.get("feynman_review"):
+        return canned["feynman_review"]
+    if "n=205" in prompt or "n=216" in prompt or "Dahl et al." in prompt:
+        return json.dumps({
+            "overall": 4.0,
+            "dimensions": {
+                name: {"score": 4, "feedback": f"{name}: instruments taught; still name one next hole on this page"}
+                for name in _fg.DIMENSIONS
+            },
+            "critical_issues": [],
+            "suggestions": [
+                "Name one more outside paper if the claim can bear it.",
+                "Keep whose/of-what/n on every rate callback.",
+                "Write the derivation step that was skipped.",
+            ],
+        }, ensure_ascii=False)
+    if "0,2%" in prompt:
+        return json.dumps({
+            "overall": 1.8,
+            "dimensions": {
+                name: {"score": (1 if name in ("didatica", "consistencia") else 2),
+                       "feedback": f"{name}: unexplained rate / waiver"}
+                for name in _fg.DIMENSIONS
+            },
+            "critical_issues": [
+                "0,2% lacks whose evaluation, of what, n -- Harvey + invention is not the instrument",
+                "17% lacks whose evaluation, of what, n",
+                "ja esta estabelecido carrying the rates",
+            ],
+            "suggestions": ["Fetch whose/of-what/n for each rate."],
+        }, ensure_ascii=False)
+    if "#foo-bar-baz" in prompt or "01KYBTM" in prompt:
+        return json.dumps({
+            "overall": 1.5,
+            "dimensions": {
+                name: {"score": (1 if name == "mundo" else 2),
+                       "feedback": f"{name}: local idiom"}
+                for name in _fg.DIMENSIONS
+            },
+            "critical_issues": [
+                "page never leaves the local idiom -- no named thing in the world in the prose"
+            ],
+            "suggestions": ["Name a paper, product, or case in the prose."],
+        }, ensure_ascii=False)
+    return json.dumps({
+        "overall": 4.0,
+        "dimensions": {
+            name: {"score": 4, "feedback": f"{name}: ok for the canned page; still name one next hole"}
+            for name in _fg.DIMENSIONS
+        },
+        "critical_issues": [],
+        "suggestions": [
+            "Name one more outside paper if the claim can bear it.",
+            "Keep whose/of-what/n on every rate callback.",
+            "Write the derivation step that was skipped.",
+        ],
+    }, ensure_ascii=False)
+
+
 def _complete_fn(canned, order):
-    """Fake transport: returns the canned output for each LLM stage in rite order."""
+    """Fake transport: canned cognitive outputs; reviewer prompts return JSON."""
+    import feynman_gate as _fg
     queue = [canned[name] for name in order]
 
     def complete(route, prompt, max_tokens):
+        if isinstance(prompt, str) and _fg.REVIEWER_MARKER in prompt:
+            return _review_payload_for(prompt, canned)
         if not queue:
             raise RuntimeError("transport exhausted: rite asked for more stages than canned")
         return queue.pop(0)
@@ -275,7 +360,10 @@ class StageTableTest(unittest.TestCase):
             [name for _, name, _, _, _ in rito.STAGES],
             ["grounding1_dossier", "first_authorial_draft", "gap_critique",
              "grounding2_targeted", "provisional_rewrite", "fact_audit",
-             "author_correction", "treatment_cleanup", "final_html", "final_review",
+             "author_correction",
+             "feynman_gate_1", "feynman_grounding_a", "feynman_rewrite_1",
+             "feynman_gate_2", "feynman_grounding_b", "feynman_rewrite_2",
+             "treatment_cleanup", "final_html", "final_review",
              "publication"])
 
     def test_author_and_reviewer_routes_are_the_experiments(self):
@@ -286,6 +374,12 @@ class StageTableTest(unittest.TestCase):
         self.assertEqual(routes["provisional_rewrite"], "chat")
         self.assertEqual(routes["fact_audit"], "review")
         self.assertEqual(routes["author_correction"], "chat")
+        self.assertEqual(routes["feynman_gate_1"], "review")
+        self.assertEqual(routes["feynman_grounding_a"], "review")
+        self.assertEqual(routes["feynman_rewrite_1"], "chat")
+        self.assertEqual(routes["feynman_gate_2"], "review")
+        self.assertEqual(routes["feynman_grounding_b"], "review")
+        self.assertEqual(routes["feynman_rewrite_2"], "chat")
         self.assertEqual(routes["treatment_cleanup"], "chat")
         self.assertEqual(routes["final_review"], "review")
         self.assertIsNone(routes["final_html"])
@@ -298,15 +392,20 @@ class RendererPromotionTest(unittest.TestCase):
               "| a | b |\n|---|---|\n| 1 | 2 |\n\n> uma citacao\n\n## Secao\n\ntexto.")
 
     def test_renderer_id_is_pinned(self):
-        self.assertEqual(render.RENDERER_ID, "exp072-neutral-markdown/v1")
+        self.assertEqual(render.RENDERER_ID, "exp072-neutral-markdown/v2")
 
     @unittest.skipUnless(_approved_generator_present(), "approved generator not on this host")
-    def test_promoted_renderer_is_byte_identical_to_the_approved_one(self):
+    def test_promoted_renderer_keeps_the_approved_sample_body(self):
         spec = importlib.util.spec_from_file_location("approved_gen", APPROVED_GENERATOR)
         approved = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(approved)
-        self.assertEqual(render.render_markdown_page(self.SAMPLE, "Titulo"),
-                         approved.render_markdown(self.SAMPLE, "Titulo"))
+        ours = render.render_markdown_page(self.SAMPLE, "Titulo")
+        theirs = approved.render_markdown(self.SAMPLE, "Titulo")
+
+        def _main(page):
+            return page.split("<main>", 1)[1].split("</main>", 1)[0]
+
+        self.assertEqual(_main(ours), _main(theirs))
 
     def test_markdown_page_bytes_is_the_single_byte_seam(self):
         data = render.markdown_page_bytes(self.SAMPLE)
@@ -395,9 +494,14 @@ class FullRiteTest(unittest.TestCase):
         canned = dict(CANNED)
         canned["author_correction"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
                                        "mecanismo da rodada 3.")
+        canned["feynman_rewrite_1"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
+                                       "mecanismo da rodada 3.")
+        canned["feynman_rewrite_2"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
+                                       "mecanismo da rodada 3.")
         canned["treatment_cleanup"] = ("# Relatorio exp-teste\n\nAqui eu explico o mecanismo "
                                        "da rodada 3.")
-        order = LLM_ORDER[:6] + ["treatment_cleanup"] + LLM_ORDER[6:]
+        # loop (4 LLM stages) sits between author_correction and treatment_cleanup
+        order = LLM_ORDER[:10] + ["treatment_cleanup"] + LLM_ORDER[10:]
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = _green_run(tmp, canned=canned, order=order)
             stage = next(s for s in manifest["stages"] if s["name"] == "treatment_cleanup")
@@ -766,7 +870,7 @@ class ReaderFacingProbeReviewTest(unittest.TestCase):
                 intent=INTENT, skill="report", dispatch_id=did,
                 log=log, blog_dir=blog,
             )
-            review_prompt = (run_dir / "prompts" / "10_final_review.md").read_text()
+            review_prompt = (run_dir / "prompts" / "16_final_review.md").read_text()
             sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
             self.assertTrue(yaml_rite.is_yaml_draft(sealed))
             self.assertIn("rodada 3", review_prompt)

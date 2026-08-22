@@ -10,16 +10,19 @@ pinning the pipeline, not scoring the artifact.
 | Module | Responsibility (deep, one seam each) |
 |---|---|
 | `tools/rito.py` | The rite runtime promoted from `drafts/old-edge-double-grounding-repro/run.py`: sequences stages 1–11, writes the sealed manifest (begin/finish/fail receipts with sha256), runs the deterministic gates (treatment scan, acceptance header, draft immutability), renders via the pinned renderer, terminates in publication. Also owns the DETECTOR `verify_rito` and its CLI. |
-| `tools/render.py` | Gains `render_markdown_page(md, title)` + `RENDERER_ID = "exp072-neutral-markdown/v1"` — the approved renderer promoted verbatim from `generate_post_gate_grounding_arm.render_markdown`. |
+| `tools/render.py` | Gains `render_markdown_page(md, title)` + `RENDERER_ID = "exp072-neutral-markdown/v2"` — the approved renderer promoted verbatim from `generate_post_gate_grounding_arm.render_markdown`. |
 | `tools/publisher.py` | Gains `publish_rito(slug, run_dir, *, intent, …)` — the rite's way out: recomputes the pinned render from the sealed markdown, REFUSES a hash mismatch, commits the atomic `artefato.published` event (spec format `edge-markdown/v1`, log is truth), writes the EXACT recomputed bytes temp+rename. `_render_page` gains the `edge-markdown/v1` branch so reprojection re-derives byte-identical pages. |
 
 ## The stages (canonical order, promoted from run.py)
 
 1. `grounding1_dossier` (producer callable) → 2. `first_authorial_draft` (chat) →
 3. `gap_critique` (review) → 4. `grounding2_targeted` (review) → 5. `provisional_rewrite`
-(chat) → 6. `fact_audit` (review) → 7. `author_correction` (chat) → 8. `treatment_cleanup`
-(chat, or deterministic copy when the scan is clean) → 9. `final_html` (runtime render, pinned)
-→ 10. `final_review` (review, fail-closed ACCEPTANCE header) → 11. `publication` (publisher
+(chat) → 6. `fact_audit` (review) → 7. `author_correction` (chat) →
+Feynman content loop (hard contract, two deterministic iterations -- a score does not skip a lastro, a low score does not extra-loop): `feynman_gate_1` (review route / LLM reviewer notes, 8 axes 0-4, ceiling 4, written hole on every axis) -> `feynman_grounding_a` (review, fresh lastro aimed at the briefing) -> `feynman_rewrite_1` (chat) -> `feynman_gate_2` -> `feynman_grounding_b` -> `feynman_rewrite_2` ->
+8. `treatment_cleanup`
+(chat, or deterministic copy of rewrite 2 when the scan is clean) -> 9. `final_html` (runtime render, pinned)
+-> close `feynman_gate.review` (LLM reviewer notes stored; scores/critical_issues are NOT a StageFailure / not a publish ticket; not a loop controller) ->
+10. `final_review` (review, fail-closed ACCEPTANCE header — the only publish ticket) → 11. `publication` (publisher
 seam). A run that didn't publish didn't finish the rite. Stage 11 of the experiment
 (`blind_reading_package`) is experiment apparatus, NOT a production stage — but the runtime
 keeps `02_FIRST_AUTHORIAL_DRAFT.md` sealed and addressable in the run dir so a later blind
@@ -124,8 +127,8 @@ the cognitive inputs vary; the stages, detector, and publication seam are identi
 | `map` | connections diagram | rito | connections dossier; fenced mermaid/ASCII diagram + connection table (Markdown-native) |
 | `plan` | next-steps flow | rito | situation/constraints dossier; fenced flow + ordered list/risk table |
 | `discovery` | serendipity find | rito | the find + anchoring evidence; before/after + callout |
+| `report-deep` / `research-deep` / `discovery-deep` | (alias) | rito (inherited) | same genus path as the base skill — not a different depth |
 | `mentor` | insight artefato leg | rito | insight explanation; **only** the artefato-publication leg — the three-steers `grill_gate` close is untouched |
-| `report-deep` / `research-deep` / `discovery-deep` | (alias) | rito (inherited) | delegate verbatim to their base skill — no separate exit |
 | `experiment` | (closes via `/report`) | rito (inherited) | an experiment finalizes by publishing a report, so it rides report's rite |
 | `critique` | appraisal | inherits shared close | short skill; references "the close" only, carries no explicit exit snippet — moves when it grows one |
 
@@ -150,7 +153,7 @@ the running page — the interaction carries the insight. These do **not** fit t
 and are deliberately left on the legacy close path. The conflict is precise:
 
 1. **Stage 9 (`final_html`) is pinned to the neutral-MARKDOWN renderer.** `render.RENDERER_ID`
-   (`exp072-neutral-markdown/v1`) renders a Markdown body into a self-contained neutral page;
+   (`exp072-neutral-markdown/v2`) renders a Markdown body into a self-contained neutral page;
    `publish_rito` byte-hash-enforces exactly that renderer's output. An interactive page is
    author-written JS+CSS in one file — there is no Markdown body to render, and forcing the JS
    *through* the markdown renderer would either strip the `<script>` (the exact `sanitize_raw_html`
