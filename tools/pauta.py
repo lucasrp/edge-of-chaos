@@ -113,17 +113,16 @@ N_ATERRAR = 3
 # Objetivo da escolha (operador 2026-08-21). Vive no módulo — skill, shortlist,
 # aterrar e propose/gate leem a MESMA prosa. Sem janela «nesta semana».
 OBJETIVO = (
-    "O que parece mais útil agora: briefing de conhecimento útil face aos "
-    "desafios ATUAIS do mentee. O leitor sai sabendo algo novo. Faro = nome "
-    "de fora + ponte ao trabalho vivo DESTE mentee. Disco ≠ emprego: obra "
-    "seca pode pendurar como contexto, não vence assunto. Sem janela "
-    "«nesta semana»."
+    "Trazer um conceito que o mentee ainda não tem, e que pode ajudar a "
+    "decidir o que o trabalho já está apontando. O trabalho é o sensor da "
+    "decisão (não o calor do corpus). Faro = nome de fora + ponte à decisão "
+    "viva DESTE mentee. Disco ≠ emprego. Sem janela «nesta semana»."
 )
 OBJETIVO_REPROVA = (
     "NÃO é assunto: chore de uma vez (WABA, Cloudflare 0 zones, clique no "
     "cockpit, poll PENDING_REVIEW); fóssil (obra seca há meses como assunto); "
     "emprego de outro install; recap do corpus sem nome novo; o edge falando "
-    "da própria install."
+    "da própria install; calor do corpus."
 )
 
 # Catálogo por objeto (§3.2): direção na escolha do assunto; contextualização ampla.

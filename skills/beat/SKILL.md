@@ -29,13 +29,7 @@ autoriza**: portfolio/map/frontier não entram no plano e não podem alterá-lo.
 ## Ato 1 — the trunk: o funil da Pauta → PROPOSTA | silêncio
 
 A escolha de pauta é o Módulo Pauta (`tools/pauta.py`; contrato assinado
-`docs/agencia/pauta-tabela-normativa.md`). **O que parece mais útil agora:**
-briefing de conhecimento útil face aos desafios ATUAIS do mentee. O leitor
-sai sabendo algo novo. Faro = nome de fora + ponte ao trabalho vivo DESTE
-mentee. Chore de uma vez (WABA, Cloudflare 0 zones, clique no cockpit) é
-outro rail. Fóssil (obra seca há meses) pode pendurar como contexto, não
-vence assunto. Disco ≠ emprego. Não falar da install do edge. Sem janela
-«nesta semana». O funil, na ordem assinada:
+`docs/agencia/pauta-tabela-normativa.md`). **Objetivo:** Trazer um conceito que o mentee ainda não tem, e que pode ajudar a decidir o que o trabalho já está apontando. O trabalho é o sensor da decisão (não o calor do corpus). Faro = nome de fora + ponte à decisão viva DESTE mentee. Disco ≠ emprego. Sem janela «nesta semana». **Reprova:** chore, fóssil, outro install, recap, edge sobre si, calor do corpus. O funil, na ordem assinada:
 
 1. **Olhar holístico PRIMEIRO** — run the mechanical entry-driver
    (`tools/edge-python tools/predispatch.py`) and read the panorama, unfiltered: sessões
@@ -53,8 +47,13 @@ vence assunto. Disco ≠ emprego. Não falar da install do edge. Sem janela
    mentorado→leveling/fog · ser→livre). `objeto=atividade` does **not** forbid (it
    encourages) hanging the candidate on named things in the world and on the mentee.
    Sem blocklist: célula inviável morre em silêncio logado.
-3. **~12 SUGESTÕES** baratas, função do wake que você acabou de ler — NUNCA um pool fixo do
-   repo. Cada uma `{tema, forma, semente}` (a forma nasce na sugestão).
+3. **~12 SUGESTÕES** — NUNCA pool fixo do repo. Cada uma `{tema, forma, semente}`.
+   MIX (vinculante na INVENÇÃO, não só no juiz): trazer um CONCEITO que o mentee
+   ainda não tem, e que pode ajudar a DECIDIR o que o trabalho vivo já está
+   apontando. O trabalho (emprego deste mentee) é o sensor da decisão — não o
+   calor do corpus do agent. Faro = nome de fora + ponte à decisão. Chore,
+   fóssil-como-assunto, emprego de outro install, recap, o edge falando de si
+   NÃO entram nas 12. Wake informa; não vira o assunto.
 4. **SHORTLIST A** — `tools/pauta.py shortlist --cell '<json>' --sugestoes '<json>'
    [--direction state/direction.md]`: mérito = briefing de conhecimento útil
    face aos desafios vivos (não encaixe no pólo) + 1 slot estrutural de
