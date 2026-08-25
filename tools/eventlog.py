@@ -651,12 +651,20 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
             # gate da abordagem).  A user_requested dispatch is already opened by the user's
             # explicit request and does not need this ambient gate.
             if _is_canonical_log(log) and dispatch_origin(dispatch_id, log=log) == "beat":
-                import pauta as _pauta  # lazy: pauta imports eventlog at module load
-                if not isinstance(_pauta.proposta_for(dispatch_id, log=log), dict):
+                import _beat as _beat_dente  # lazy: _beat imports eventlog
+                import pauta as _pauta  # leftover road; RR pick is the trunk
+                produce = _beat_dente.produce_for(dispatch_id, log=log)
+                proposta = _pauta.proposta_for(dispatch_id, log=log)
+                if not isinstance(produce, dict) and not isinstance(proposta, dict):
                     raise RuntimeError(
-                        f"no-proposta: cannot publish {slug!r} under beat dispatch "
-                        f"{dispatch_id!r} — o dente (ADR-0024): sem pauta.proposta viva; rode "
-                        "o funil da Pauta (tools/pauta.py sortear -> shortlist -> propose)")
+                        f"no-produce: cannot publish {slug!r} under beat dispatch "
+                        f"{dispatch_id!r} — o dente: sem beat.produce (RR skill-pick + intent) "
+                        "nem pauta.proposta leftover; rode tools/_beat.py pick-produce. "
+                        "tools/pauta.py sortear is not the trunk.")
+                if isinstance(produce, dict) and skill and skill != produce.get("forma"):
+                    raise RuntimeError(
+                        f"produce-mismatch: cannot publish {slug!r} as {skill!r} under "
+                        f"beat.produce forma {produce.get('forma')!r} for {dispatch_id!r}")
         elif not wake_fresh(log=log):
             raise RuntimeError(
                 f"no-wake: cannot publish {slug!r} — no dispatch.open newer than the last "

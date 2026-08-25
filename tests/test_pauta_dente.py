@@ -190,9 +190,12 @@ class OldRoadIsClosed(unittest.TestCase):
 
     def test_beat_skill_teaches_the_pauta_road(self):
         skill = (REPO / "skills" / "beat" / "SKILL.md").read_text()
+        # leftover pauta road is named; RR pick-produce is the trunk.
         self.assertIn("tools/pauta.py", skill)
         self.assertIn("sortear", skill)
         self.assertIn("pauta.proposta", skill)
+        self.assertIn("pick-produce", skill)
+        self.assertIn("not the trunk", skill.lower())
 
 
 if __name__ == "__main__":
