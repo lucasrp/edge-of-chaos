@@ -2865,3 +2865,69 @@ def reproject_graph(log=eventlog.LOG, project_fn=_DEFAULT_PROJECT, present_slugs
     if _is_canonical_log(log):
         for slug, info in eventlog.integrated_sources_at(log=log).items():
             _mark_integrated_source(slug, info.get("reviewer"), ts=info.get("ts"))
+
+
+
+def publish_tetris(slug, html_path, *, intent, skill, dispatch_id, log=eventlog.LOG,
+                   blog_dir=BLOG_DIR, yaml_path=None, reports_dir=None,
+                   embed_fn=None, project_fn=_DEFAULT_PROJECT):
+    """Exit a March/Tetris HTML page through the C3 publish seam.
+
+    Writes ``artefato.published`` + ``intent.kernel`` via ``publish_artefato_atomic``
+    (``_rite_authorized=True`` so RITO_PRODUCERS can leave through this road without
+    fabricating a rito manifest), then projects the already-reviewed HTML bytes.
+    Does not skip publisher — kernel write is mandatory.
+    """
+    if skill not in PRODUCER_ROSTER:
+        raise ValueError(
+            f"skill {skill!r} is not in the producer roster {PRODUCER_ROSTER}")
+    if skill not in ("report", "research", "discovery", "lazer", "map", "plan", "prototype"):
+        raise ValueError(
+            f"skill {skill!r} is not a Tetris produce form "
+            "(report/research/discovery/lazer/map/plan/prototype)")
+    if not (intent and str(intent).strip()):
+        raise ValueError(f"cannot publish artefato {slug!r} without an intent kernel (C3)")
+    html_path = Path(html_path)
+    if not html_path.is_file():
+        raise ValueError(f"no tetris HTML at {html_path}")
+    page_bytes = html_path.read_bytes()
+    if not page_bytes.strip():
+        raise ValueError(f"tetris HTML at {html_path} is empty")
+    spec = {"format": "edge-tetris/v1", "html": page_bytes.decode("utf-8"),
+            "page_sha256": hashlib.sha256(page_bytes).hexdigest(), "skill": skill}
+    if yaml_path:
+        yp = Path(yaml_path)
+        if yp.is_file():
+            spec["yaml"] = yp.read_text(encoding="utf-8")
+
+    if blog_dir is None:
+        blog_dir = BLOG_DIR
+    out = _safe_target(slug, blog_dir)
+
+    published_ev, kernel_ev = eventlog.publish_artefato_atomic(
+        slug, str(intent).strip(), spec=spec, skill=skill, log=log,
+        dispatch_id=dispatch_id, require_wake=True, _rite_authorized=True)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_suffix(".html.tmp")
+    tmp.write_bytes(page_bytes)
+    os.replace(tmp, out)
+
+    if reports_dir is not None:
+        reports = Path(reports_dir)
+        reports.mkdir(parents=True, exist_ok=True)
+        dest = reports / f"{slug}.html"
+        if dest.resolve() != html_path.resolve():
+            dest.write_bytes(page_bytes)
+
+    if project_fn is _DEFAULT_PROJECT:
+        project_fn = project_artefato if _is_canonical_log(log) else None
+    origin = eventlog.dispatch_origin(dispatch_id, log=log)
+    para_default = (published_ev.get("payload") or {}).get("para_default")
+    _post_publish_sideeffects(
+        slug, str(intent).strip(), spec=spec, skill=skill,
+        body=spec["html"], cites=[], embed_fn=embed_fn, log=log,
+        project_fn=project_fn, origin=origin, para_default=para_default)
+    return {"event_seq": published_ev["seq"], "event_ts": published_ev["ts"],
+            "page_path": str(out), "page_sha256": spec["page_sha256"],
+            "kernel_seq": kernel_ev["seq"], "renderer_id": "edge-tetris/v1"}

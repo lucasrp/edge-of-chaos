@@ -44,6 +44,98 @@ DEFAULT_HEARTBEAT_CLI_MIX = (
     ("fable", 16.5),
 )
 
+# Ato-1 produce forms (25/08): round-robin among exactly these. No critique, no experiment.
+PRODUCE_FORMS = (
+    "report", "research", "discovery", "lazer", "map", "plan", "prototype",
+)
+BEAT_PRODUCE_TYPE = "beat.produce"
+
+
+@contextmanager
+def _produce_lock(log):
+    """Serialize pick_produce check+append so one dispatch cannot reroll."""
+    lock_path = Path(log).with_name(Path(log).name + ".produce.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def produce_for(dispatch_id, log=eventlog.LOG):
+    """The persisted Ato-1 pick for this dispatch, or None. Same beat does not reroll."""
+    if not isinstance(dispatch_id, str) or not dispatch_id.strip():
+        return None
+    live = None
+    for e in eventlog.read(types=[BEAT_PRODUCE_TYPE], log=log):
+        payload = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        if payload.get("dispatch_id") == dispatch_id:
+            live = dict(payload, seq=e.get("seq"))
+    if live is not None and live.get("forma") not in PRODUCE_FORMS:
+        raise ValueError(
+            f"beat.produce forjada/legada: forma {live.get('forma')!r} fora do "
+            f"roster {PRODUCE_FORMS} para {dispatch_id!r}")
+    return live
+
+
+def last_produce_forma(log=eventlog.LOG):
+    last = None
+    for e in eventlog.read(types=[BEAT_PRODUCE_TYPE], log=log):
+        payload = e.get("payload") if isinstance(e.get("payload"), dict) else {}
+        if payload.get("forma") in PRODUCE_FORMS:
+            last = payload["forma"]
+    return last
+
+
+def next_produce_forma(log=eventlog.LOG):
+    last = last_produce_forma(log)
+    if last is None or last not in PRODUCE_FORMS:
+        return PRODUCE_FORMS[0]
+    return PRODUCE_FORMS[(PRODUCE_FORMS.index(last) + 1) % len(PRODUCE_FORMS)]
+
+
+def pick_produce(dispatch_id, *, tema=None, intent=None, faro=None, log=eventlog.LOG):
+    """Persist the RR produce form for this dispatch. Re-reading returns the same pick."""
+    if not isinstance(dispatch_id, str) or not dispatch_id.strip():
+        raise ValueError("dispatch_id must be a non-blank string")
+    dispatch_id = dispatch_id.strip()
+    tema = (tema or "").strip()
+    intent = (intent or "").strip()
+    faro = (faro or "").strip()
+    with _produce_lock(log):
+        existing = produce_for(dispatch_id, log=log)
+        if existing is not None:
+            return existing
+        forma = next_produce_forma(log)
+        payload = {
+            "dispatch_id": dispatch_id,
+            "forma": forma,
+            "tema": tema,
+            "intent": intent,
+            "faro": faro,
+        }
+        ev = eventlog.append(BEAT_PRODUCE_TYPE, "beat", payload, log=log)
+        return dict(payload, seq=ev["seq"])
+
+
+def require_produce(dispatch_id, log=eventlog.LOG):
+    """Ato-2 door: live beat.produce, or leftover live pauta.proposta. RR is the trunk."""
+    picked = produce_for(dispatch_id, log=log)
+    if picked is not None:
+        return picked
+    import pauta
+    proposta = pauta.proposta_for(dispatch_id, log=log)
+    if proposta is not None:
+        return proposta
+    raise RuntimeError(
+        f"o dente: sem beat.produce (nem pauta.proposta leftover) para dispatch "
+        f"{dispatch_id!r} — Ato-2 não abre. Rode tools/_beat.py pick-produce "
+        "(round-robin among report/research/discovery/lazer/map/plan/prototype). "
+        "tools/pauta.py sortear is not the trunk.")
+
+
 
 @contextmanager
 def heartbeat_lock(home):
@@ -70,63 +162,46 @@ def heartbeat_lock(home):
 
 
 def assert_beat_produced(log, before_count, expected_producer=None, dispatch_id=None) -> list:
-    """The deterministic POST-DISPATCH gate (Codex gate finding [high]): a `claude -p` exit of 0
-    only proves the subprocess ran — NOT that stage-(iii) corpus work happened. Folding the log is
-    the only proof. Given the corpus count captured BEFORE the beat, return the list of GAPS — empty
-    means the beat produced (or honestly declined); non-empty means the invocation must fail:
+    """POST-DISPATCH gate: a CLI exit of 0 only proves the subprocess ran.
 
-      * the corpus did NOT grow by >=1 — UNLESS ``dispatch_id`` is given, the LATEST pauta.*
-        event for it is a `pauta.silencio` AND no live `pauta.proposta` stands (spec §4 lei do
-        risco: logged silence is the HONEST failure mode, never a punished one; latest-event
-        replay, never any-historical, adv r1 #9 — and a LIVE proposta still owes production
-        even when a later silêncio landed, because silêncio doesn't kill: exemption inversion,
-        adv r2 #2);
-      * the live proposta is a FORGERY per `pauta.proposta_for`'s own read-side verification
-        (voz without a commanded dispatch.open, or an out-of-roster forma — round 4, Variant A):
-        the fold RAISES for every other reader; this gate alone converts the raise into a named
-        gap and proceeds with proposta=None, because the post-gate's job is to REPORT, never to
-        crash the heartbeat gate;
-      * `artefatos_without_kernel(log)` is non-empty (a published Artefato with no intent kernel — C3
-        debt), which is a gap even when the corpus grew;
-      * THE DENTE (ADR-0024), when ``dispatch_id`` is given: new Artefato(s) with no live
-        `pauta.proposta` for this dispatch, whose skill is not the proposta's `forma`, or whose
-        slug does not start with the proposta's `slug_prefix` (spec §3 "o nome carrega o setup" —
-        enforced mechanically at this gate, never asserted in agent JSON; adv r1 #10).
-
-    ``expected_producer`` remains for callers that already hold a forma. A pure reader over the
-    log: edge-heartbeat captures before_count, runs the beat, then calls this; gaps → NONZERO exit."""
+    A live ``beat.produce`` pick (Ato-1 RR) authorizes production. A leftover
+    ``pauta.proposta`` still authorizes (commanded/old road). Beat-origin without
+    either is a gap — the happy path must persist the RR pick.
+    """
     gaps = []
     corpus = cortex.corpus_at(log=log)
     after_count = len(corpus)
     proposta = None
+    produce = None
     silencio = False
     if dispatch_id is not None:
         import pauta
         try:
+            produce = produce_for(dispatch_id, log=log)
+        except ValueError as forgery:
+            gaps.append(f"beat.produce forjada (leitura recusada): {forgery}")
+        try:
             proposta = pauta.proposta_for(dispatch_id, log=log)
         except ValueError as forgery:
-            # round 4 (Variant A): the fold verifies once and raises for every reader;
-            # the post-gate alone reports instead — the remaining dente logic then
-            # correctly gaps "artefato with no live proposta" / "no new Artefato".
             gaps.append(f"pauta.proposta forjada (leitura recusada pelo fold): {forgery}")
         silencio = pauta.latest_pauta_state(dispatch_id, log=log) == "silencio"
     if after_count - before_count < 1:
-        # exemption iff latest==silencio AND no live proposta (adv r2 #2): a proposta
-        # viva ainda deve produção mesmo com silêncio posterior (silêncio não mata).
-        if not (silencio and proposta is None):
+        if not (silencio and proposta is None and produce is None):
             gaps.append(f"no new Artefato: corpus stayed at {after_count} (was {before_count})")
     debt = cortex.artefatos_without_kernel(log=log)
     if debt:
         gaps.append(f"C3 debt — Artefato(s) published without an intent kernel: {debt}")
     new_items = corpus[before_count:]
     if dispatch_id is not None and new_items:
-        if proposta is None:
+        authority = produce if produce is not None else proposta
+        if authority is None:
             gaps.append(
-                "the dente (ADR-0024): Artefato(s) published with no live pauta.proposta for "
-                f"dispatch {dispatch_id!r}: {[i.get('slug') for i in new_items]}")
+                "the dente: Artefato(s) published with no live beat.produce (nor leftover "
+                f"pauta.proposta) for dispatch {dispatch_id!r}: "
+                f"{[i.get('slug') for i in new_items]}")
         else:
-            expected_producer = proposta["forma"]
-            prefix = proposta.get("slug_prefix")
+            expected_producer = authority.get("forma")
+            prefix = authority.get("slug_prefix") if produce is None else None
             if prefix:
                 wrong_slug = [i.get("slug") for i in new_items
                               if not str(i.get("slug") or "").startswith(prefix)]
@@ -146,19 +221,14 @@ def assert_beat_produced(log, before_count, expected_producer=None, dispatch_id=
 
 def dispatch_plan(subject, dispatch_id, *, runtime_command=None, log=eventlog.LOG,
                   require_pauta=True):
-    """Plan one beat dispatch: the producer IS the Pauta's `forma` (ADR-0024 — the choice left
-    the producer/rotation and became a dispatch stage; the rotation cursor road is DEAD).
+    """Plan one beat dispatch.
 
-    THE DENTE: with ``require_pauta`` (the default — the Ato-2 door), no live `pauta.proposta`
-    for ``dispatch_id`` raises; the plan's producer is `proposta['forma']`. The heartbeat
-    launcher computes a PRE-LAUNCH plan (``require_pauta=False``) before the agent exists:
-    producer is explicitly None + `pauta: pendente` — the trunk runs the funnel (sortear →
-    catálogo → sugestões → shortlist → grounding → propose) and re-derives the plan through
-    this same seam before opening any branch.
-
-    Portfolio is deliberately absent: maps describe the mentee's work and cannot authorize the
-    edge. A pure read of the eventlog + the static surface — idempotent by construction
-    (ADR-0006: the log is the truth; no cursor state to spend)."""
+    Ato-1 trunk is round-robin ``beat.produce`` among PRODUCE_FORMS. A leftover
+    live ``pauta.proposta`` still binds (not the trunk). ``require_pauta`` is the
+    Ato-2 door: no pick and no leftover proposta raises. Pre-launch
+    (require_pauta=False) leaves producer None until pick-produce runs.
+    ``pauta.py sortear`` is not the only Ato-1 and is not the trunk.
+    """
     if not isinstance(subject, str) or not subject.strip():
         raise ValueError("dispatch subject must be a non-blank string")
     if not isinstance(dispatch_id, str) or not dispatch_id.strip():
@@ -166,22 +236,27 @@ def dispatch_plan(subject, dispatch_id, *, runtime_command=None, log=eventlog.LO
     dispatch_id = dispatch_id.strip()
     runtime_command = list(runtime_command or ["claude", "-p", "-"])
     import pauta
-    if require_pauta:
-        proposta = pauta.require_proposta(dispatch_id, log=log)
-    else:
-        # round 4 (Variant A): proposta_for itself verifies the live proposta (forged
-        # voz authority, out-of-roster forma) and RAISES — the r3 per-door roster
-        # re-check that lived here is deleted; this door inherits the buckle for free.
+    produce = produce_for(dispatch_id, log=log)
+    proposta = None
+    if produce is None:
         proposta = pauta.proposta_for(dispatch_id, log=log)
-    if proposta is None:
-        decision = {"dispatch_id": dispatch_id, "producer": None,
-                    "pauta": "pendente — rode o funil da Pauta (tools/pauta.py sortear → "
-                             "propose) e re-derive o plano via tools/_beat.py dispatch-plan "
-                             "antes de abrir Ato-2 (o dente, ADR-0024)"}
-    else:
+    if require_pauta and produce is None and proposta is None:
+        require_produce(dispatch_id, log=log)
+    if produce is not None:
+        decision = {"dispatch_id": dispatch_id, "producer": produce["forma"],
+                    "produce_seq": produce.get("seq"), "tema": produce.get("tema"),
+                    "intent": produce.get("intent"), "ato1": "round-robin"}
+    elif proposta is not None:
         decision = {"dispatch_id": dispatch_id, "producer": proposta["forma"],
                     "pauta_seq": proposta.get("seq"), "tema": proposta.get("tema"),
                     "slug_prefix": proposta.get("slug_prefix")}
+    else:
+        decision = {"dispatch_id": dispatch_id, "producer": None,
+                    "pauta": "pendente — rode tools/_beat.py pick-produce "
+                             "(round-robin among report/research/discovery/lazer/"
+                             "map/plan/prototype) e re-derive o plano via "
+                             "tools/_beat.py dispatch-plan antes de abrir Ato-2. "
+                             "tools/pauta.py sortear is not the trunk."}
     import cortex_config
     surface = cortex_config.dispatch_surface(
         subject=subject.strip(), runtime_command=runtime_command,
@@ -420,8 +495,8 @@ def load_beat_prompt(home) -> str:
 
 
 def main(argv=None, stdin=None, stdout=None):
-    """Interactive fallback: the same authoritative plan seam — the DENTE included (no live
-    pauta.proposta for the dispatch id → this command fails loud; Ato-2 never opens)."""
+    """Interactive fallback: the same authoritative plan seam — the DENTE included
+    (no live beat.produce / leftover pauta.proposta → fails loud; Ato-2 never opens)."""
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     plan_parser = sub.add_parser("dispatch-plan")
@@ -431,9 +506,42 @@ def main(argv=None, stdin=None, stdout=None):
     plan_parser.add_argument("--dispatch-id", required=True)
     plan_parser.add_argument("--claude-bin", default=None)
     plan_parser.add_argument("--mcp-config", default=None)
+    pick = sub.add_parser("pick-produce")
+    pick.add_argument("--home", default=str(REPO))
+    pick.add_argument("--dispatch-id", required=True)
+    pick.add_argument("--tema", default="")
+    pick.add_argument("--intent", default="")
+    pick.add_argument("--faro", default="")
+    pub = sub.add_parser("publish-tetris")
+    pub.add_argument("--home", default=str(REPO))
+    pub.add_argument("--slug", required=True)
+    pub.add_argument("--html", required=True)
+    pub.add_argument("--intent", required=True)
+    pub.add_argument("--skill", required=True)
+    pub.add_argument("--dispatch-id", required=True)
+    pub.add_argument("--yaml", default=None)
+    pub.add_argument("--blog-dir", default=None)
     args = parser.parse_args(argv)
     stdout = sys.stdout if stdout is None else stdout
     home = Path(os.path.expanduser(args.home)).resolve()
+    log = home / "state" / "events" / "log.jsonl"
+    if args.command == "pick-produce":
+        result = pick_produce(
+            args.dispatch_id, tema=args.tema, intent=args.intent,
+            faro=args.faro, log=log)
+        json.dump(result, stdout, ensure_ascii=False, sort_keys=True)
+        stdout.write("\n")
+        return result
+    if args.command == "publish-tetris":
+        import publisher
+        blog_dir = Path(args.blog_dir) if args.blog_dir else home / "blog" / "entries"
+        result = publisher.publish_tetris(
+            args.slug, args.html, intent=args.intent, skill=args.skill,
+            dispatch_id=args.dispatch_id, log=log, blog_dir=blog_dir,
+            yaml_path=args.yaml)
+        json.dump(result, stdout, ensure_ascii=False, sort_keys=True)
+        stdout.write("\n")
+        return result
     claude_bin = args.claude_bin or resolve_claude_bin()
     config_path = (Path(args.mcp_config).resolve() if args.mcp_config else
                    ensure_cortex_config(home, group=args.group))
@@ -441,12 +549,11 @@ def main(argv=None, stdin=None, stdout=None):
     result = dispatch_plan(
         args.subject, args.dispatch_id,
         runtime_command=command,
-        log=home / "state" / "events" / "log.jsonl",
+        log=log,
     )
     json.dump(result, stdout, ensure_ascii=False, sort_keys=True)
     stdout.write("\n")
     return result
-
 
 if __name__ == "__main__":
     main()

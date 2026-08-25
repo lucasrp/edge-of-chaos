@@ -192,21 +192,24 @@ def _ambient_theme_review_contract(dispatch_id, log) -> str:
         return ""
     if eventlog.dispatch_origin(dispatch_id, log=log) != "beat":
         return ""  # the explicit user request itself opens a user_requested dispatch
+    import _beat as _beat_dente
     import pauta as _pauta
-    proposta = _pauta.proposta_for(dispatch_id, log=log)
+    produce = _beat_dente.produce_for(dispatch_id, log=log)
+    proposta = produce if isinstance(produce, dict) else _pauta.proposta_for(dispatch_id, log=log)
     if not isinstance(proposta, dict):
         raise StageFailure(
-            "ambient beat sem pauta.proposta viva — o dente (ADR-0024): rode o funil da Pauta "
-            "(tools/pauta.py sortear -> shortlist -> propose) antes do rito do produtor")
-    cell = f"{proposta.get('abordagem')} x {proposta.get('objeto')}"
+            "ambient beat sem beat.produce — o dente: rode tools/_beat.py pick-produce "
+            "(round-robin among report/research/discovery/lazer/map/plan/prototype) "
+            "antes do produtor. tools/pauta.py sortear is not the trunk.")
+    cell = f"{proposta.get('abordagem') or proposta.get('ato1') or 'round-robin'} x {proposta.get('objeto') or proposta.get('forma')}"
     return f"""
 
-PAUTA GATE (blocking, semantic — the dente at the rite)
-The Pauta bound this rite to a judged PROPOSTA; the artefact must develop IT, not another theme.
+PRODUCE GATE (blocking, semantic — the dente at the rite)
+Ato-1 bound this dispatch to a persisted RR pick (or leftover pauta.proposta); develop IT.
 
 Celula: {cell}   Forma: {proposta.get('forma')}
 Tema: {proposta.get('tema')}
-Faceta: {proposta.get('faceta')}
+Faceta: {proposta.get('faceta') or proposta.get('faro') or ''}
 
 Set ACCEPTANCE: FAIL unless the artefact's actual actionable question is a reasonably direct
 development of that tema/faceta, and the abordagem's promised elements (per its signed gate —
