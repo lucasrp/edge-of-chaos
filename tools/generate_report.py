@@ -170,6 +170,8 @@ def main():
     # Escrever output
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    from yaml_to_html import normalize_straight_quotes
+    html = normalize_straight_quotes(html)
     output_path.write_text(html, encoding="utf-8")
 
     # Copiar YAML spec junto do HTML (para releitura eficiente — YAML e ~54% menor)

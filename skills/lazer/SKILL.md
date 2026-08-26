@@ -52,7 +52,7 @@ A thin specialization of the shared scaffold (ADR-0012, `skills/_shared/scaffold
 
 ## Produce — Saturday coffee, tell a friend
 
-The page is leisure, but it still has to **carry**. Leitura isolada is THE fail of produce: a colleague of the operator, same shop, who missed this session and did not read this week's beats, must still understand the page alone — otherwise FAIL. Sequel / needs a previous artifact → FAIL. Object and derivation before any outside name; linhagem-first is a fail, not a required heading. Teach terms on first use in the prose. Do not require H2 Glossário / O que não sei / Referências / Linhagem; those headings do not pass isolated reading. Test: would a friend read this on a Saturday morning with coffee?
+The page is leisure, but it still has to **carry**. Leitura isolada is THE fail of produce: a colleague of the operator, same shop, who missed this session and did not read this week's beats, must still understand the page alone — otherwise FAIL. Sequel / needs a previous artifact → FAIL. Object and derivation before any outside name; linhagem-first is a fail, not a required heading. Teach terms on first use in the prose. Do not require H2 Glossário / O que não sei / Referências / Linhagem; those headings do not pass isolated reading. Aspas retas `"assim"`. Não uses « ». Lucas leu « » como negrito cortado. Test: would a friend read this on a Saturday morning with coffee?
 
 ## Publish — the same shared close as every producer
 

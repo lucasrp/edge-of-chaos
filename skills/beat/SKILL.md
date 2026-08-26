@@ -87,6 +87,8 @@ the prose. Do **not** require H2 Glossário / O que não sei / Referências / Li
 those headings are not in the template, the skill, or the gate. A heading with those
 names does not pass isolated reading.
 
+Aspas retas `"assim"`. Não uses « ». Lucas leu « » como negrito cortado.
+
 Canonical FAIL (encrypted opener — index of internal beats/dates, sequel disclaimer,
 object never put on the table): *"Esta página não reabre a língua de contacto (Galison,
 25/08), nem o ledger claim→teste→licença (25/08), nem qual braço o número descreve

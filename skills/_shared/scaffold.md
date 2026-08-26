@@ -39,6 +39,7 @@ The writer reads and follows `memory/personality.md` and `memory/method.md` — 
 - deriva antes de ir buscar fora
 - score 5 = um estranho entende tudo
 - o mundo é importante: contextualizar o trabalho com o mundo
+- aspas retas `"assim"`. Não uses « ». Lucas leu « » como negrito cortado.
 
 ### Plenitude
 

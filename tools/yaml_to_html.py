@@ -51,6 +51,29 @@ def render_text(s: str) -> str:
     return s
 
 
+# Guillemets look like broken bold in the blog. Straight ASCII quotes only.
+_SKIP_STYLE_SCRIPT = re.compile(
+    r"(<script\b[^>]*>.*?</script>|<style\b[^>]*>.*?</style>)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def normalize_straight_quotes(html: str) -> str:
+    """Replace guillemets with ASCII quotes in visible text; leave style/script alone."""
+    if not html:
+        return html
+    out = []
+    last = 0
+    _la, _ra = chr(171), chr(187)
+    for m in _SKIP_STYLE_SCRIPT.finditer(html):
+        chunk = html[last:m.start()].replace(_la, chr(34)).replace(_ra, chr(34))
+        out.append(chunk)
+        out.append(m.group(0))
+        last = m.end()
+    out.append(html[last:].replace(_la, chr(34)).replace(_ra, chr(34)))
+    return "".join(out)
+
+
 def render_pre(s: str) -> str:
     """Escape HTML only (for preformatted content)."""
     return html.escape(str(s)) if s else ""
@@ -1137,7 +1160,7 @@ def yaml_to_html(yaml_path: str) -> str:
         }
         parts.append(render_section(bib_section))
 
-    return "\n\n".join(parts)
+    return normalize_straight_quotes("\n\n".join(parts))
 
 
 def load_spec(yaml_path: str) -> dict:
