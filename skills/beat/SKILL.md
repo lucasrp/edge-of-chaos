@@ -78,14 +78,28 @@ HTTP APIs. Judge and refine only via `tools/review-gate.py` (grok CLI).
 
 Voice: Saturday-coffee. Open on a runnable object, cut first. Topic = wake friction/faro.
 
-Write a YAML spec (old `generate_report.py` / `yaml_to_html.py` shape) at a work file, e.g.
-`state/beat/${SLUG}.yaml`. Required naturally (not costume):
+**Leitura isolada is THE fail of produce, not a slogan.** Isolated reading = a person who
+works with the operator, same shop, who did **not** read this week's beats and did **not**
+live the session, still understands the page alone. Colleague cannot follow → FAIL.
+Sequel / needs yesterday's artifact → FAIL. Object and derivation **before** any outside
+name. Linhagem-first is a fail, not a required section. Teach every term on first use in
+the prose. Do **not** require H2 Glossário / O que não sei / Referências / Linhagem —
+those headings are not in the template, the skill, or the gate. A heading with those
+names does not pass isolated reading.
 
-- top-level `title`, `subtitle`, `date` (DD/MM/YYYY), `executive_summary` (list), `metrics`
-- sections: **linhagem** first, **"O que Nao Sei"** penultimate, **glossario** last
-- top-level `bibliography`
+Canonical FAIL (encrypted opener — index of internal beats/dates, sequel disclaimer,
+object never put on the table): *"Esta página não reabre a língua de contacto (Galison,
+25/08), nem o ledger claim→teste→licença (25/08), nem qual braço o número descreve
+(occupy-hedge, 24/08)."* Isolated reading dies in sentence one.
+
+Write a YAML spec (old `generate_report.py` / `yaml_to_html.py` shape) at a work file, e.g.
+`state/beat/${SLUG}.yaml`. Pipe shape (not costume H2s):
+
+- top-level `title`, `subtitle`, `date` (DD/MM/YYYY); `executive_summary` (list) and `metrics` when they earn it
+- **sections are FREE** — no mandatory Glossário / O que não sei / Referências / Linhagem
+- bibliography is optional content (named things in the world live in the prose); not a required H2
 - at least one inline SVG via `type: raw-html`
-- genuine derivation; specific gaps (`gap-marker` / gap-table)
+- genuine derivation; specific gaps inline (`gap-marker` / gap-table) where thought stalled
 
 Slug: `{decision.producer}--<curto-kebab>` (must match `^[a-z0-9][a-z0-9-]*$`).
 

@@ -80,7 +80,7 @@ pass, never parallel-stitched). Frame in the mentee's **Idiom**; lead with the d
 *is and why it matters* — derive, place the work in the world, and **end leaving him ready to
 implement** — ordered concrete steps on the live work, each traceable to the body (leitura cega
 2026-07-05: the winning artifacts end in moves; the losing ones end in understanding). **Sections
-are FREE** — no mandatory Glossary, no mandatory "O que não sei". A thin definition that left the
+are FREE** — no mandatory Glossary, no mandatory "O que não sei", no mandatory Referências / Linhagem. **Leitura isolada is THE fail of produce:** a colleague of the operator, same shop, who missed this session and did not read this week's beats, must still understand the page alone — otherwise FAIL. Sequel / needs a previous artifact → FAIL. Object and derivation before any outside name; linhagem-first is a fail, not a required heading. Teach terms on first use in the prose. Do not require H2 Glossário / O que não sei / Referências / Linhagem; those headings do not pass isolated reading. A thin definition that left the
 thinking undone is a failure; so is cover-every-facet padding that buries the move.
 
 ## Visual idiom — prose + the Feynman blocks
