@@ -82,7 +82,7 @@ diagram idiom rides Markdown-native carriers: a **fenced diagram block** (a ````
 or a fenced ASCII node-and-edge drawing) for the spine, backed by a connection **table**
 (From · Type · To · Evidence), and each load-bearing bridge **contextualized in prose** alongside —
 the diagram alone is a schema dump; the insight it carries is the deliverable. **Sections are FREE** —
-the rite checks the *property* (honesty, clarity, the outward bridge drawn), never a named section.
+the rite checks the *property* (honesty, clarity, the outward bridge drawn), never a named section. Aspas retas `"assim"`. Não uses « ». Lucas leu « » como negrito cortado.
 
 ## The rite is the path — exit through `tools/rito.py` (docs/rito-runtime.md)
 

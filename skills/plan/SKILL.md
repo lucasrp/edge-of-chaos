@@ -67,7 +67,7 @@ flow or a fenced ASCII step-and-dependency drawing) for the ordered steps and wh
 by an ordered **list** or **table** for the next-steps grid (what goes in → what happens → what comes
 out) and a **risk table** for risks/mitigations. The visual is content-relative: a plan with ordered
 steps warrants the flow rather than a prose paragraph. **Sections are FREE** — the rite checks the
-*property* (honesty, clarity, the ordered actionable flow), never a named section.
+*property* (honesty, clarity, the ordered actionable flow), never a named section. Aspas retas `"assim"`. Não uses « ». Lucas leu « » como negrito cortado.
 
 ## The rite is the path — exit through `tools/rito.py` (docs/rito-runtime.md)
 

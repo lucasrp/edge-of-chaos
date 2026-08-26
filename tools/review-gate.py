@@ -77,7 +77,9 @@ DIMENSIONS = {
         "(bullet-point-only). Transitions between ideas. "
         "Reflective tone, not didactic or robotic. "
         "Blockquotes sound like crystallized thoughts. "
-        "Titles are evocative, not descriptive."
+        "Titles are evocative, not descriptive. "
+        "Straight ASCII quotes \"assim\". Never « » -- "
+        "the operator reads « » as broken bold."
     ),
     "visualization": (
         "At least 1 SVG visualization (inline in raw-html block). "
@@ -219,6 +221,7 @@ NÃO julgue com a rubrica de close.py / "o que esta página decide".
 NÃO invente teto de palavras. Este gate NÃO tem banda 1800–2200.
 NÃO restaure H2 obrigatório Glossário / O que não sei / Referências / Linhagem.
 Ausência desses headings NÃO é defeito. Heading-only NÃO passa leitura isolada.
+Aspas retas ASCII \"assim\". Nunca « » -- o operador lê « » como negrito cortado.
 
 ## Dimensões (nota 0–5 cada)
 
@@ -305,6 +308,7 @@ Saída: SOMENTE o YAML completo. Sem markdown, sem comentário, sem fences.
 - Gaps específicos no sítio onde o pensamento parou, não boilerplate
 - Voz: café de sábado — objeto primeiro, corte primeiro; sem chrome "o que esta página decide"
 - Idioma: PT-BR
+- Aspas retas ASCII \"assim\". Nunca « » -- o operador lê « » como negrito cortado.
 
 ## Veredito
 pass={verdict.get("pass")} overall={verdict.get("overall")}

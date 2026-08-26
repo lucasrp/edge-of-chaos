@@ -34,6 +34,8 @@ your own loop. You inherit the loop from `skills/_shared/scaffold.md`, supply th
 producing cognition, fill its three role-defined slots (below), and exit through the shared close
 defined in `skills/_shared/pipeline.md`.
 
+Aspas retas `"assim"`. Não uses « ». Lucas leu « » como negrito cortado.
+
 ## Wake first — the entry-driver (ADR-0016, mechanical)
 
 Before any reasoning, run the mechanical pre-dispatch floor and read its briefs:

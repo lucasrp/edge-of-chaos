@@ -20,6 +20,7 @@ from tools.yaml_to_html import (
     render_block,
     render_section,
     render_text,
+    normalize_straight_quotes,
 )
 
 
@@ -645,3 +646,46 @@ class TestRenderText:
         result = render_text("<script>alert('xss')</script>")
         assert "<script>" not in result
         assert "&lt;script&gt;" in result
+
+
+class TestStraightQuotes:
+    """Guillemets become ASCII quotes in visible text, not inside style/script."""
+
+    def test_visible_text_normalized(self):
+        html = '<p>disse ' + chr(171) + 'ola' + chr(187) + '</p>'
+        out = normalize_straight_quotes(html)
+        assert chr(171) not in out
+        assert chr(187) not in out
+        assert 'disse "ola"' in out
+
+    def test_style_and_script_kept(self):
+        html = (
+            '<p>' + chr(171) + 'x' + chr(187) + '</p>'
+            + "<style>.q{content:'" + chr(171) + "keep" + chr(187) + "'}</style>"
+            + "<script>var q='" + chr(171) + "keep" + chr(187) + "';</script>"
+        )
+        out = normalize_straight_quotes(html)
+        assert "content:'" + chr(171) + "keep" + chr(187) + "'" in out
+        assert "var q='" + chr(171) + "keep" + chr(187) + "';" in out
+        assert '<p>"x"</p>' in out
+
+    def test_yaml_emit_normalizes_paragraph_and_raw_svg(self):
+        import tempfile
+        from pathlib import Path as _P
+        from tools.yaml_to_html import yaml_to_html as _yth
+        la, ra = chr(171), chr(187)
+        spec = (
+            'title: t\nsubtitle: s\ndate: 26/08/2026\n'
+            'sections:\n  - title: A\n    blocks:\n'
+            '      - type: paragraph\n        text: "disse ' + la + 'ola' + ra + '"\n'
+            '      - type: raw-html\n'
+            "        content: '<svg><text>" + la + "medium" + ra + "</text></svg>'\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            yp = _P(d) / 's.yaml'
+            yp.write_text(spec, encoding='utf-8')
+            html = _yth(str(yp))
+        assert la not in html
+        assert ra not in html
+        assert 'disse' in html
+        assert 'medium' in html
