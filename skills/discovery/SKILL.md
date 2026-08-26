@@ -69,7 +69,7 @@ principles, no jargon left undefined), **why it applies to the mentee's live wor
 use it — the contextualization is the deliverable, clear and detailed, never a hand-wave. Frame in the
 mentee's **Idiom**. Mark the honest boundary: where the analogy holds and where it breaks (inferred vs
 verified). **Sections are FREE** — the close checks the *property* (depth, usefulness, honesty, clarity)
-present anywhere, never a named section. **Plenitude** is the bar.
+present anywhere, never a named section. No mandatory Glossário / O que não sei / Referências / Linhagem. **Leitura isolada is THE fail of produce:** a colleague of the operator, same shop, who missed this session and did not read this week's beats, must still understand the page alone — otherwise FAIL. Sequel / needs a previous artifact → FAIL. Object and derivation before any outside name; linhagem-first is a fail, not a required heading. Teach terms on first use in the prose. Do not require H2 Glossário / O que não sei / Referências / Linhagem; those headings do not pass isolated reading. **Plenitude** is the bar.
 
 ## Visual idiom — prose, with the palette where it earns it
 

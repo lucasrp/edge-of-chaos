@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Old-Edge review-gate (3e6a407 rubric) via grok CLI — NOT OpenAI/xAI API.
+"""Old-Edge review-gate via grok CLI — NOT OpenAI/xAI API.
 
 Two review→refine rounds. Criteria: 9 dims, all >= 3, overall >= 3.5, zero critical.
 No word-count cap (the March gate did not have one).
+
+Binding fail is LEITURA ISOLADA / isolated reading: a colleague of the operator,
+same shop, who missed this session and did not read this week's beats, still
+understands the page alone. Required H2 skeleton (Glossário / O que não sei /
+Referências / Linhagem) is gone. Linhagem-first is a fail, not a required section.
 
 Usage:
   tools/edge-python tools/review-gate.py SPEC.yaml \
@@ -31,10 +36,15 @@ import _llm  # noqa: E402
 
 DIMENSIONS = {
     "structural_completeness": (
-        "Required sections present: linhagem (first section), "
-        "'O que Nao Sei' (penultimate), glossario (last), "
-        "executive_summary, metrics, bibliography. "
-        "All blocks use valid types from the report template."
+        "THE page is a self-contained artifact. Sections are FREE. "
+        "Do NOT require H2 Glossário, O que não sei, Referências, or Linhagem. "
+        "Missing those headings is not a defect. Heading-only costume does not pass. "
+        "Linhagem-first is a FAIL, not a required section: put the object on the table "
+        "before any outside name, prior beat, or date-stamped index. "
+        "All blocks use valid types from the report template. "
+        "An opener that indexes internal beats/dates without teaching the object "
+        "(canonical fail: Galison 25/08 + ledger 25/08 + occupy-hedge 24/08) "
+        "fails this dimension — leitura isolada died in sentence one."
     ),
     "content_depth": (
         "Sections have substance, not placeholders. "
@@ -43,25 +53,23 @@ DIMENSIONS = {
         "Tables have real data, not lorem ipsum."
     ),
     "storytelling": (
-        "The report tells a STORY, not just presents information. "
-        "There is a narrative arc: setup (why this matters) → tension (the problem/question) "
-        "→ exploration (what was tried/discovered) → resolution (what changed). "
-        "Sections flow into each other with cause-effect or temporal logic. "
+        "Saturday coffee, tell a friend. The report tells a STORY, not a section skeleton. "
+        "Open on a runnable object, cut first. Narrative arc: the object "
+        "(why this matters) → tension → exploration → resolution. "
+        "Headings do not make an arc. A sequel disclaimer "
+        "('this page does not reopen X from yesterday') is a fail, not a hook. "
         "The reader should want to keep reading — not just scanning headers. "
-        "The title and executive_summary hook the reader. "
         "Analogies and concrete scenarios make abstract ideas tangible. "
-        "The conclusion connects back to the opening — the arc closes."
+        "The conclusion connects back to the opening object — the arc closes."
     ),
     "feynman_method": (
-        "Evidence of derivation-first thinking: the author tried to reason from "
-        "first principles BEFORE searching or citing external sources. "
-        "Gaps in understanding are explicitly marked (gap-marker, gap-table, [GAP] tags). "
-        "The report shows WHERE the author's knowledge stopped and research began. "
-        "Explanations are written as if teaching someone intelligent but unfamiliar. "
+        "Object and derivation BEFORE any outside name. "
+        "Reason from first principles BEFORE searching or citing. "
+        "Linhagem-first (name-drop, then maybe explain) is a fail. "
+        "Gaps sit inline where the author's knowledge stopped — not a required H2. "
+        "Explanations teach someone intelligent but unfamiliar. "
         "No jargon without definition. Analogies used to test understanding. "
         "The process of thinking is visible — not just conclusions. "
-        "If the report has a 'Derivacao' or equivalent section, it contains genuine "
-        "reasoning steps (not just restating known facts). "
         "Uncertainty is quantified or bounded, not hand-waved."
     ),
     "writing_quality": (
@@ -78,31 +86,33 @@ DIMENSIONS = {
         "SVG follows standards: viewBox, font-family, semantic colors."
     ),
     "intellectual_honesty": (
-        "'O que Nao Sei' section has genuine, specific gaps — not boilerplate. "
+        "Specific uncertainty where thought actually stops — a real hole, named. "
+        "NOT a required H2 'O que Não Sei' / 'O que Nao Sei'. "
+        "Missing that heading does not fail. A boilerplate honesty section does not pass. "
         "Uncertainty stated clearly. Blind spots acknowledged. "
-        "Assumptions marked as untested. gap-table with real IDs and descriptions. "
-        "callout danger/warning for critical unknowns."
+        "Assumptions marked as untested. gap-marker / gap-table where the thought stalled."
     ),
     "internal_consistency": (
-        "Executive summary matches section content. "
-        "Metrics match what's reported in sections. "
-        "Title matches actual scope. Numbers consistent throughout. "
-        "Linhagem references real prior work, not generic placeholders. "
-        "Blog entry (if provided) is consistent with report content."
+        "THIS PAGE CARRIES — leitura isolada / isolated reading. "
+        "A sibling page, a prior beat, a date stamp, or 'já está estabelecido' "
+        "cannot save a claim. Sequel / needs previous artifact = FAIL. "
+        "Lineage one-liner AFTER the object is fine; deferring the briefing "
+        "to a prior piece is not. Title matches actual scope. "
+        "Numbers consistent throughout. Executive summary matches section content "
+        "when present (it is not a required H2)."
     ),
     "didactic_clarity": (
-        "Every concept, acronym, and technical term is explained on first use. "
-        "The reader should NEVER have to guess what a term means. "
-        "Specific checks: "
-        "(1) Acronyms expanded on first mention. "
-        "(2) Domain jargon defined inline or in glossary. "
-        "(3) Tool/system names explained with what they DO, not just what they ARE. "
-        "(4) Concept boxes (concept-grid) used for new ideas — with analogy + practical definition. "
-        "(5) The glossary section is not a dump of terms — each entry has a definition a newcomer can understand. "
-        "(6) Numbers have context. "
-        "Score 5 = a smart person unfamiliar with the project can read and understand everything. "
+        "BINDING FAIL — leitura isolada / isolated reading: a colleague of the "
+        "operator, same shop, who missed this session and did not read this week's "
+        "beats, cannot follow the page alone → FAIL. "
+        "Every load-bearing term is taught on first use IN THE PROSE. "
+        "A heading named Glossário does not pass. Absence of that heading does not "
+        "fail if the terms are taught inline. "
+        "Acronyms expanded on first mention. Tool/system names by what they DO, "
+        "not what they ARE. Numbers have whose evaluation / of what / n. "
+        "Score 5 = isolated reading passes — the colleague understands everything. "
         "Score 3 = most things explained, a few insider terms slip through. "
-        "Score 1 = reads like internal notes — full of unexplained jargon."
+        "Score 1 = encrypted index of internal beats — full of unexplained jargon."
     ),
 }
 
@@ -196,13 +206,19 @@ def _build_review_prompt(yaml_text: str, html_text: str | None) -> str:
         # keep prompt bounded
         clipped = html_text if len(html_text) < 120000 else html_text[:120000] + "\n<!-- clipped -->"
         html_part = f"\n## HTML renderizado (apoio visual; julgue o spec + a página)\n\n{clipped}\n"
-    return f"""Você é o review-gate do Edge antigo (março/2026, commit 3e6a407).
-Avalie o artefato YAML (spec do relatório) contra a rubrica abaixo.
+    return f"""Você é o review-gate do produce (pipe Tetris / generate_report).
+Avalie o artefato YAML (spec do relatório) + a página contra a rubrica abaixo.
 Idioma da resposta: português (PT-BR).
 Responda com UM objeto JSON válido. Sem markdown, sem texto fora do JSON.
 
-NÃO julgue com a rubrica NOVA (Feynman-gate / close.py / "o que esta página decide").
+O TESTE QUE DECIDE É A LEITURA ISOLADA. Não é slogan. É o fail binding do produce.
+Isolated reading = uma pessoa que trabalha com o operador, mesma loja, que NÃO
+leu os beats desta semana e NÃO viveu a sessão, ainda entende a página sozinha.
+
+NÃO julgue com a rubrica de close.py / "o que esta página decide".
 NÃO invente teto de palavras. Este gate NÃO tem banda 1800–2200.
+NÃO restaure H2 obrigatório Glossário / O que não sei / Referências / Linhagem.
+Ausência desses headings NÃO é defeito. Heading-only NÃO passa leitura isolada.
 
 ## Dimensões (nota 0–5 cada)
 
@@ -217,14 +233,18 @@ NÃO invente teto de palavras. Este gate NÃO tem banda 1800–2200.
 - 5: excelente
 
 ## critical_issues (bloqueantes) — flag se QUALQUER:
-- Seção obrigatória ausente (linhagem, "O que Nao Sei", glossario)
-- executive_summary ou metrics ausentes no topo
+- LEITURA ISOLADA FALHOU: colega do operador, mesma loja, perdeu esta sessão e não leu os beats da semana, não consegue seguir a página sozinho
+- Opener que cita beats/datas internas sem pôr o objeto na mesa (canónico: "Galison 25/08" + "ledger 25/08" + "occupy-hedge 24/08" — índice interno, disclaimer de sequel, objeto nunca entra)
+- Sequel / precisa do artefato anterior — "esta página não reabre X", "já fechou o seu objeto", assume-known, "já está estabelecido"
+- Linhagem-first: nome de fora ou beat anterior ANTES do objeto/derivação
+- 3+ siglas ou termos técnicos sem explicação na primeira ocorrência NA PROSA (H2 Glossário não salva)
 - Seções vazias (título sem blocos/conteúdo)
 - Zero visualizações SVG no spec (precisa de raw-html com SVG inline)
-- "O que Nao Sei" é boilerplate vago, não específico deste tema
 - Contradição interna (seção cita dado/evento que não existe no spec)
-- 3+ siglas ou termos técnicos sem explicação
-- Glossário ausente ou termos sem definição
+
+NÃO flaggeie ausência de H2 Glossário / O que não sei / Referências / Linhagem.
+Esses headings NÃO são obrigatórios. Um H2 com esses nomes NÃO passa leitura isolada.
+executive_summary e metrics são forma YAML do pipe (quando o spec é YAML), não H2 de esqueleto.
 
 ## Formato de saída (SOMENTE este JSON)
 {{
@@ -272,14 +292,17 @@ REESCREVA o YAML completo aplicando o veredito.
 Saída: SOMENTE o YAML completo. Sem markdown, sem comentário, sem fences.
 
 ## Regras
-- Conserte TODOS os critical_issues primeiro
+- Conserte TODOS os critical_issues primeiro — leitura isolada é o teste que decide
 - Depois notas < 4; depois suggestions aplicáveis
 - NÃO remova substância boa — só acrescentar, aprofundar, reestruturar
-- Preserve title/subtitle/date/executive_summary/metrics/sections/bibliography
-- Seções obrigatórias: linhagem (primeira), "O que Nao Sei" (penúltima), glossario (última)
+- Preserve title/subtitle/date e o que já funciona; executive_summary/metrics são forma YAML, não H2
+- Seções LIVRES. NÃO invente nem exija H2 Glossário / O que não sei / Referências / Linhagem
+- Linhagem-first é FAIL: objeto e derivação ANTES de qualquer nome de fora
+- Sequel / precisa do artefato de ontem = FAIL. Esta página carrega.
+- Ensine cada termo na primeira ocorrência na prosa (H2 Glossário não conta)
 - Pelo menos 1 SVG inline em bloco raw-html (viewBox, font-family)
-- Derivação visível (bloco derivation ou seção com passos reais)
-- Gaps específicos, não boilerplate
+- Derivação visível (bloco derivation ou passos reais no corpo)
+- Gaps específicos no sítio onde o pensamento parou, não boilerplate
 - Voz: café de sábado — objeto primeiro, corte primeiro; sem chrome "o que esta página decide"
 - Idioma: PT-BR
 
