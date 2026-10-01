@@ -352,7 +352,7 @@ def _adversarials_for_cfg(cast: dict, primary: str) -> dict:
             out["codex"] = {
                 "route": "review",
                 "auth": "subscription",
-                "model": "gpt-5.6-luna",
+                "model": "gpt-6-luna",
                 "directive": (
                     "Refute-first. Strike what does not survive; the 0-5 score is advisory."
                 ),
@@ -398,7 +398,7 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
     if primary in ("claude", "opus", "fable"):
         routers["chat"] = {"provider": "claude", "model": "opus" if primary == "claude" else primary}
     elif primary == "codex":
-        routers["chat"] = {"provider": "codex", "model": "gpt-5.6-luna"}
+        routers["chat"] = {"provider": "codex", "model": "gpt-6-luna"}
     elif primary == "grok":
         routers["chat"] = {"provider": "grok", "model": "grok-4.5"}
     elif primary == "hermes":
@@ -409,7 +409,7 @@ def _routers_for_cfg(cast: dict, primary: str, embedding: Optional[dict]) -> dic
     else:
         for m in cast.get("members") or []:
             if m == "codex":
-                routers["review"] = {"provider": "codex", "model": "gpt-5.6-luna"}
+                routers["review"] = {"provider": "codex", "model": "gpt-6-luna"}
             elif m == "grok":
                 routers["review_grok"] = {"provider": "grok", "model": "grok-4.5"}
             elif m == "hermes":

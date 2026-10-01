@@ -265,12 +265,12 @@ def locate(names, group=_AUTO, **kw):
 
 
 def _default_summarize(members_text):
-    """One-shot name+summary pelo modelo de chat do host (gpt-5.6-luna neste install); injected in tests. Raises on transport error —
+    """One-shot name+summary pelo modelo de chat do host (gpt-6-luna neste install); injected in tests. Raises on transport error —
     consolidate catches and degrades."""
     import urllib.request
     req = urllib.request.Request(
         "https://api.openai.com/v1/chat/completions",
-        data=json.dumps({"model": "gpt-5.6-luna", "max_completion_tokens": 300, "messages": [{
+        data=json.dumps({"model": "gpt-6-luna", "max_completion_tokens": 300, "messages": [{
             "role": "user",
             "content": "Estas entidades formam um cluster de conhecimento das sessões de "
                        "trabalho de um operador. Dê um NOME curto (3-6 palavras, PT-BR) e um "
