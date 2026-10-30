@@ -18,6 +18,8 @@ SCAFFOLDING = ("<system-reminder>", "<task-notification>", "<command-name>",
 
 def is_substantial(meta):
     """E1 (validada ~95% vs rótulo manual): sessão de discussão real do operador."""
+    if meta.get("id") in sessions.declared_human_sessions():
+        return meta.get("op_turns", 0) >= 1
     return meta.get("op_turns", 0) >= 5 and meta.get("op_chars", 0) >= 1000
 
 

@@ -359,6 +359,20 @@ _EXCLUSION_CACHE: dict = {}
 _DIALOGUE_CACHE: dict = {}
 
 
+def declared_human_sessions() -> frozenset:
+    """Sessões que o dono DECLAROU humanas: um id por linha em <estado>/state/sessoes-humanas.txt (``#`` comenta).
+    Caso de origem (dono, 30/10/2026): a sessão fixa da consultoria sob demanda é dirigida por `claude -p --resume`
+    a pedido dos bots, mas "no wake é pra ser considerada como se fosse uma sessao minha". Declaração explícita, por
+    id; o resto segue com os filtros de proveniência e o piso de diálogo."""
+    try:
+        import _identity
+        f = Path(_identity.state_root()) / "state" / "sessoes-humanas.txt"
+        linhas = f.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return frozenset()
+    return frozenset(l.split("#", 1)[0].strip() for l in linhas if l.split("#", 1)[0].strip())
+
+
 def user_session_exclusion_reason(session: Session, install_birth=None) -> str | None:
     """Return why this transcript is not a direct operator session, else None.
 
@@ -371,6 +385,8 @@ def user_session_exclusion_reason(session: Session, install_birth=None) -> str |
     o backfill filmava zero). Só suaviza os vereditos *unknown-provenance* (ausência de
     marcador); marcador POSITIVO de delegação (source:exec, subagent, thread-source) segue
     excluindo em qualquer época."""
+    if session.id in declared_human_sessions():
+        return None
     try:
         st = Path(session.path).stat()
         key = (str(session.path), st.st_mtime_ns, st.st_size)
