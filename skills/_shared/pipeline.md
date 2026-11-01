@@ -44,13 +44,13 @@ sees, not raw authoring source (if a leftover draft is still YAML, they never sc
    never report-specifics; the producer skill's mapping supplies the form. The scaffold is where
    the artefato is produced and tightened to a `ship` verdict.
 
-3. **close — review → improve → publish.** The produced artefato passes the genus conformance
-   contract, then the two blind reviewers — which return **per-dimension rationales** (the
-   actionable FEEDBACK; the 0-5 score is advisory and never gates) and **strikes** (the
-   qualitative gate). When an `improve_fn` is wired, the close runs `IMPROVE_ROUNDS` unconditional
-   **review→improve** passes (the two improve-gates, one after the other) that revise the draft
-   from that feedback BEFORE the gating review seals the proof — so what publishes is exactly what
-   the reviewers passed. Then it publishes atomically with its kernel.
+3. **close — check → review → decide → publish.** The produced artefato passes the genus
+   conformance contract (mechanical, bounded), then **ONE advisory reviewer** that only points out
+   **furos** (fato sem fonte, número errado, conclusão que não segue, trecho confuso, o que
+   faltou) — no score, no veto, no second round (ADR-0025). The producer decides each furo at its
+   convenience: fix it (`improve_fn`, called once), or keep it and let it ride a short
+   **"Notas do revisor"** section on the page. The review never blocks. Then it publishes
+   atomically with its kernel.
 
    Three sibling acts complete the close, right after the publish:
    - **the consolidação do grafo** (ticket 05; operador: possivelmente a função MAIS IMPORTANTE
@@ -93,15 +93,12 @@ sees, not raw authoring source (if a leftover draft is still YAML, they never sc
 The prose phases above bottom out in two testable modules in `tools/`:
 
 - **`tools/close.py`** — the genus conformance contract (`check_genus`: output-enforced,
-  sections FREE), the two blind reviewers (`feynman_review` rigor+honesty, `regular_review`
-  clarity+craft+**frame-enrichment** — the outward vector: it STRIKES a closed internal
-  diagnosis that names nothing in the field and brings no outside benchmark/best-practice to
-  enrich the mentee's frame; both see content + cites only). Each verdict carries per-dimension
-  `rationales` (the FEEDBACK) + `strikes`; the weighted `overall` is advisory and never gates (an
-  LLM 0-5 score is too noisy to threshold). `run_close` adds the optional **improve stage**
-  (`improve_fn`, `IMPROVE_ROUNDS`) before the bounded bounce (both reviewers must pass; a strike
-  bounces to re-produce, capped at `BOUNCE_MAX`, then hard-fails — never unbounded). The
-  producer-loop's brake (`run_loop2`, `LOOP2_MAX_REOPENS`) lives here too.
+  sections FREE; a violation bounces to re-produce, capped at `BOUNCE_MAX`, then hard-fails —
+  never unbounded) and the single advisory reviewer (`review`, blind: content + cites only; its
+  contract is `tools/revisor.py`, shared with the rito). `run_close` runs the reviewer ONCE, hands
+  its furos to `improve_fn` once (fix, or keep via the revised dict's `reviewer_notes`), and sets
+  the kept furos on `content["reviewer_notes"]` before the mint. The producer-loop's brake
+  (`run_loop2`, `LOOP2_MAX_REOPENS`) lives here too.
 
 - **`tools/publisher.py`** — the atomic publish seam: render the artefato → self-contained
   neutral HTML → `publish_artefato_atomic`, which records the `artefato.published` event AND its
@@ -117,38 +114,33 @@ it — exits through the same close, so it observes the same review gates and th
 publish. The lifecycle is never privileged to the beat; whatever runs the producer, the close
 runs at its exit.
 
-The bounce-bound (`BOUNCE_MAX`) and the loop-2 brake (`LOOP2_MAX_REOPENS`) live in the protocol
-constants, never in the producer's discretion — that is what separates a gate from the
-retry-envelope ADR-0003 killed.
+The genus bounce-bound (`BOUNCE_MAX`) and the loop-2 brake (`LOOP2_MAX_REOPENS`) live in the
+protocol constants, never in the producer's discretion — that is what separates a mechanical check
+from the retry-envelope ADR-0003 killed. The reviewer has no bound because it has no round.
 
-## The improve-gates and cross-model help (codex)
+## The reviewer only warns; the producer decides (ADR-0025)
 
-The close is not only a gate — it **refines**. When the producer wires an `improve_fn`,
-`run_close` runs `IMPROVE_ROUNDS` (default 2) **review→improve** passes before the gating review:
-each pass reviews the draft purely for FEEDBACK (the per-dimension `rationales` + the `strikes` —
-the noisy score never drives this) and hands it to the improve subagent, which **revises the
-existing draft**, not re-produce from scratch. The two improve-gates run one after the other; the
-gating review then seals the proof on the final, twice-improved artefato, so the reviewers' pass
-is always of exactly what publishes.
+Owner, 2026-11-01, verbatim: *"quero que o revisor só avise dos furos, e o edge pode ou corrigir
+ou só mencionar a nota do revisor, à sua conveniencia"*. So the close has **one** reviewer and
+**one** pass. It returns `{furos: [str]}` — never a score, a strike, or a verdict. When there are
+furos and the producer wired `improve_fn`, the close calls `improve_fn(artefato, verdict)` **once**;
+the returned artefato fixes what the producer wanted to fix and lists what it kept in
+`reviewer_notes` (strings or `{furo, resposta}`). Omitting `reviewer_notes` keeps every furo (the
+safe default — nothing the reviewer said disappears silently). A revision that crashes, is not a
+dict, or breaks the genus is discarded and the pre-revision draft publishes with every furo as a
+note. Nobody re-reviews the revision. A reviewer that crashes or answers garbage degrades to a
+`degraded` note with no furos; only an infra error (quota/auth/network) propagates, because that
+is not a review (#55).
 
-**Wiring the re-production is what makes the floor force depth, not only hard-fail (#30).** Every
-producer-skill MUST wire `improve_fn` (see each SKILL.md's close snippet): the genus contract now
-carries the **rich-rite floor** (`check_genus` returns `rich-rite:<move>` strikes when a *developed
-prose synthesis* lacks a cognitive move — derivation, the "what I don't know" boundary, an external
-frame, lineage; content-relative, never a named section, never a word floor). Without an `improve_fn`,
-a `produce_fn=lambda: artefato` is static, so any strike — a rich-rite floor violation included —
-just bounces to the same draft and **hard-fails** after `BOUNCE_MAX`. With `improve_fn(art, feedback)`
-wired, the `IMPROVE_ROUNDS` passes REVISE the draft from the named gaps BEFORE the gating close — so a
-shallow report is **re-produced richer** (the missing move added) rather than dead-ending. The floor
-is a depth-forcer because the re-production is wired; the gate alone would only reject.
+**Wiring `improve_fn` is still what makes the genus floor force depth (#30).** The genus contract
+carries the **rich-rite floor** (`rich-rite:<move>` when a *developed prose synthesis* lacks
+derivation, the "what I don't know" boundary, an external frame, or lineage). With `improve_fn`
+wired, a genus violation hands the named gap to `improve_fn(art, [genus feedback])` and the draft
+is re-produced richer; without it, the static `produce_fn` bounces to the same draft and
+**hard-fails** after `BOUNCE_MAX`. That is a mechanical check, not a review.
 
-The review and improve subagents — the **adversarial** blind pass, the **feynman** rigor
-reviewer, the **enrichment** (frame / outward-vector) reviewer, and the **improve** reviser — MAY
-reach for the **`/codex` skill** (the Codex CLI: a second, independent model) to pressure-test
-their analysis, when `agent.yaml`'s `subagents.codex_assist.<role>` is true (all on by default).
-Use it to challenge a claim, derive cross-model, or hunt the outside benchmark a frame-closed
-draft is missing — the score is noise; a cross-model second opinion sharpens the *feedback*, which
-is the signal.
+The reviewer and the improve reviser MAY reach for the **`/codex` skill** (a second, independent
+model) to pressure-test a furo when `agent.yaml`'s `subagents.codex_assist.<role>` is true.
 
 ## Single file is the ONE hard rule — links, JS and imagem liberados (ticket 05)
 
@@ -179,7 +171,7 @@ user_requested above beat: o pedido do usuário é o gradiente; o beat é explor
 
 The **producer-skills** are the open roster the Pauta's `forma` selects from
 (`publisher.PRODUCER_ROSTER` ∩ installed skills — ADR-0024 killed the beat rotation). The
-**close-roles** — the two reviewers and the publisher — are parts of this shared protocol and
+**close-roles** — the reviewer and the publisher — are parts of this shared protocol and
 are **NOT selectable**: they are not producers; they run at every producer's exit. The PROPOSTA
 picks the producer; the close is the fixed gate they all funnel through.
 
@@ -193,7 +185,7 @@ from the brief points the floor at the MAIN's transcript and the cleared `child_
 (without it the child-session guard darks the floor out). The floor is a
 `() -> list[str]` the wiring injects at the call-site (`close.py` never imports `harvest` — the same
 injection idiom as `publish_fn`); a returned list is **genus-class** — summed into the gate's
-`violations`, blocking-first, before the reviewers. `harvest.close_floor` reads the knob
+`violations`, blocking-first, before the reviewer. `harvest.close_floor` reads the knob
 **`EDGE_GROUNDING_FLOOR`** (default **`1=observe`** since ticket B — B.4's first honest rung; `0=off` → `[]` stays a declared opt-out; `1=observe` counts
 the would-be `grounding.floor` / `grounding.floor_dark` but never blocks; `2=gate` returns the named
 violation on a **THEMED** dispatch that recognized **zero** source-reads). It is **fail-OPEN** (the
@@ -211,9 +203,9 @@ window), it does **not** run `close.run_close` inline. It writes the settled spe
 pointers** and hands off to the publisher (via the Agent tool) with a **brief + disk POINTERS** — the
 clerk idiom (measurements + disk pointers), never a context dump: `{dispatch_id, main_session_id, skill,
 intent_kernel, slug, spec_path, cites_path, proposes_path, distills_path, lineage_path}`. The publisher
-runs the **whole close** in a clean process — the genus contract, the two blind reviewers, the
-**mechanical** improve loop, the mint, the render, the atomic publish — and returns a typed **pull-channel**
-`{status, slug, url, cost, residuals, rationales, bounce_reason}`. **The handoff is a BLOCKING Agent
+runs the **whole close** in a clean process — the genus contract, the single advisory reviewer, the
+furo decision, the mint, the render, the atomic publish — and returns a typed **pull-channel**
+`{status, slug, url, cost, furos, reviewer_notes, bounce_reason}`. **The handoff is a BLOCKING Agent
 call in the same turn — nunca `run_in_background`, nunca terminar o turno com o close em voo**: em
 headless (`claude -p`, o beat) o fim do turno mata o processo e o close morre não-logado (lei do
 turno, skills/beat). Esperar os ~6 min do close em foreground é o custo correto; a janela do MAIN
@@ -223,13 +215,13 @@ close's rungs 4-5 are already context-denied).
 
 **The wall still stands — the publisher is a tipógrafo of MECHANICS, never an author.** It receives the
 spec ASSENTADO and never creates a claim, a cite, a proposal, or a sentence of substance — a claim born in
-the publisher is a defect. What it owns is the **close machinery**, not the synthesis. So the bounce splits
-by nature: a **FORM-only** leftover after the mechanical improve → **publish-with-residuals** (the S6 knob
-`EDGE_PUBLISH_WITH_RESIDUALS`, the "Crítica não endereçada" section, graded not gated); a **SUBSTANTIVE**
-strike — one that needs a re-derive, a missing factual anchor, a new claim, or a genus-floor violation —
-**bounces to the author** (`status: bounced, needs author`), because only the MAIN holds the context to
-re-found it. The MAIN re-produces and re-hands the pointers under the **same `dispatch_id`** (no re-wake —
-the stamp is unconsumed, so re-publish under the same id still passes the identity-held gate).
+the publisher is a defect. What it owns is the **close machinery**, not the synthesis. So the furos split
+by convenience, never by veto: a furo the publisher can close **mechanically** (form, clarity, a typo,
+a gloss) it MAY fix; every other furo it **keeps** as a "Notas do revisor" note and publishes. It never
+bounces the author for a furo. Only a **genus** violation that survives the mechanical fix **bounces to
+the author** (`status: bounced, needs author`), because only the MAIN holds the context to re-ground it.
+The MAIN re-produces and re-hands the pointers under the **same `dispatch_id`** (no re-wake — the stamp is
+unconsumed, so re-publish under the same id still passes the identity-held gate).
 
 **The floor keeps its teeth across the split.** The publisher runs as a child
 (`CLAUDE_CODE_CHILD_SESSION` set) with a read-less transcript, so a naive `close_floor()` would go

@@ -93,7 +93,7 @@ It returns `blog/entries/<slug>.proto.<sha12>.html`, served at `/e/<that-name>` 
 the companion entry. The seam refuses an out-of-roster skill, a fragment, or an external
 dependency.
 
-Then the **companion entry** — the framing the reviewers gate: what the demo shows, why it matters
+Then the **companion entry** — the framing the reviewer reads: what the demo shows, why it matters
 to the mentee's live work, how to read the interaction, the honest boundary (what the prototype
 does NOT show / simplified), and the link to the standalone page (a `callout` or `paragraph`
 block carrying the `/e/...` URL). Build it from the canonical palette (`tools/render.py`) and exit
@@ -131,7 +131,10 @@ the close it runs is:
           floor_fn=lambda: harvest.close_floor(session_id=main_session_id, child_session=''), \
           complete_fn=<review-completer>, publish_fn=publish_fn)"
 
-If the close bounces the entry and the page changes with it, re-run `publish_prototype_page` —
+The reviewer only warns (ADR-0025): `improve_fn` gets the genus feedback, or — once — the
+reviewer's furos; fix what you want and list what you keep in the returned artefato's
+`reviewer_notes` (strings or `{furo, resposta}`), which ride the entry as "Notas do revisor". If the
+genus check bounces the entry or a fix changes the page, re-run `publish_prototype_page` —
 the new bytes get a new address; update the entry's link (the old address stays immutable, so
 what any reviewer saw stays true).
 
