@@ -4,22 +4,17 @@ The rite tooth is review() (old-edge LLM reviewer). Tests mock complete_fn
 with canned JSON. Fixture A is thin (unexplained rates + written holes).
 Fixture B teaches instruments and still names a concrete improvement per
 axis (no 5s). Heading-only glossary/biblio does not satisfy the duty.
-assume-known does not waive. Two evals + two lastros always run. Scores
-contextualize the next lastro; they are not a pass/fail ticket. Close
-must not StageFailure on a low score.
+assume-known does not waive. Scores are notes, never a pass/fail ticket.
+Since ADR-0025 the rite no longer runs this reviewer (tools/revisor.py).
 """
 import json
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
-sys.path.insert(0, str(REPO / "tests"))
 import feynman_gate  # noqa: E402
-import rito  # noqa: E402
-import test_rito_runtime as tr  # noqa: E402
 
 
 # Opening like the 2026-08-21 published report: names invention vs misgrounded,
@@ -381,128 +376,6 @@ class ReviewParsesCannedJson(unittest.TestCase):
         self.assertNotIn("FEYNMAN: FAIL", proc.stdout)
         self.assertNotIn("FEYNMAN: PASS", proc.stdout)
         self.assertIn("not a ticket", proc.stdout)
-
-
-class RitoHonorsTheReviewer(unittest.TestCase):
-    def test_unexplained_rates_are_briefing_not_a_publish_block(self):
-        canned = dict(tr.CANNED)
-        canned["author_correction"] = FIXTURE_A_FAIL
-        canned["feynman_rewrite_1"] = FIXTURE_A_FAIL
-        canned["feynman_rewrite_2"] = FIXTURE_A_FAIL
-        with tempfile.TemporaryDirectory() as tmp:
-            manifest, run_dir, log, blog = tr._green_run(tmp, canned=canned)
-            self.assertEqual(manifest["status"], "completed")
-            self.assertTrue((blog / f"{tr.SLUG}.html").exists())
-            notes = manifest["feynman_gate"]
-            self.assertTrue(notes["critical_issues"], notes)
-            self.assertLess(notes["overall"], 3.0)
-            self.assertNotEqual(notes.get("verdict"), "FAIL")
-            self.assertNotEqual(notes.get("verdict"), "PASS")
-            g1 = json.loads((run_dir / "08a_FEYNMAN_GATE_1.json").read_text())
-            joined = " ".join(g1["critical_issues"])
-            self.assertIn("0,2%", joined)
-            evs = [e for e in __import__("eventlog").read(log=Path(tmp) / "log.jsonl")
-                   if e["type"] == "artefato.published"]
-            self.assertEqual(len(evs), 1)
-
-    def test_loop_runs_two_evals_and_two_lastros_even_when_first_review_is_strong(self):
-        canned = dict(tr.CANNED)
-        canned["feynman_review"] = json.dumps(FIXTURE_B_REVIEW, ensure_ascii=False)
-        with tempfile.TemporaryDirectory() as tmp:
-            manifest, run_dir, log, blog = tr._green_run(tmp, canned=canned)
-            self.assertEqual(manifest["status"], "completed")
-            self.assertTrue((run_dir / "08a_FEYNMAN_GATE_1.json").is_file())
-            self.assertTrue((run_dir / "08b_FEYNMAN_GROUNDING_A.md").is_file())
-            self.assertTrue((run_dir / "08c_FEYNMAN_REWRITE_1.md").is_file())
-            self.assertTrue((run_dir / "08d_FEYNMAN_GATE_2.json").is_file())
-            self.assertTrue((run_dir / "08e_FEYNMAN_GROUNDING_B.md").is_file())
-            self.assertTrue((run_dir / "08f_FEYNMAN_REWRITE_2.md").is_file())
-            g1 = json.loads((run_dir / "08a_FEYNMAN_GATE_1.json").read_text())
-            g2 = json.loads((run_dir / "08d_FEYNMAN_GATE_2.json").read_text())
-            for gate in (g1, g2):
-                self.assertEqual(gate["verdict"], "NOTES")
-                self.assertNotIn("pass", gate)
-                for name in feynman_gate.DIMENSIONS:
-                    self.assertLessEqual(gate["dimensions"][name]["score"], 4)
-                    self.assertTrue(gate["dimensions"][name]["feedback"].strip())
-            prompt_a = (run_dir / "prompts" / "09_feynman_grounding_a.md").read_text()
-            prompt_b = (run_dir / "prompts" / "12_feynman_grounding_b.md").read_text()
-            self.assertIn("feynman_briefing", prompt_a)
-            self.assertIn("feynman_briefing", prompt_b)
-            self.assertTrue((blog / f"{tr.SLUG}.html").is_file())
-
-    def test_mid_loop_low_score_does_not_abort_or_skip_round_two(self):
-        canned = dict(tr.CANNED)
-        canned["author_correction"] = FIXTURE_A_FAIL
-        canned["feynman_rewrite_1"] = FIXTURE_A_FAIL
-        canned["feynman_rewrite_2"] = FIXTURE_B_PASS
-        canned["feynman_review"] = None  # content-aware mock: A thin, B taught
-        with tempfile.TemporaryDirectory() as tmp:
-            manifest, run_dir, log, blog = tr._green_run(tmp, canned=canned)
-            self.assertEqual(manifest["status"], "completed")
-            g1 = json.loads((run_dir / "08a_FEYNMAN_GATE_1.json").read_text())
-            g2 = json.loads((run_dir / "08d_FEYNMAN_GATE_2.json").read_text())
-            self.assertLess(g1["overall"], 3.0)
-            self.assertTrue(g1["critical_issues"])
-            self.assertTrue((run_dir / "08b_FEYNMAN_GROUNDING_A.md").is_file())
-            self.assertTrue((run_dir / "08e_FEYNMAN_GROUNDING_B.md").is_file())
-            self.assertTrue((run_dir / "08f_FEYNMAN_REWRITE_2.md").is_file())
-            close = manifest["feynman_gate"]
-            self.assertGreaterEqual(close["overall"], 3.0)
-            self.assertNotEqual(close.get("verdict"), "FAIL")
-            self.assertNotEqual(close.get("verdict"), "PASS")
-            self.assertTrue((blog / f"{tr.SLUG}.html").is_file())
-            self.assertLess(g2["overall"], 3.0)  # rewrite_1 still fixture A
-
-    def test_fixture_b_survives_the_rite(self):
-        canned = dict(tr.CANNED)
-        canned["author_correction"] = FIXTURE_B_PASS
-        canned["feynman_rewrite_1"] = FIXTURE_B_PASS
-        canned["feynman_rewrite_2"] = FIXTURE_B_PASS
-        canned["feynman_review"] = json.dumps(FIXTURE_B_REVIEW, ensure_ascii=False)
-        with tempfile.TemporaryDirectory() as tmp:
-            manifest, run_dir, log, blog = tr._green_run(tmp, canned=canned)
-            self.assertEqual(manifest["status"], "completed")
-            close = manifest["feynman_gate"]
-            self.assertEqual(close["verdict"], "NOTES")
-            for name in feynman_gate.DIMENSIONS:
-                self.assertLessEqual(close["dimensions"][name]["score"], 4)
-                self.assertNotEqual(close["dimensions"][name]["score"], 5)
-                self.assertTrue(close["dimensions"][name]["feedback"].strip())
-                self.assertNotIn("no issues", close["dimensions"][name]["feedback"].lower())
-            self.assertTrue((blog / f"{tr.SLUG}.html").is_file())
-
-    def test_reviewer_is_invoked_on_review_route(self):
-        seen = []
-
-        def wrap(route, prompt, max_tokens):
-            seen.append((route, feynman_gate.REVIEWER_MARKER in prompt, max_tokens))
-            return tr._complete_fn(tr.CANNED, tr.LLM_ORDER)(route, prompt, max_tokens)
-
-        canned = dict(tr.CANNED)
-        canned["feynman_review"] = json.dumps(FIXTURE_B_REVIEW, ensure_ascii=False)
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp = Path(tmp)
-            log, blog, run_dir = tmp / "log.jsonl", tmp / "blog", tmp / "run"
-            did = tr._stamp_wake(log)
-            inner = tr._complete_fn(canned, tr.LLM_ORDER)
-
-            def spy(route, prompt, max_tokens):
-                seen.append(route if feynman_gate.REVIEWER_MARKER not in prompt
-                            else f"reviewer:{route}")
-                return inner(route, prompt, max_tokens)
-
-            rito.run_rito(
-                tr.SLUG, run_dir=run_dir,
-                grounding1_fn=lambda: "# Dossier factual\n\nFatos: 29-8-3 em 40 rodadas.",
-                prompts=tr._prompts(),
-                complete_fn=spy,
-                intent=tr.INTENT, skill="report", dispatch_id=did,
-                log=log, blog_dir=blog,
-            )
-            reviewer_calls = [s for s in seen if isinstance(s, str) and s.startswith("reviewer:")]
-            self.assertGreaterEqual(len(reviewer_calls), 3, seen)  # gate1, gate2, close
-            self.assertTrue(all(s == "reviewer:review" for s in reviewer_calls), seen)
 
 
 if __name__ == "__main__":

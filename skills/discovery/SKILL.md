@@ -99,9 +99,7 @@ publish didn't finish the rite.
 
 The stages you feed (authoring format is **Markdown**; the before/after + callout + list carry the visual
 idiom): `grounding1_dossier` (the find and the evidence that anchors it — the gather-grounding slot above)
-→ `first_authorial_draft` → `gap_critique` → `grounding2_targeted` → `provisional_rewrite` → `fact_audit`
-→ `author_correction` → `treatment_cleanup` (deterministic copy when the leak scan is clean) → `final_html`
-(pinned render, runtime-owned) → `final_review` (fail-closed `ACCEPTANCE:` header) → `publication`. The
+→ `first_authorial_draft` → `reviewer_notes` (ONE reviewer that only points out furos — no veto, no score, no second round; ADR-0025) → `author_revision` (you decide each furo at your convenience: fix it, or keep it and mention it under `## Notas do revisor`) → `treatment_cleanup` (deterministic copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) → `publication`. The
 canonical prompt bodies are archived in `drafts/old-edge-double-grounding-repro/run.py`; adapt their
 content to THIS find — the produce guidance above (one insight, why it applies, how to use it concretely)
 is what the first-draft prompt must carry.
@@ -125,13 +123,9 @@ target reader; empty resolves to the mentee) and `reports_on`.
 
     prompts = {
         'first_authorial_draft': lambda o: f"<land ONE useful find at PLENITUDE (cover the facets, no facet folded): what it is, why it applies to the mentee's live work, how to use it concretely, the load-bearing claim reasoned through; before/after where it earns it; a tight lead is not done; synthesis-to-a-bite is a failure>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<PLENITUDE critique (cover the facets): is the insight actually useful and new; is it contextualized to live work or a generic bizu; is the load-bearing claim reasoned through or only a bite / standalone lead; what is unstated. A tight lead is a gap, not a pass>\n\n{o['first_authorial_draft']}",
-        'grounding2_targeted':   lambda o: f"<targeted grounding closing the named gaps>\n\n{o['gap_critique']}",
-        'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
-        'fact_audit':            lambda o: f"<independent fact audit vs grounding1>\n\n{o['provisional_rewrite']}",
-        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
-        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review of the full arc; begin with the 3-line ACCEPTANCE header. PASS only if the facets are covered — plenitude, no facet folded. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o['treatment_cleanup']}",
+        'reviewer_notes':        lambda o: f"<point out the FUROS only (no verdict, no veto) — PLENITUDE critique (cover the facets): is the insight actually useful and new; is it contextualized to live work or a generic bizu; is the load-bearing claim reasoned through or only a bite / standalone lead; what is unstated. A tight lead is a gap, not a pass>\n\nDOSSIER:\n{o['grounding1_dossier']}\n\n{o['reader_facing']}",
+        'author_revision':       lambda o: f"<same-author revision in the same voice: for EACH furo, fix it or keep it and mention it under 'Notas do revisor' — your call; never invent a fact or a citation (what has no source leaves the text or becomes declared uncertainty)>\n\nDOSSIER:\n{o['grounding1_dossier']}\n\n{o['first_authorial_draft']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_revision']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

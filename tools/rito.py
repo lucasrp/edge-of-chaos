@@ -1,15 +1,19 @@
 """The rito runtime — the experiment's rite as the genotype's production path.
 
 Promoted from the canonical harness (drafts/old-edge-double-grounding-repro/run.py): the
-SAME stage sequence, sealing pattern (begin/finish/fail receipts with sha256 + manifest),
-deterministic gates (treatment scan, fail-closed acceptance header, draft immutability) and
-pinned render — now terminating in PUBLICATION instead of the blind package (the blind read
+sealing pattern (begin/finish/fail receipts with sha256 + manifest), deterministic checks
+(treatment scan, draft immutability) and pinned render — now terminating in PUBLICATION instead
+of the blind package (the blind read
 is experiment/acceptance apparatus, not a production stage; the first authorial draft stays
 sealed and addressable in the run dir so a later blind read is always possible).
 
 The operator's contract (docs/rito-runtime.md): the rite is the WHOLE causal execution,
 grounding-1 through publication of the rendered page. We prove EXECUTION — never score the
 artifact's appearance. The approved renderer and its output hash are pinned AS A STAGE.
+
+Review (ADR-0025, the owner's decision): ONE reviewer that only points out holes ("furos") —
+no veto, no mandatory round, never blocks publication. The author decides each furo: fix it,
+or keep it and mention it in a short "Notas do revisor" section (`tools/revisor.py`).
 
 Seams:
 - Cognition is prose-owned: the producer hands `grounding1_fn()` and per-stage
@@ -44,30 +48,21 @@ import render  # noqa: E402
 import yaml_rite  # noqa: E402
 
 SCHEMA = "edge.rito-manifest/v1"
-RITO_VERSION = "artefato-double-grounding/experiment-b"
+RITO_VERSION = "artefato-revisor-avisa/v1"  # ADR-0025: one advisory reviewer, no gate
 MANIFEST_NAME = "00_MANIFEST.json"
 
-# (ordinal, name, output filename, route, max_tokens) — the experiment's causal order
-# (run.py STAGES 1–10) with `publication` promoted to the terminal stage in place of the
-# blind package. Routes are FIXED: chat = the author, review = an independent reviewer.
+# (ordinal, name, output filename, route, max_tokens) — the causal order. Routes are FIXED:
+# chat = the author, review = an independent reviewer. ADR-0025 cut the review ladder
+# (gap critique, targeted grounding, audit, correction, two Feynman rounds, the fail-closed
+# final review) to ONE advisory reviewer + ONE author revision.
 STAGES = [
     (1, "grounding1_dossier", "01_GROUNDING1_DOSSIER.md", None, None),
     (2, "first_authorial_draft", "02_FIRST_AUTHORIAL_DRAFT.md", "chat", 11_000),
-    (3, "gap_critique", "03_GAP_CRITIQUE.md", "review", 9_000),
-    (4, "grounding2_targeted", "04_GROUNDING2_MEMO.md", "review", 10_000),
-    (5, "provisional_rewrite", "05_PROVISIONAL_REWRITE.md", "chat", 14_000),
-    (6, "fact_audit", "06_FACT_AUDIT.md", "review", 9_000),
-    (7, "author_correction", "07_AUDITED_FINAL.md", "chat", 14_000),
-    (8, "feynman_gate_1", "08a_FEYNMAN_GATE_1.json", "review", 4_000),
-    (9, "feynman_grounding_a", "08b_FEYNMAN_GROUNDING_A.md", "review", 10_000),
-    (10, "feynman_rewrite_1", "08c_FEYNMAN_REWRITE_1.md", "chat", 14_000),
-    (11, "feynman_gate_2", "08d_FEYNMAN_GATE_2.json", "review", 4_000),
-    (12, "feynman_grounding_b", "08e_FEYNMAN_GROUNDING_B.md", "review", 10_000),
-    (13, "feynman_rewrite_2", "08f_FEYNMAN_REWRITE_2.md", "chat", 14_000),
-    (14, "treatment_cleanup", "08_BLIND_SAFE_FINAL.md", "chat", 14_000),
-    (15, "final_html", "09_FINAL.html", None, None),
-    (16, "final_review", "10_FINAL_REVIEW.md", "review", 9_000),
-    (17, "publication", "11_PUBLICATION.json", None, None),
+    (3, "reviewer_notes", "03_REVIEWER_NOTES.md", "review", 9_000),
+    (4, "author_revision", "04_AUTHOR_REVISION.md", "chat", 14_000),
+    (5, "treatment_cleanup", "05_BLIND_SAFE_FINAL.md", "chat", 14_000),
+    (6, "final_html", "06_FINAL.html", None, None),
+    (7, "publication", "07_PUBLICATION.json", None, None),
 ]
 
 LLM_STAGES = tuple(name for _, name, _, route, _ in STAGES if route)
@@ -155,36 +150,13 @@ def treatment_leaks(text: str) -> list[dict[str, Any]]:
     return leaks
 
 
-def parse_acceptance(text: str) -> dict[str, Any]:
-    """The fail-closed final-review header (run.py parse_final_review_acceptance, verbatim)."""
-    header = [line.strip() for line in text.splitlines() if line.strip()][:3]
-    if len(header) != 3:
-        raise StageFailure(
-            "final review lacks deterministic ACCEPTANCE/UNSUPPORTED_CLAIMS/TREATMENT_LEAK header")
-    acceptance = re.fullmatch(r"ACCEPTANCE:\s*(PASS|FAIL)", header[0], re.IGNORECASE)
-    unsupported = re.fullmatch(r"UNSUPPORTED_CLAIMS:\s*(\d+)", header[1], re.IGNORECASE)
-    treatment = re.fullmatch(r"TREATMENT_LEAK:\s*(YES|NO)", header[2], re.IGNORECASE)
-    if not (acceptance and unsupported and treatment):
-        raise StageFailure(
-            "final review's first three non-empty lines are not the required acceptance header")
-    parsed = {
-        "acceptance": acceptance.group(1).upper(),
-        "unsupported_claims": int(unsupported.group(1)),
-        "treatment_leak": treatment.group(1).upper(),
-    }
-    parsed["package_allowed"] = (
-        parsed["acceptance"] == "PASS"
-        and parsed["unsupported_claims"] == 0
-        and parsed["treatment_leak"] == "NO")
-    return parsed
-
-
 def _ambient_theme_review_contract(dispatch_id, log) -> str:
     """Bind an autonomous rite to the Pauta's live PROPOSTA (o dente no rito — ADR-0024).
 
     Authority is mechanical (a live `pauta.proposta` penned by the funnel, whose own floors did
     the judging: substrato, delta_voz-against-the-Voz-baseline, gate da abordagem); whether the
-    artefact actually DEVELOPS that proposal is semantic, so the final reviewer judges it. The
+    artefact actually DEVELOPS that proposal is semantic, so the reviewer flags it as a furo —
+    advisory, never a veto (ADR-0025). The missing-proposta refusal stays mechanical. The
     Voz-anchor gate this replaces (dispatch.theme / vf:*) died with the old road: the autonomous
     Pauta road needs no prior Voice anchor by construction (fog nunca-abordada, curiosidade,
     coringa) — the Voz enters as the delta_voz baseline, never as a precondition of existence."""
@@ -204,20 +176,20 @@ def _ambient_theme_review_contract(dispatch_id, log) -> str:
     cell = f"{proposta.get('abordagem') or proposta.get('ato1') or 'round-robin'} x {proposta.get('objeto') or proposta.get('forma')}"
     return f"""
 
-PRODUCE GATE (blocking, semantic — the dente at the rite)
+PRODUCE CHECK (advisory, semantic — the dente at the rite; a furo, never a veto)
 Ato-1 bound this dispatch to a persisted RR pick (or leftover pauta.proposta); develop IT.
 
 Celula: {cell}   Forma: {proposta.get('forma')}
 Tema: {proposta.get('tema')}
 Faceta: {proposta.get('faceta') or proposta.get('faro') or ''}
 
-Set ACCEPTANCE: FAIL unless the artefact's actual actionable question is a reasonably direct
+Point a FURO unless the artefact's actual actionable question is a reasonably direct
 development of that tema/faceta, and the abordagem's promised elements (per its signed gate —
 mecanismo/trade-off/confronto/caminho, docs/agencia/pauta-tabela-normativa.md par.5) are present
 in the text, anywhere, never as named sections. Mere subject overlap is insufficient. Commits,
 agent execution, Direction, Wayfind, frontier, and open bets may support state/lineage only; if they
-supply the specific action, order, priority, or problem that the PROPOSTA did not carry, fail.
-Also fail when the artefact makes the reader adopt the delegated agent's implementation altitude —
+supply the specific action, order, priority, or problem that the PROPOSTA did not carry, point it.
+Also point a FURO when the artefact makes the reader adopt the delegated agent's implementation altitude —
 file/symbol/command-level decisions or executor jargon as the spine/action list — unless the human
 turns themselves reasoned about the trade-off at that level. Implementation may prove what changed;
 it must be translated into the human's purpose, decision horizon, and vocabulary before it becomes
@@ -227,7 +199,7 @@ filenames, or a technical-word list.
 
 
 def manifest_core_hash(manifest: dict[str, Any]) -> str:
-    """The binding hash: identity + the sealed receipts of the 10 COGNITIVE stages (the
+    """The binding hash: identity + the sealed receipts of the COGNITIVE stages (the
     publication stage is excluded — its receipt carries this hash, so including it would be
     circular). The published event carries this; the detector recomputes it."""
     stages = [s for s in (manifest.get("stages") or []) if s.get("name") != "publication"]
@@ -355,40 +327,10 @@ def _llm_stage(run, manifest, name, prompt, complete_fn, outputs) -> str:
 # --- the runtime -----------------------------------------------------------------------------
 
 
-def _run_feynman_gate_stage(run, manifest, name, page, complete_fn) -> dict[str, Any]:
-    """LLM reviewer notes (old-edge review-gate). Records the notes; does not raise.
-
-    Two rounds always run. A score does not skip a lastro. A low score does
-    not extra-loop. Mid-loop never StageFailure. Close may store notes; it
-    does not refuse publication. Publish blockers stay with final_review
-    ACCEPTANCE only.
-    """
-    prior = _completed_output(run, manifest, name)
-    if prior is not None:
-        return json.loads(prior)
-    import feynman_gate as _fg
-    prompt = _fg.reviewer_prompt(page)
-    _begin(run, manifest, name, prompt)
-    try:
-        verdict = _fg.review(page, complete_fn)
-        write_text(
-            run.output_for(name),
-            json.dumps(verdict, ensure_ascii=False, indent=2, sort_keys=True),
-        )
-        rec = _stage_record(manifest, name)
-        rec["verdict"] = verdict.get("verdict")
-        rec["overall"] = verdict.get("overall")
-        _finish(run, manifest, name)
-    except BaseException as exc:
-        _fail(run, manifest, name, exc)
-        raise
-    return json.loads(read_text(run.output_for(name)))
-
-
 def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skill="report",
              dispatch_id=None, log=eventlog.LOG, blog_dir=None,
              publish_fn=DEFAULT_PUBLISH, publish_meta=None, resume=False) -> dict[str, Any]:
-    """Execute the WHOLE rite for one artefato: stages 1–10 then publication. Returns the
+    """Execute the WHOLE rite for one artefato: the cognitive stages then publication. Returns the
     completed manifest; raises StageFailure (manifest sealed as failed) on any break.
 
     `prompts` maps each LLM stage name → callable(outputs) -> str, where `outputs` maps the
@@ -412,10 +354,10 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         manifest = _new_manifest(slug, intent, skill, dispatch_id)
         run.save(manifest)
 
-    import feynman_gate as _feynman_gate
+    import revisor
     prompts = dict(prompts)
-    for _fname, _ffactory in _feynman_gate.LOOP_PROMPTS.items():
-        prompts.setdefault(_fname, _ffactory)
+    for _rname, _rfactory in revisor.DEFAULT_PROMPTS.items():
+        prompts.setdefault(_rname, _rfactory)
 
     missing = [name for name in LLM_STAGES if name not in prompts]
     if missing:
@@ -454,37 +396,27 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             raise exc
         draft_sealed_sha = _stage_record(manifest, "first_authorial_draft")["output"]["sha256"]
 
-        # 3–7 — critique, targeted grounding, rewrite, audit, correction
-        for name in ("gap_critique", "grounding2_targeted", "provisional_rewrite",
-                     "fact_audit", "author_correction"):
-            _llm_stage(run, manifest, name, prompts[name](outputs), complete_fn, outputs)
+        # 3 — the reviewer ONLY points out furos (ADR-0025): no veto, no score, no round.
+        # Whatever it says, the rite goes on; the count is an observation, never a gate.
+        # #585 / #647: the reviewer reads the mentee page, not raw YAML keys.
+        outputs["reader_facing"] = yaml_rite.reader_facing_text(draft)
+        notes = _llm_stage(run, manifest, "reviewer_notes",
+                           revisor.reviewer_prompt(prompts["reviewer_notes"](outputs),
+                                                   theme_review_contract),
+                           complete_fn, outputs)
+        # 4 — the author decides each furo at its convenience: fix it, or keep it and mention
+        # it under "Notas do revisor". One pass; nobody re-reviews the revision.
+        revised = _llm_stage(run, manifest, "author_revision",
+                             revisor.author_prompt(prompts["author_revision"](outputs), notes),
+                             complete_fn, outputs)
+        manifest["reviewer_notes"] = {"furos": revisor.count_furos(notes),
+                                      "notes_section": revisor.has_notes_section(revised),
+                                      "blocking": False}
+        run.save(manifest)
 
-        # Feynman content loop (hard contract): two deterministic iterations.
-        # evaluate (LLM reviewer notes) -> new lastro -> rewrite -> evaluate ->
-        # new lastro -> rewrite. A score does not skip a lastro. A low score
-        # does not extra-loop. Mid-loop never StageFailure.
-        page = outputs["author_correction"]
-        for gate_name, ground_name, rewrite_name in (
-            ("feynman_gate_1", "feynman_grounding_a", "feynman_rewrite_1"),
-            ("feynman_gate_2", "feynman_grounding_b", "feynman_rewrite_2"),
-        ):
-            facing = yaml_rite.reader_facing_text(page)
-            verdict = _run_feynman_gate_stage(
-                run, manifest, gate_name, facing, complete_fn)
-            outputs[gate_name] = json.dumps(verdict, ensure_ascii=False, indent=2)
-            outputs["feynman_page"] = facing
-            outputs["feynman_gate_verdict"] = outputs[gate_name]
-            outputs["feynman_briefing"] = _feynman_gate.briefing(verdict)
-            _llm_stage(run, manifest, ground_name,
-                       prompts[ground_name](outputs), complete_fn, outputs)
-            page = _llm_stage(run, manifest, rewrite_name,
-                              prompts[rewrite_name](outputs), complete_fn, outputs)
-            # Leaks in a loop rewrite are cleaned by treatment_cleanup (the close),
-            # same as a leaky author_correction was. Do not abort the second round.
-
-        # 8 — treatment cleanup: deterministic byte-copy when the scan is clean, else the
+        # 5 — treatment cleanup: deterministic byte-copy when the scan is clean, else the
         # SAME AUTHOR route rewrites (run.py's conditional stage, promoted as-is)
-        audited = outputs["feynman_rewrite_2"]
+        audited = outputs["author_revision"]
         cleanup_leaks = treatment_leaks(audited)
         cleanup_stage = _stage_record(manifest, "treatment_cleanup")
         if cleanup_stage["status"] == "completed":
@@ -499,7 +431,7 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             write_text(run.output_for("treatment_cleanup"), audited)
             _stage_record(manifest, "treatment_cleanup")["execution"] = {
                 "mode": "deterministic_copy",
-                "reason": "feynman rewrite 2 already passed the treatment scan"}
+                "reason": "author revision already passed the treatment scan"}
             _finish(run, manifest, "treatment_cleanup")
             blind_safe = read_text(run.output_for("treatment_cleanup"))
         outputs["treatment_cleanup"] = blind_safe
@@ -515,21 +447,7 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
             run.save(manifest)
             raise exc
 
-        # #585 / #647: probe/review consume the mentee page, not raw YAML keys.
-        # Markdown drafts stay the pinned renderer; leftover YAML still renders to HTML.
-        reader_facing = yaml_rite.reader_facing_text(blind_safe)
-        outputs["reader_facing"] = reader_facing
-
-        # Close: review the sealed page and store notes. The two rounds
-        # already ran -- this is not a loop controller and not a ticket.
-        # Scores and critical_issues contextualize the lastro; they MUST
-        # NOT StageFailure or block publish. Publish blockers stay with
-        # final_review ACCEPTANCE only.
-        final_verdict = _feynman_gate.review(reader_facing, complete_fn)
-        manifest["feynman_gate"] = final_verdict
-        run.save(manifest)
-
-        # 9 — final_html: YAML → spec_to_html; markdown stays the pinned renderer.
+        # 6 — final_html: YAML → spec_to_html; markdown stays the pinned renderer.
         if _completed_output(run, manifest, "final_html") is None:
             _begin(run, manifest, "final_html")
             try:
@@ -544,32 +462,6 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
                 _fail(run, manifest, "final_html", exc)
                 raise
 
-        # 10 — final review, fail-closed acceptance header + local scan.
-        # A lente lectures-on-physics é parte fixa da revisão (feynman_gate.LENS_BLOCK):
-        # clareza pedagógica é critério de strike, com os contrapesos vinculantes
-        # (fato é do fact-audit; enchimento ≠ crescimento) escritos na própria lente.
-        import feynman_gate as _feynman_gate
-        review_outputs = dict(outputs)
-        review_outputs["treatment_cleanup"] = outputs.get("reader_facing", blind_safe)
-        final_review_prompt = (prompts["final_review"](review_outputs)
-                               + "\n\n" + _feynman_gate.LENS_BLOCK)
-        if theme_review_contract:
-            final_review_prompt = f"{final_review_prompt}\n\n{theme_review_contract}"
-        final_review = _llm_stage(run, manifest, "final_review",
-                                  final_review_prompt, complete_fn, outputs)
-        acceptance = parse_acceptance(final_review)
-        local_leaks = treatment_leaks(blind_safe)
-        acceptance["local_treatment_scan_passed"] = not local_leaks
-        acceptance["package_allowed"] = acceptance["package_allowed"] and not local_leaks
-        _stage_record(manifest, "final_review")["acceptance"] = acceptance
-        run.save(manifest)
-        if not acceptance["package_allowed"]:
-            exc = StageFailure(f"final review rejected publication: {acceptance}")
-            manifest.update({"status": "failed", "failed_stage": "final_review_acceptance",
-                             "finished_at": now()})
-            run.save(manifest)
-            raise exc
-
         # draft immutability: the sealed first draft must be byte-identical at end of run
         # (blind-read addressability — the run.py invariant, kept in production)
         current_draft_sha = sha_bytes(run.output_for("first_authorial_draft").read_bytes())
@@ -580,7 +472,7 @@ def run_rito(slug, *, run_dir, grounding1_fn, prompts, complete_fn, intent, skil
         if draft_sealed_sha != current_draft_sha:
             raise StageFailure("first authorial draft changed during the rite")
 
-        # 11 — PUBLICATION, inside the rite. The publisher recomputes the pinned render from
+        # 7 — PUBLICATION, inside the rite. The publisher recomputes the pinned render from
         # the sealed markdown and refuses a mismatch; the receipt (event + page + binding)
         # seals as the terminal stage.
         if _stage_record(manifest, "publication")["status"] != "completed":
@@ -675,8 +567,8 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
             if (name == "treatment_cleanup"
                     and (stage.get("execution") or {}).get("mode") == "deterministic_copy"):
                 # the conditional stage's no-LLM branch: legal ONLY when byte-identical to
-                # the author correction (the same-author continuity proof is the byte copy)
-                source = run.output_for("feynman_rewrite_2")
+                # the author revision (the same-author continuity proof is the byte copy)
+                source = run.output_for("author_revision")
                 if not (path.is_file() and source.is_file()
                         and path.read_bytes() == source.read_bytes()):
                     failures.append("cleanup-copy-not-identical")
@@ -690,7 +582,7 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
                     and prompt.get("sha256") == sha_bytes(prompt_path.read_bytes())):
                 failures.append(f"prompt-receipt-missing:{name}")
 
-    # causal order: begin/finish receipts monotonic across ordinals; render BEFORE review
+    # causal order: begin/finish receipts monotonic across ordinals
     def _ts(name, key):
         return (by_name.get(name) or {}).get(key) or ""
     completed = [name for name in expected_names
@@ -698,16 +590,6 @@ def verify_rito(run_dir, *, log, blog_dir) -> dict[str, Any]:
     for prev, nxt in zip(completed, completed[1:]):
         if _ts(prev, "finished_at") > _ts(nxt, "started_at"):
             failures.append(f"causal-order:{prev}->{nxt}")
-    if ("final_html" in completed and "final_review" in completed
-            and _ts("final_html", "finished_at") > _ts("final_review", "started_at")):
-        if "causal-order:final_html->final_review" in failures:
-            failures.remove("causal-order:final_html->final_review")
-        failures.append("review-before-render")
-
-    # acceptance: fail-closed header must have allowed the package
-    review_stage = by_name.get("final_review") or {}
-    if not (review_stage.get("acceptance") or {}).get("package_allowed"):
-        failures.append("acceptance-fail")
 
     # THE FORM PIN: recompute the pinned render of the sealed markdown; it must hash-match
     # the sealed final_html receipt AND the published page bytes. Pipeline identity, not a score.

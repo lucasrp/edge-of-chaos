@@ -2192,8 +2192,8 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
     """The rito's publication seam (docs/rito-runtime.md) — the terminal stage of the rite.
 
     Proves EXECUTION, never scores the artifact: refuses unless the run dir's sealed manifest
-    shows every cognitive stage COMPLETED and the fail-closed final review allowed the
-    package. THE FORM IS PINNED AS A PIPELINE STAGE: recomputes the approved renderer's
+    shows every cognitive stage COMPLETED (the reviewer is advisory and never a ticket,
+    ADR-0025). THE FORM IS PINNED AS A PIPELINE STAGE: recomputes the approved renderer's
     output (render.markdown_page_bytes) from the sealed markdown and REFUSES a hash mismatch
     against the sealed final_html receipt — so the exact reviewed bytes, and only they, ship.
 
@@ -2219,9 +2219,7 @@ def publish_rito(slug, run_dir, *, intent, skill="report", dispatch_id=None,
     if incomplete:
         raise ValueError(f"rite incomplete — stages not completed: {incomplete} (a run that "
                          "didn't traverse the whole rite does not publish)")
-    acceptance = (stages.get("final_review") or {}).get("acceptance") or {}
-    if not acceptance.get("package_allowed"):
-        raise ValueError(f"final review did not allow publication: {acceptance}")
+    # ADR-0025: the reviewer only points out furos — there is no acceptance ticket to check.
 
     md_path = run_dir / stages["treatment_cleanup"]["output_file"]
     data = md_path.read_bytes() if md_path.is_file() else b""

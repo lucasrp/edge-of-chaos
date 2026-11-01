@@ -96,10 +96,7 @@ cognition. The runtime owns sequencing, sealing, rendering (the pinned neutral-m
 
 The stages you feed (authoring format is **Markdown**; the fenced diagram + connection table carry the
 visual idiom): `grounding1_dossier` (the connections you gathered — the gather-grounding slot above,
-each edge `{from, to, type, ref}` grounded) → `first_authorial_draft` → `gap_critique` →
-`grounding2_targeted` → `provisional_rewrite` → `fact_audit` → `author_correction` →
-`treatment_cleanup` (deterministic copy when the leak scan is clean) → `final_html` (pinned render,
-runtime-owned) → `final_review` (fail-closed `ACCEPTANCE:` header) → `publication`. The canonical
+each edge `{from, to, type, ref}` grounded) → `first_authorial_draft` → `reviewer_notes` (ONE reviewer that only points out furos — no veto, no score, no second round; ADR-0025) → `author_revision` (you decide each furo at your convenience: fix it, or keep it and mention it under `## Notas do revisor`) → `treatment_cleanup` (deterministic copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) → `publication`. The canonical
 prompt bodies are archived in `drafts/old-edge-double-grounding-repro/run.py`; adapt their content to
 THIS map — the produce guidance above (the outward bridge, contextualized to live work) is what the
 first-draft prompt must carry.
@@ -123,13 +120,9 @@ empty over fabricated), `para` (explicit target reader; empty resolves to the me
 
     prompts = {
         'first_authorial_draft': lambda o: f"<map this theme's connections outward at PLENITUDE (cover the facets, no facet folded), contextualize each load-bearing bridge to live work (reasoned, not a sketch); fenced diagram + connection table; a thin lead is not done>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<which bridges lack an outward connection or a cite; which are inert adjacencies>\n\n{o['first_authorial_draft']}",
-        'grounding2_targeted':   lambda o: f"<targeted grounding closing the named connection gaps>\n\n{o['gap_critique']}",
-        'provisional_rewrite':   lambda o: f"<same-author rewrite folding critique+grounding2>\n\n{o['grounding2_targeted']}",
-        'fact_audit':            lambda o: f"<independent audit: every edge grounded in its cite vs grounding1>\n\n{o['provisional_rewrite']}",
-        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
-        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review of the full arc; begin with the 3-line ACCEPTANCE header. PASS only if the facets are covered — plenitude, no facet folded. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o['treatment_cleanup']}",
+        'reviewer_notes':        lambda o: f"<point out the FUROS only (no verdict, no veto) — which bridges lack an outward connection or a cite; which are inert adjacencies>\n\nDOSSIER:\n{o['grounding1_dossier']}\n\n{o['reader_facing']}",
+        'author_revision':       lambda o: f"<same-author revision in the same voice: for EACH furo, fix it or keep it and mention it under 'Notas do revisor' — your call; never invent a fact or a citation (what has no source leaves the text or becomes declared uncertainty)>\n\nDOSSIER:\n{o['grounding1_dossier']}\n\n{o['first_authorial_draft']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_revision']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

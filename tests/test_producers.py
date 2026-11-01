@@ -379,20 +379,22 @@ class PedagogicalRewriteIntegration(unittest.TestCase):
             self.assertTrue("table-wall" in t or "table wall" in t,
                             f"{p} does not name the table-wall it must kill")
 
-    def test_gap_critique_is_pedagogical(self):
-        # gap_critique asks: where does this fail to TEACH? where is it cryptic / thin?
+    def test_reviewer_focus_is_pedagogical(self):
+        # the single advisory reviewer (ADR-0025) asks: where does this fail to TEACH?
         for p in self.EXEMPLARS:
             t = self.texts[p]
             self.assertTrue("fail to teach" in t or "fails to teach" in t or "does not teach" in t,
-                            f"{p}'s gap_critique is not a teaches-check")
+                            f"{p}'s reviewer focus is not a teaches-check")
+            self.assertIn("reviewer_notes", t, f"{p} does not feed the advisory reviewer")
+            self.assertIn("notas do revisor", t, f"{p} does not name the reviewer-notes section")
 
-    def test_grounding2_carries_new_grounding_reach_with_fidelity_guard(self):
-        # grounding2 fetches NEW grounding (world/domain beyond G1) to fill the pedagogical gaps
-        # — with the fidelity guard: FETCHED + cited, NEVER invented.
+    def test_new_grounding_reach_with_fidelity_guard(self):
+        # NEW grounding (world/domain beyond what is held) is reached while gathering, before the
+        # draft (ADR-0025 cut the second grounding round) — FETCHED + cited, NEVER invented.
         for p in self.EXEMPLARS:
             t = self.texts[p]
             self.assertIn("new grounding", t,
-                          f"{p}'s grounding2 does not carry the new-grounding reach")
+                          f"{p} does not carry the new-grounding reach")
             self.assertTrue("fetched" in t and ("cited" in t or "cite" in t),
                             f"{p}'s new-grounding reach lacks the fetched+cited fidelity guard")
             self.assertTrue("never invent" in t or "not invent" in t or "not fabricat" in t,
