@@ -72,9 +72,9 @@ publishing (an unused wake is honest). Otherwise persist the pick and produce.
 
 ## Ato 2 — March/Tetris produce (um agente por artefato)
 
-One produce pass, **um agente por artefato**, own **rounds**. Do **not** run `rito.py` /
+One produce pass, **um agente por artefato**. Do **not** run `rito.py` /
 `run_rito` / Feynman-gate / `close.py` as the happy path. Do **not** call the xAI or OpenAI
-HTTP APIs. Judge and refine only via `tools/review-gate.py` (grok CLI).
+HTTP APIs. Review only via `tools/review-gate.py` (grok CLI) — one advisory pass, below.
 
 Voice: Saturday-coffee. Open on a runnable object, cut first. Topic = wake friction/faro.
 
@@ -105,8 +105,9 @@ Write a YAML spec (old `generate_report.py` / `yaml_to_html.py` shape) at a work
 
 Slug: `{decision.producer}--<curto-kebab>` (must match `^[a-z0-9][a-z0-9-]*$`).
 
-Render, then two review→refine **rounds** that end **por fora** (cap = 2, never "until the
-judge likes it"):
+Render, then ONE review that **only warns** (ADR-0025 — owner, 2026-11-01: *"quero que o revisor
+só avise dos furos, e o edge pode ou corrigir ou só mencionar a nota do revisor, à sua
+conveniencia"*):
 
 ```
 tools/edge-python tools/generate_report.py \
@@ -116,13 +117,16 @@ tools/edge-python tools/generate_report.py \
 tools/edge-python tools/review-gate.py \
   state/beat/${SLUG}.yaml \
   --html reports/${SLUG}.html \
-  --outdir state/beat/${SLUG}-gate \
-  --rounds 2
+  --outdir state/beat/${SLUG}-gate
 ```
 
-Criteria: 9 dims, all ≥ 3, overall ≥ 3.5, zero critical. No word-count cap. If the script
-infra-fails, do one manual refine of the YAML (apply critical_issues), regenerate HTML, and
-run the gate once more. Still grok CLI only.
+The gate reads against 9 dims (all ≥ 3, overall ≥ 3.5, zero critical) but its verdict is
+**advisory**: it exits 0, never refines on its own, and never blocks the publish. Read its furos
+(`state/beat/${SLUG}-gate/review-gate.feedback.json`, `furos`) and decide each one at your
+convenience: fix it in the YAML, or keep it and mention it in a short last section titled
+**"Notas do revisor"** (a `list` block: the furo in one line and, if you want, your answer). If you
+changed the YAML, regenerate the HTML once. No second review. No word-count cap. Still grok CLI
+only.
 
 ## Ato 3 — the close: publish_tetris keeps the kernel write
 

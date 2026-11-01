@@ -9,24 +9,33 @@ pinning the pipeline, not scoring the artifact.
 
 | Module | Responsibility (deep, one seam each) |
 |---|---|
-| `tools/rito.py` | The rite runtime promoted from `drafts/old-edge-double-grounding-repro/run.py`: sequences stages 1–11, writes the sealed manifest (begin/finish/fail receipts with sha256), runs the deterministic gates (treatment scan, acceptance header, draft immutability), renders via the pinned renderer, terminates in publication. Also owns the DETECTOR `verify_rito` and its CLI. |
+| `tools/rito.py` | The rite runtime promoted from `drafts/old-edge-double-grounding-repro/run.py`: sequences the stages, writes the sealed manifest (begin/finish/fail receipts with sha256), runs the deterministic checks (treatment scan, draft immutability), renders via the pinned renderer, terminates in publication. The single advisory reviewer's contract lives in `tools/revisor.py` (ADR-0025). Also owns the DETECTOR `verify_rito` and its CLI. |
 | `tools/render.py` | Gains `render_markdown_page(md, title)` + `RENDERER_ID = "exp072-neutral-markdown/v2"` — the approved renderer promoted verbatim from `generate_post_gate_grounding_arm.render_markdown`. |
 | `tools/publisher.py` | Gains `publish_rito(slug, run_dir, *, intent, …)` — the rite's way out: recomputes the pinned render from the sealed markdown, REFUSES a hash mismatch, commits the atomic `artefato.published` event (spec format `edge-markdown/v1`, log is truth), writes the EXACT recomputed bytes temp+rename. `_render_page` gains the `edge-markdown/v1` branch so reprojection re-derives byte-identical pages. |
 
-## The stages (canonical order, promoted from run.py)
+## The stages (canonical order)
 
 1. `grounding1_dossier` (producer callable) → 2. `first_authorial_draft` (chat) →
-3. `gap_critique` (review) → 4. `grounding2_targeted` (review) → 5. `provisional_rewrite`
-(chat) → 6. `fact_audit` (review) → 7. `author_correction` (chat) →
-Feynman content loop (hard contract, two deterministic iterations -- a score does not skip a lastro, a low score does not extra-loop): `feynman_gate_1` (review route / LLM reviewer notes, 8 axes 0-4, ceiling 4, written hole on every axis) -> `feynman_grounding_a` (review, fresh lastro aimed at the briefing) -> `feynman_rewrite_1` (chat) -> `feynman_gate_2` -> `feynman_grounding_b` -> `feynman_rewrite_2` ->
-8. `treatment_cleanup`
-(chat, or deterministic copy of rewrite 2 when the scan is clean) -> 9. `final_html` (runtime render, pinned)
--> close `feynman_gate.review` (LLM reviewer notes stored; scores/critical_issues are NOT a StageFailure / not a publish ticket; not a loop controller) ->
-10. `final_review` (review, fail-closed ACCEPTANCE header — the only publish ticket) → 11. `publication` (publisher
-seam). A run that didn't publish didn't finish the rite. Stage 11 of the experiment
-(`blind_reading_package`) is experiment apparatus, NOT a production stage — but the runtime
-keeps `02_FIRST_AUTHORIAL_DRAFT.md` sealed and addressable in the run dir so a later blind
-read is always possible.
+3. `reviewer_notes` (review — ONE reviewer that only points out furos: fato sem fonte, número
+errado, conclusão que não segue, trecho confuso, o que faltou; no score, no veto, no second
+round) → 4. `author_revision` (chat — the author decides each furo at its convenience: fix it,
+or keep it and mention it under `## Notas do revisor`) → 5. `treatment_cleanup` (chat, or
+deterministic copy of the revision when the scan is clean) → 6. `final_html` (runtime render,
+pinned) → 7. `publication` (publisher seam). A run that didn't publish didn't finish the rite.
+The manifest records `reviewer_notes: {furos, notes_section, blocking: false}` as an
+observation, never a gate. The runtime appends the fixed contracts (`revisor.REVIEWER_CONTRACT`,
+`revisor.AUTHOR_CONTRACT` + the reviewer's notes verbatim) to the producer's prompts, and
+supplies default prompts for both stages when a producer gives none. The first authorial
+draft stays sealed and addressable in the run dir so a later blind read is always possible.
+
+**ADR-0025 (owner, 2026-11-01, verbatim):** *"quero que o revisor só avise dos furos, e o edge
+pode ou corrigir ou só mencionar a nota do revisor, à sua conveniencia"*. This cut the review
+ladder the rite carried since exp072 — `gap_critique` → `grounding2_targeted` →
+`provisional_rewrite` → `fact_audit` → `author_correction` → two Feynman rounds (gate →
+lastro → rewrite, twice) → a close Feynman review → the fail-closed `final_review`
+`ACCEPTANCE:` header (the only publish ticket). New grounding is reached while gathering
+grounding-1, before the draft. `RITO_VERSION` is now `artefato-revisor-avisa/v1`; old run dirs
+fail `verify_rito` on `schema-mismatch` by design.
 
 ## Seams (what is injected, what is owned)
 
@@ -44,17 +53,17 @@ read is always possible.
 ## Binding
 
 `manifest_core_hash` = canonical sha256 over {schema, rito_version, run_id, slug, stage
-receipts 1–10}. The published event carries it plus `page_sha256` and `renderer_id`; the
+receipts of the cognitive stages}. The published event carries it plus `page_sha256` and `renderer_id`; the
 publication receipt in the manifest carries the event id. So manifest ⇄ event ⇄ page bytes
 are mutually bound and `verify_rito` can prove the triangle from disk + log alone.
 
 ## The detector
 
 `verify_rito(run_dir, log=…, blog_dir=…)` → `{"pass": bool, "failures": [named codes]}`.
-Proves: all 11 stages completed in causal order (timestamps monotonic, render BEFORE final
-review), sealed receipts match disk bytes, LLM stages carry sealed prompts, recomputed
-`render_markdown_page(sealed_08_markdown)` hash == sealed 09 receipt == published page bytes,
-publication event present and bound, first draft addressable, acceptance PASS. It never
+Proves: all stages completed in causal order (timestamps monotonic), sealed receipts match disk
+bytes, LLM stages carry sealed prompts, recomputed `render_markdown_page(sealed_05_markdown)`
+hash == sealed 06 receipt == published page bytes, publication event present and bound, first
+draft addressable. There is no acceptance check: the reviewer is advisory (ADR-0025). It never
 reads artifact QUALITY — execution only; the form check is a pipeline-identity hash, not a
 score. CLI: `tools/edge-python tools/rito.py verify <run_dir> [--log …] [--blog-dir …]`.
 
@@ -99,8 +108,9 @@ agnostic. `gate` is None for the rito path (no run_close verdict yet — see the
   were experiment reproducibility apparatus; the runtime records route + prompt/output
   receipts per stage and leaves continuity to the producer's `complete_fn` wiring.
   OPEN: promote continuity enforcement into the runtime?
-- RESOLVED (operator, 2026-07-10, verbatim "basta"): the rite's own `final_review` (stage 10)
-  REPLACES `close.run_close`'s double-blind reviewer gate on the rito path. Rationale: the
+- RESOLVED (operator, 2026-07-10, verbatim "basta"): the rite's own review REPLACES
+  `close.run_close`'s reviewer gate on the rito path (since ADR-0025 that review is the single
+  advisory `reviewer_notes` stage; the fail-closed `final_review` is gone). Rationale: the
   blind-winning B was produced with only the rite's internal review; an extra stochastic gate
   is not the experiment ("o rito é tudo"). Anti-forgery is covered by the rito's own seal
   (per-stage sha256 receipts + `publish_rito`'s hash-refuse), not by reviewer proofs.
@@ -160,7 +170,7 @@ and are deliberately left on the legacy close path. The conflict is precise:
    behavior the legacy prototype seam works AROUND with content-addressed publication) or produce
    bytes the pinned renderer never emits — a guaranteed hash mismatch at `publish_rito`.
 2. **The rite's deterministic gates assume prose.** The treatment-scan regexes (the leak scan
-   feeding `treatment_cleanup`) and the `ACCEPTANCE:` header contract are written against
+   feeding `treatment_cleanup`) and (until ADR-0025) the `ACCEPTANCE:` header contract were written against
    Markdown prose; run against JS source they either false-fire on code tokens or scan meaningless
    text — neither gates the thing that actually matters for an interactive page (does it RUN, does
    the interaction TEACH — a human render→ver→revisar gate, not a text scan).

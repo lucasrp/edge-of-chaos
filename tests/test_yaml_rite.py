@@ -316,15 +316,14 @@ class ReaderFacingText(unittest.TestCase):
         self.assertIn("grill.leveling", facing)
         self.assertNotIn("type: comparison", facing)
 
-    def test_close_feynman_prompt_uses_rendered_html_for_yaml(self):
+    def test_close_reviewer_prompt_uses_rendered_html_for_yaml(self):
         art = _short_yaml_art()
-        prompt = close._build_prompt(close._FEYNMAN_FOCUS, art)
+        prompt = close._build_prompt(art)
         self.assertIn("per-session watermark", prompt)
         self.assertNotIn('"type": "comparison"', prompt)
         # non-YAML artefato still gets the historic JSON view
-        empty = close._build_prompt(close._REGULAR_FOCUS,
-                                    {"slug": "x", "content": {}, "cites": []})
-        self.assertIn("metrics-grid", empty)
+        empty = close._build_prompt({"slug": "x", "content": {}, "cites": []})
+        self.assertIn('"content": {}', empty)
 
 if __name__ == "__main__":
     unittest.main()

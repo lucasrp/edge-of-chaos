@@ -1,7 +1,7 @@
 """Produce reader contract — leitura isolada is THE fail of Ato-2.
 
 The Tetris pipe (#655) stays: generate_report + yaml_to_html + grok CLI
-review-gate, two rounds, RR produce skills. The March *reader* contract
+review-gate (one advisory pass since ADR-0025), RR produce skills. The March *reader* contract
 that #655 did not restore is here: isolated reading, no required H2
 skeleton, object before name, this page carries.
 """
@@ -108,6 +108,31 @@ class ReviewGateNamesLeituraIsolada(unittest.TestCase):
         hon = self.rg.DIMENSIONS["intellectual_honesty"].lower()
         self.assertIn("not a required h2", hon)
         self.assertIn("missing that heading does not fail", hon)
+
+
+class ReviewGateOnlyWarns(unittest.TestCase):
+    """ADR-0025: one review, no automatic refine, exit 0 whatever the verdict; the furos land in
+    the feedback file for the producer to fix or keep as "Notas do revisor"."""
+
+    def test_failing_review_exits_zero_without_refining(self):
+        import json
+        import tempfile
+        from unittest import mock
+        rg = _load_review_gate()
+        failing = {"pass": False, "overall": 1.0, "dimensions": {},
+                   "critical_issues": ["sigla sem glosa"], "suggestions": ["nomeie o objeto"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            spec = Path(tmp) / "s.yaml"
+            spec.write_text("title: x\n", encoding="utf-8")
+            with mock.patch.object(rg, "review_once", return_value=failing) as rev, \
+                    mock.patch.object(rg, "refine_once") as ref:
+                code = rg.main([str(spec), "--outdir", tmp])
+            self.assertEqual(code, 0)
+            self.assertEqual(rev.call_count, 1)
+            ref.assert_not_called()
+            fb = json.loads((Path(tmp) / "review-gate.feedback.json").read_text())
+            self.assertTrue(fb["advisory"])
+            self.assertEqual(fb["furos"], ["sigla sem glosa", "nomeie o objeto"])
 
 
 class ProduceSkillsNameLeituraIsolada(unittest.TestCase):

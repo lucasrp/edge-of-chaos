@@ -1375,7 +1375,7 @@ def spec_to_html(spec: dict) -> str:
     Spec shape (mirrors the legacy):
         {"executive_summary": [...], "metrics": [{value,label}, ...],
          "sections": [{"title": ..., "blocks": [{"type": ...}, ...]}, ...],
-         "additional_sections": [...], "bibliography": [...]}
+         "additional_sections": [...], "bibliography": [...], "reviewer_notes": [str, ...]}
     Everything is optional. Sections are FREE: any block type may appear in any
     section — the Feynman blocks are palette elements, not mandatory sections.
 
@@ -1411,6 +1411,12 @@ def spec_to_html(spec: dict) -> str:
             }],
         }
         parts.append(render_section(bib_section))
+
+    # ADR-0025: the furos the producer chose to keep, appended by close.run_close. A top-level
+    # key (not a block) so the genus floors judge the author's content, never the reviewer's note.
+    if spec.get("reviewer_notes"):
+        parts.append(render_section({"title": "Notas do revisor", "blocks": [{
+            "type": "list", "items": [str(n) for n in spec["reviewer_notes"]]}]}))
 
     return "\n\n".join(parts)
 

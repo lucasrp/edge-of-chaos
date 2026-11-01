@@ -701,8 +701,8 @@ def publish_artefato_atomic(slug, intent, proposes=None, distills=None, cites=No
           # can never fabricate user_requested the wake did not declare). Default beat: an
           # artefato of unknown origin weighs as exploração, never as o gradiente.
           "origin": dispatch_origin(dispatch_id, log=log),
-          # S6 (design-close §3/§5): the unaddressed criticism a publish-with-residuals carried, as a
-          # FIRST-CLASS event field (distinct name from the `residual` channel). None on a normal publish.
+          # ADR-0025: the reviewer's furos the producer kept as "Notas do revisor", as a FIRST-CLASS
+          # event field (read off the proof). None when no note was kept.
           "residuals": residuals,
           # B.1 (ticket B): o verdict do gate como campo do MESMO batch atômico — sem novo tipo de
           # evento, replayável (o grafo já computava e jogava fora). None num publish legado/sem gate.

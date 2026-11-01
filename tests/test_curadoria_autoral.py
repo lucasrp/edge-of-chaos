@@ -170,10 +170,7 @@ class PublishForwardsParaDefaultToProjection(unittest.TestCase):
             {"type": "paragraph", "text": "para-default rides the seam."}]}]}
         intent = "open: x; bet: y"
         verdicts = [
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.FEYNMAN_REVIEWER_ID},
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.REGULAR_REVIEWER_ID},
+            {"furos": [], "reviewer": close.REVIEWER_ID},
         ]
         # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish;
         # the para-default seam is skill-agnostic, so drive a still-legacy producer here.
@@ -197,10 +194,7 @@ class PublishForwardsParaDefaultToProjection(unittest.TestCase):
             {"type": "paragraph", "text": "explicit para overrides."}]}]}
         intent = "open: x; bet: y"
         verdicts = [
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.FEYNMAN_REVIEWER_ID},
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.REGULAR_REVIEWER_ID},
+            {"furos": [], "reviewer": close.REVIEWER_ID},
         ]
         # legacy-publish vehicle (see test_publish_with_no_para_projects_the_default).
         proof = close._mint_proof(verdicts, slug="pe", spec=spec, intent=intent,

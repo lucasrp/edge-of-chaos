@@ -237,13 +237,15 @@ read of the text is fresh, not because it lacks links.
 1. **producer** — sees all (briefing + Mundo + session + evidence) **+ its own memory (recall — `skills/_shared/memory.md`)**.
 2. **serendipity** — `+briefing +Mundo`, `−session`.
 3. **critic** — `−briefing`, `−session`.
-4. **reviewers** — content + cites **only** (evidence, session, briefing all denied).
+4. **reviewer** — content + cites **only** (evidence, session, briefing all denied).
 5. **publisher** — the final Artefato **only**.
 
-The reviewers are blind by evidence-and-session (the blindfold): a **factual claim** must be
-re-sourceable from its cite or it is struck — but a **reasoning step** (a derivation, an inference
-from premises already on the page) is judged by its **internal validity**, not by a cite, so the
-producer's thinking-out-loud is never amputated (the depth dims reward it; ADR-0013 — freshness is
-evidence-vs-reasoning, not cites-vs-no-cites). The publisher writes the final Artefato atomically with its kernel — it
-needs nothing but the finished thing. The close that runs the reviewers and the publisher lives
-at the skill's exit, defined in `skills/_shared/pipeline.md`.
+The reviewer is blind by evidence-and-session (the blindfold): a **factual claim** that is not
+re-sourceable from its cite is a **furo** ("fato sem fonte") — but a **reasoning step** (a
+derivation, an inference from premises already on the page) is judged by its **internal
+validity**, not by a cite, so the producer's thinking-out-loud is never amputated (ADR-0013 —
+freshness is evidence-vs-reasoning, not cites-vs-no-cites). The reviewer only warns (ADR-0025):
+the producer fixes each furo or keeps it under "Notas do revisor"; nothing blocks. The publisher
+writes the final Artefato atomically with its kernel — it needs nothing but the finished thing.
+The close that runs the reviewer and the publisher lives at the skill's exit, defined in
+`skills/_shared/pipeline.md`.

@@ -11,6 +11,13 @@ and `storytelling` — both welded to the report-form), and the freed weight reb
 consistent with ADR-0012 (the close at the skill's exit) and with the blindfold principle of the Bet-A
 Artefato.
 
+## Amendment — ADR-0025 (2026-11-01): one advisory reviewer, no gate
+
+The blindfold stays (the reviewer sees content + cites only). Everything that made review a
+**gate** is superseded by ADR-0025: there is ONE reviewer, it only points out furos, it never
+scores or vetoes, and the producer fixes each furo or keeps it under "Notas do revisor". The two
+gates, the dims/weights, the passability veto and the bounce on strikes below are history.
+
 ## Amendment — the depth dims are restored, content-relative (plenitude)
 
 Dropping `structural_completeness` + `storytelling` was right **as section mandates** — but it removed

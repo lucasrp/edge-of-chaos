@@ -168,53 +168,19 @@ CANNED = {
         "# Relatorio exp-teste\n\nA pergunta viva: o buscador melhora com o indice?\n\n"
         "- fato: 29 vitorias\n- inferencia: o indice ajuda\n\n"
         "| arm | placar |\n|---|---|\n| raw | 8 |\n| indice | 29 |"),
-    "gap_critique": "# Lacunas\n\nFaltou o caso concreto da rodada 3.",
-    "grounding2_targeted": "# Memo dirigido\n\nEvidencia adicional sobre a rodada 3.",
-    "provisional_rewrite": (
-        "# Relatorio exp-teste\n\nVersao revisada: a rodada 3 mostra o mecanismo."),
-    "fact_audit": "# Fact audit\n\n## Verdict\nPASS\n\n## Claim ledger\ntudo sustentado.",
-    "author_correction": (
-        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
+    "reviewer_notes": "FURO 1: faltou o caso concreto da rodada 3.",
+    "author_revision": (
+        "# Relatorio exp-teste\n\nVersao final. A rodada 3 mostra o mecanismo.\n\n"
         "> o indice vence onde a estrutura importa."),
-        "feynman_grounding_a": (
-        "# Lastro fresco\n\nNenhum buraco quantitativo neste texto de teste. "
-        "O indice e o buscador ja estao no mundo da peca."),
-    "feynman_rewrite_1": (
-        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
-        "> o indice vence onde a estrutura importa."),
-    "feynman_grounding_b": (
-        "# Lastro fresco B\n\nAinda sem taxa sem universo. O indice continua o objeto."),
-    "feynman_rewrite_2": (
-        "# Relatorio exp-teste\n\nVersao final auditada. A rodada 3 mostra o mecanismo.\n\n"
-        "> o indice vence onde a estrutura importa."),
-"final_review": (
-        "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
-        "Revisao qualitativa: util por si so."),
 }
 
 YAML_CANNED = {
     "first_authorial_draft": YAML_AUTHORIAL_DRAFT,
-    "gap_critique": "# Lacunas\n\nFaltou o caso concreto da rodada 3.",
-    "grounding2_targeted": "# Memo dirigido\n\nEvidencia adicional sobre a rodada 3.",
-    "provisional_rewrite": YAML_PROVISIONAL,
-    "fact_audit": "# Fact audit\n\n## Verdict\nPASS\n\n## Claim ledger\ntudo sustentado.",
-    "author_correction": YAML_AUTHOR_CORRECTION,
-        "feynman_grounding_a": (
-        "# Lastro fresco\n\nNenhum buraco quantitativo neste texto de teste. "
-        "O indice e o buscador ja estao no mundo da peca."),
-    "feynman_rewrite_1": YAML_AUTHOR_CORRECTION,
-    "feynman_grounding_b": (
-        "# Lastro fresco B\n\nAinda sem taxa sem universo. O indice continua o objeto."),
-    "feynman_rewrite_2": YAML_AUTHOR_CORRECTION,
-"final_review": (
-        "ACCEPTANCE: PASS\nUNSUPPORTED_CLAIMS: 0\nTREATMENT_LEAK: NO\n\n"
-        "Revisao qualitativa: util por si so."),
+    "reviewer_notes": "FURO 1: faltou o caso concreto da rodada 3.",
+    "author_revision": YAML_AUTHOR_CORRECTION,
 }
 
-LLM_ORDER = ["first_authorial_draft", "gap_critique", "grounding2_targeted",
-             "provisional_rewrite", "fact_audit", "author_correction",
-             "feynman_grounding_a", "feynman_rewrite_1",
-             "feynman_grounding_b", "feynman_rewrite_2", "final_review"]
+LLM_ORDER = ["first_authorial_draft", "reviewer_notes", "author_revision"]
 
 
 def _prompts():
@@ -225,76 +191,11 @@ def _prompts():
     return {stage: mk(stage) for stage in stages}
 
 
-def _review_payload_for(prompt, canned):
-    """Canned JSON for the LLM reviewer. Explicit override wins; else page-aware."""
-    import feynman_gate as _fg
-    if canned.get("feynman_review"):
-        return canned["feynman_review"]
-    if "n=205" in prompt or "n=216" in prompt or "Dahl et al." in prompt:
-        return json.dumps({
-            "overall": 4.0,
-            "dimensions": {
-                name: {"score": 4, "feedback": f"{name}: instruments taught; still name one next hole on this page"}
-                for name in _fg.DIMENSIONS
-            },
-            "critical_issues": [],
-            "suggestions": [
-                "Name one more outside paper if the claim can bear it.",
-                "Keep whose/of-what/n on every rate callback.",
-                "Write the derivation step that was skipped.",
-            ],
-        }, ensure_ascii=False)
-    if "0,2%" in prompt:
-        return json.dumps({
-            "overall": 1.8,
-            "dimensions": {
-                name: {"score": (1 if name in ("didatica", "consistencia") else 2),
-                       "feedback": f"{name}: unexplained rate / waiver"}
-                for name in _fg.DIMENSIONS
-            },
-            "critical_issues": [
-                "0,2% lacks whose evaluation, of what, n -- Harvey + invention is not the instrument",
-                "17% lacks whose evaluation, of what, n",
-                "ja esta estabelecido carrying the rates",
-            ],
-            "suggestions": ["Fetch whose/of-what/n for each rate."],
-        }, ensure_ascii=False)
-    if "#foo-bar-baz" in prompt or "01KYBTM" in prompt:
-        return json.dumps({
-            "overall": 1.5,
-            "dimensions": {
-                name: {"score": (1 if name == "mundo" else 2),
-                       "feedback": f"{name}: local idiom"}
-                for name in _fg.DIMENSIONS
-            },
-            "critical_issues": [
-                "page never leaves the local idiom -- no named thing in the world in the prose"
-            ],
-            "suggestions": ["Name a paper, product, or case in the prose."],
-        }, ensure_ascii=False)
-    return json.dumps({
-        "overall": 4.0,
-        "dimensions": {
-            name: {"score": 4, "feedback": f"{name}: ok for the canned page; still name one next hole"}
-            for name in _fg.DIMENSIONS
-        },
-        "critical_issues": [],
-        "suggestions": [
-            "Name one more outside paper if the claim can bear it.",
-            "Keep whose/of-what/n on every rate callback.",
-            "Write the derivation step that was skipped.",
-        ],
-    }, ensure_ascii=False)
-
-
 def _complete_fn(canned, order):
-    """Fake transport: canned cognitive outputs; reviewer prompts return JSON."""
-    import feynman_gate as _fg
+    """Fake transport: canned cognitive outputs, in stage order."""
     queue = [canned[name] for name in order]
 
     def complete(route, prompt, max_tokens):
-        if isinstance(prompt, str) and _fg.REVIEWER_MARKER in prompt:
-            return _review_payload_for(prompt, canned)
         if not queue:
             raise RuntimeError("transport exhausted: rite asked for more stages than canned")
         return queue.pop(0)
@@ -358,32 +259,22 @@ class StageTableTest(unittest.TestCase):
     def test_stage_table_is_the_experiments_causal_order_plus_publication(self):
         self.assertEqual(
             [name for _, name, _, _, _ in rito.STAGES],
-            ["grounding1_dossier", "first_authorial_draft", "gap_critique",
-             "grounding2_targeted", "provisional_rewrite", "fact_audit",
-             "author_correction",
-             "feynman_gate_1", "feynman_grounding_a", "feynman_rewrite_1",
-             "feynman_gate_2", "feynman_grounding_b", "feynman_rewrite_2",
-             "treatment_cleanup", "final_html", "final_review",
-             "publication"])
+            ["grounding1_dossier", "first_authorial_draft", "reviewer_notes",
+             "author_revision", "treatment_cleanup", "final_html", "publication"])
 
     def test_author_and_reviewer_routes_are_the_experiments(self):
         routes = {name: route for _, name, _, route, _ in rito.STAGES}
         self.assertEqual(routes["first_authorial_draft"], "chat")
-        self.assertEqual(routes["gap_critique"], "review")
-        self.assertEqual(routes["grounding2_targeted"], "review")
-        self.assertEqual(routes["provisional_rewrite"], "chat")
-        self.assertEqual(routes["fact_audit"], "review")
-        self.assertEqual(routes["author_correction"], "chat")
-        self.assertEqual(routes["feynman_gate_1"], "review")
-        self.assertEqual(routes["feynman_grounding_a"], "review")
-        self.assertEqual(routes["feynman_rewrite_1"], "chat")
-        self.assertEqual(routes["feynman_gate_2"], "review")
-        self.assertEqual(routes["feynman_grounding_b"], "review")
-        self.assertEqual(routes["feynman_rewrite_2"], "chat")
+        self.assertEqual(routes["reviewer_notes"], "review")
+        self.assertEqual(routes["author_revision"], "chat")
         self.assertEqual(routes["treatment_cleanup"], "chat")
-        self.assertEqual(routes["final_review"], "review")
         self.assertIsNone(routes["final_html"])
         self.assertIsNone(routes["publication"])
+
+    def test_exactly_one_review_stage(self):
+        """ADR-0025: one reviewer, one pass — the review ladder is gone."""
+        self.assertEqual([n for _, n, _, r, _ in rito.STAGES if r == "review"],
+                         ["reviewer_notes"])
 
 
 class RendererPromotionTest(unittest.TestCase):
@@ -438,10 +329,10 @@ class FullRiteTest(unittest.TestCase):
     def test_published_page_is_the_pinned_render_of_the_sealed_markdown(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, run_dir, log, blog = _green_run(tmp)
-            sealed_md = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
+            sealed_md = (run_dir / "05_BLIND_SAFE_FINAL.md").read_text()
             expected = yaml_rite.page_bytes(sealed_md)
             self.assertEqual((blog / f"{SLUG}.html").read_bytes(), expected)
-            self.assertEqual((run_dir / "09_FINAL.html").read_bytes(), expected)
+            self.assertEqual((run_dir / "06_FINAL.html").read_bytes(), expected)
 
     def test_publication_event_is_bound_to_manifest_and_page(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -487,21 +378,16 @@ class FullRiteTest(unittest.TestCase):
             manifest, run_dir, _, _ = _green_run(tmp)
             stage = next(s for s in manifest["stages"] if s["name"] == "treatment_cleanup")
             self.assertEqual(stage["execution"]["mode"], "deterministic_copy")
-            self.assertEqual((run_dir / "08_BLIND_SAFE_FINAL.md").read_bytes(),
-                             (run_dir / "07_AUDITED_FINAL.md").read_bytes())
+            self.assertEqual((run_dir / "05_BLIND_SAFE_FINAL.md").read_bytes(),
+                             (run_dir / "04_AUTHOR_REVISION.md").read_bytes())
 
     def test_treatment_cleanup_same_author_when_correction_leaks(self):
         canned = dict(CANNED)
-        canned["author_correction"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
-                                       "mecanismo da rodada 3.")
-        canned["feynman_rewrite_1"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
-                                       "mecanismo da rodada 3.")
-        canned["feynman_rewrite_2"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
-                                       "mecanismo da rodada 3.")
+        canned["author_revision"] = ("# Relatorio exp-teste\n\nNeste rascunho eu explico o "
+                                     "mecanismo da rodada 3.")
         canned["treatment_cleanup"] = ("# Relatorio exp-teste\n\nAqui eu explico o mecanismo "
                                        "da rodada 3.")
-        # loop (4 LLM stages) sits between author_correction and treatment_cleanup
-        order = LLM_ORDER[:10] + ["treatment_cleanup"] + LLM_ORDER[10:]
+        order = LLM_ORDER + ["treatment_cleanup"]
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = _green_run(tmp, canned=canned, order=order)
             stage = next(s for s in manifest["stages"] if s["name"] == "treatment_cleanup")
@@ -511,16 +397,16 @@ class FullRiteTest(unittest.TestCase):
 
 class NegativePathsTest(unittest.TestCase):
     def test_partial_rite_fails_the_detector(self):
-        """A run that stops before render/publish (transport dies at fact_audit) leaves a
+        """A run that stops before render/publish (transport dies at author_revision) leaves a
         failed manifest the detector refuses."""
-        canned_order = LLM_ORDER[:4]  # transport exhausted at fact_audit
+        canned_order = LLM_ORDER[:2]  # transport exhausted at author_revision
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(Exception):
                 _green_run(tmp, order=canned_order)
             run_dir, log, blog = Path(tmp) / "run", Path(tmp) / "log.jsonl", Path(tmp) / "blog"
             verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
             self.assertFalse(verdict["pass"])
-            self.assertIn("stage-not-completed:fact_audit", verdict["failures"])
+            self.assertIn("stage-not-completed:author_revision", verdict["failures"])
             self.assertIn("stage-not-completed:publication", verdict["failures"])
 
     def test_legacy_renderer_bytes_fail_the_detector(self):
@@ -534,21 +420,6 @@ class NegativePathsTest(unittest.TestCase):
             verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
             self.assertFalse(verdict["pass"])
             self.assertIn("page-bytes-mismatch", verdict["failures"])
-
-    def test_review_before_render_fails_the_detector(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            _, run_dir, log, blog = _green_run(tmp)
-            manifest_path = run_dir / "00_MANIFEST.json"
-            manifest = json.loads(manifest_path.read_text())
-            html_stage = next(s for s in manifest["stages"] if s["name"] == "final_html")
-            review_stage = next(s for s in manifest["stages"] if s["name"] == "final_review")
-            # forge a history where the review happened before the render existed
-            review_stage["started_at"] = "2000-01-01T00:00:00+00:00"
-            review_stage["finished_at"] = "2000-01-01T00:01:00+00:00"
-            manifest_path.write_text(json.dumps(manifest))
-            verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
-            self.assertFalse(verdict["pass"])
-            self.assertIn("review-before-render", verdict["failures"])
 
     def test_missing_publication_event_fails_the_detector(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -565,7 +436,7 @@ class NegativePathsTest(unittest.TestCase):
         'any matching event for the slug' — a receipt pointing at a different event fails."""
         with tempfile.TemporaryDirectory() as tmp:
             _, run_dir, log, blog = _green_run(tmp)
-            receipt_path = run_dir / "11_PUBLICATION.json"
+            receipt_path = run_dir / "07_PUBLICATION.json"
             receipt = json.loads(receipt_path.read_text())
             receipt["event_seq"] = receipt["event_seq"] + 999
             receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True))
@@ -634,25 +505,61 @@ class NegativePathsTest(unittest.TestCase):
             _, run_dir, log, blog = _green_run(tmp)
             manifest_path = run_dir / "00_MANIFEST.json"
             manifest = json.loads(manifest_path.read_text())
-            stage = next(s for s in manifest["stages"] if s["name"] == "fact_audit")
-            stage["route"] = "chat"  # the audit must be the independent reviewer route
+            stage = next(s for s in manifest["stages"] if s["name"] == "reviewer_notes")
+            stage["route"] = "chat"  # the reviewer must be the independent reviewer route
             manifest_path.write_text(json.dumps(manifest))
             verdict = rito.verify_rito(run_dir, log=log, blog_dir=blog)
             self.assertFalse(verdict["pass"])
-            self.assertIn("stage-contract-drift:fact_audit", verdict["failures"])
+            self.assertIn("stage-contract-drift:reviewer_notes", verdict["failures"])
 
-    def test_acceptance_fail_closes_the_rite_before_publication(self):
+
+
+class ReviewerOnlyWarns(unittest.TestCase):
+    """ADR-0025 (owner, 2026-11-01): "quero que o revisor só avise dos furos, e o edge pode ou
+    corrigir ou só mencionar a nota do revisor, à sua conveniencia"."""
+
+    def test_review_does_not_block_publication(self):
+        """A reviewer that piles up furos (and even tries the old FAIL header) never stops the
+        rite: there is no acceptance ticket, the page publishes and the detector passes."""
         canned = dict(CANNED)
-        canned["final_review"] = ("ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 2\n"
-                                  "TREATMENT_LEAK: NO\n\nduas alegacoes sem lastro.")
+        canned["reviewer_notes"] = ("ACCEPTANCE: FAIL\nUNSUPPORTED_CLAIMS: 2\n\n"
+                                    "FURO 1: 29 vitorias sem fonte.\n"
+                                    "FURO 2: a conclusao nao segue do placar.")
         with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(rito.StageFailure):
-                _green_run(tmp, canned=canned)
-            blog = Path(tmp) / "blog"
-            self.assertFalse((blog / f"{SLUG}.html").exists())
-            log = Path(tmp) / "log.jsonl"
-            evs = [e for e in eventlog.read(log=log) if e["type"] == "artefato.published"]
-            self.assertEqual(evs, [])
+            manifest, run_dir, log, blog = _green_run(tmp, canned=canned)
+            self.assertEqual(manifest["status"], "completed")
+            self.assertTrue((blog / f"{SLUG}.html").is_file())
+            self.assertEqual(manifest["reviewer_notes"]["furos"], 2)
+            self.assertFalse(manifest["reviewer_notes"]["blocking"])
+            self.assertTrue(rito.verify_rito(run_dir, log=log, blog_dir=blog)["pass"])
+
+    def test_reviewer_note_appears_when_author_does_not_fix(self):
+        """The author keeps a furo: the note rides the published page, under its heading."""
+        canned = dict(CANNED)
+        canned["reviewer_notes"] = "FURO 1: faltou o caso concreto da rodada 3."
+        canned["author_revision"] = (
+            "# Relatorio exp-teste\n\nO indice vence onde a estrutura importa.\n\n"
+            "## Notas do revisor\n\n- Faltou o caso concreto da rodada 3. "
+            "Resposta: o log da rodada 3 nao foi guardado.")
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest, run_dir, log, blog = _green_run(tmp, canned=canned)
+            page = (blog / f"{SLUG}.html").read_text()
+            self.assertIn("Notas do revisor", page)
+            self.assertIn("caso concreto da rodada 3", page)
+            self.assertTrue(manifest["reviewer_notes"]["notes_section"])
+
+    def test_author_receives_the_notes_and_the_choice(self):
+        """The author's prompt carries the reviewer's furos verbatim + the fix-or-mention contract;
+        the reviewer's prompt carries the no-veto contract."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _, run_dir, _, _ = _green_run(tmp)
+            author = (run_dir / "prompts" / "04_author_revision.md").read_text()
+            review = (run_dir / "prompts" / "03_reviewer_notes.md").read_text()
+            self.assertIn(CANNED["reviewer_notes"], author)
+            self.assertIn("Notas do revisor", author)
+            self.assertIn("CORRIGIR", author)
+            self.assertIn("DEIXAR", author)
+            self.assertIn("sem veto", review)
 
 
 class PublishRitoSeamTest(unittest.TestCase):
@@ -677,7 +584,7 @@ class PublishRitoSeamTest(unittest.TestCase):
             html_stage = next(s for s in data["stages"] if s["name"] == "final_html")
             html_stage["output"]["sha256"] = "0" * 64
             manifest_path.write_text(json.dumps(data))
-            (run_dir / "09_FINAL.html").write_bytes(b"<!doctype html>legacy bytes\n")
+            (run_dir / "06_FINAL.html").write_bytes(b"<!doctype html>legacy bytes\n")
             _stamp_wake(log)
             with self.assertRaises(ValueError):
                 publisher.publish_rito(SLUG, run_dir, intent=INTENT, skill="report",
@@ -687,7 +594,7 @@ class PublishRitoSeamTest(unittest.TestCase):
     def test_publish_rito_refuses_tampered_sealed_markdown(self):
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = self._run_without_publication(tmp)
-            path = run_dir / "08_BLIND_SAFE_FINAL.md"
+            path = run_dir / "05_BLIND_SAFE_FINAL.md"
             path.write_text(path.read_text() + "\nfrase inserida depois do selo.\n")
             _stamp_wake(log)
             with self.assertRaises(ValueError):
@@ -709,8 +616,8 @@ class PublishRitoSeamTest(unittest.TestCase):
 
 class RitoFinalReviewReplacesDoubleBlind(unittest.TestCase):
     """Operator decision, 2026-07-10, verbatim "basta" (docs/rito-runtime.md): the rite's own
-    `final_review` (stage 10) REPLACES `close.run_close`'s double-blind reviewer gate on the
-    rito path. The blind-winning B was produced with only the rite's internal review — an extra
+    review REPLACES `close.run_close`'s reviewer gate on the rito path (since ADR-0025 that
+    review is one advisory reviewer). The blind-winning B was produced with only the rite's internal review — an extra
     stochastic gate is not the experiment. Anti-forgery is the rito's seal (per-stage receipts
     + hash-refuse), not reviewer proofs. Changing this is re-opening the operator's decision,
     not fixing a bug."""
@@ -842,7 +749,7 @@ class DetectorCliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             manifest, run_dir, log, blog = _green_run(tmp)
             self.assertEqual(manifest["status"], "completed")
-            sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
+            sealed = (run_dir / "05_BLIND_SAFE_FINAL.md").read_text()
             self.assertFalse(yaml_rite.is_yaml_draft(sealed))
             self.assertTrue((blog / f"{SLUG}.html").is_file())
 
@@ -850,12 +757,11 @@ class DetectorCliTest(unittest.TestCase):
 class ReaderFacingProbeReviewTest(unittest.TestCase):
     """#585 / #647: leftover YAML is reviewed as published HTML, not keys."""
 
-    def test_final_review_prompt_is_rendered_html(self):
+    def test_reviewer_prompt_is_rendered_html(self):
         def prompts():
             base = _prompts()
-            base["final_review"] = (
-                lambda o: "<strict review>\n\n"
-                + (o.get("reader_facing") or o["treatment_cleanup"]))
+            base["reviewer_notes"] = (
+                lambda o: "<aponte os furos>\n\n" + o["reader_facing"])
             return base
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -870,8 +776,8 @@ class ReaderFacingProbeReviewTest(unittest.TestCase):
                 intent=INTENT, skill="report", dispatch_id=did,
                 log=log, blog_dir=blog,
             )
-            review_prompt = (run_dir / "prompts" / "16_final_review.md").read_text()
-            sealed = (run_dir / "08_BLIND_SAFE_FINAL.md").read_text()
+            review_prompt = (run_dir / "prompts" / "03_reviewer_notes.md").read_text()
+            sealed = (run_dir / "05_BLIND_SAFE_FINAL.md").read_text()
             self.assertTrue(yaml_rite.is_yaml_draft(sealed))
             self.assertIn("rodada 3", review_prompt)
             self.assertIn("comparison-grid", review_prompt)

@@ -68,8 +68,7 @@ class ProofBindsTheAttestation(unittest.TestCase):
     """A6/A8: the proof binds (and carries) the attestation — a post-mint swap fails verify."""
 
     def _proof(self, att, spec):
-        verdicts = [{"pass": True, "scores": {}, "strikes": [], "reviewer": close.FEYNMAN_REVIEWER_ID},
-                    {"pass": True, "scores": {}, "strikes": [], "reviewer": close.REGULAR_REVIEWER_ID}]
+        verdicts = [{"furos": [], "reviewer": close.REVIEWER_ID},]
         return close._mint_proof(verdicts, slug="s", spec=spec, intent="open: x; bet: y",
                                  cites=[], proposes=[], skill="research", assembly_grounding=att)
 

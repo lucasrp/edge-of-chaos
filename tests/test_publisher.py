@@ -104,10 +104,7 @@ def _passing_proof(slug, spec, intent, *, cites=None, proposes=None,
     in for run_close; it stamps the two canonical identities verify_proof requires. The
     publisher refuses anything not bound to the payload (and identities) it is publishing."""
     verdicts = [
-        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-         "reviewer": close.FEYNMAN_REVIEWER_ID},
-        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-         "reviewer": close.REGULAR_REVIEWER_ID},
+        {"furos": [], "reviewer": close.REVIEWER_ID},
     ]
     return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                              cites=cites or [], proposes=proposes or [],
@@ -429,7 +426,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             # two canonical identities verify_proof requires.
             result = close.run_close(
                 art, produce_fn=lambda: art,
-                reviewers=(close.feynman_review, close.regular_review),
+                
                 complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
                 publish_fn=publish_fn,
             )
@@ -468,7 +465,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
 
             result = close.run_close(
                 art, produce_fn=lambda: art,
-                reviewers=(close.feynman_review, close.regular_review),
+                
                 complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
                 publish_fn=publish_fn)
             self.assertTrue(result["pass"])
@@ -512,21 +509,20 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             self.assertEqual(eventlog.corpus_at(log=log), [])
             self.assertFalse((Path(tmp) / "artefato-b.html").exists())
 
-    def test_single_reviewer_proof_at_the_seam_raises(self):
-        # a proof minted from only one reviewer must not publish — both configured
-        # reviewers must have passed.
+    def test_fake_reviewer_proof_at_the_seam_raises(self):
+        # a proof whose verdict lacks the canonical reviewer identity (the review did not run
+        # through the real reviewer) must not publish.
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "log.jsonl"
-            one = close._mint_proof(
-                [{"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-                  "reviewer": close.FEYNMAN_REVIEWER_ID}],
+            fake = close._mint_proof(
+                [{"furos": [], "reviewer": "somebody-else"}],
                 slug="single", spec=_spec(), intent="open: x; bet: y",
                 cites=[], proposes=[], distills=None, skill=_LEGACY_SKILL)
             with self.assertRaises(ValueError):
                 publisher.publish(
                     "single", _spec(), intent="open: x; bet: y", skill=_LEGACY_SKILL,
                     date="2026-06-08", log=log, blog_dir=tmp, embed_fn=_fake_embed,
-                    verdict=one,
+                    verdict=fake,
                 )
             self.assertEqual(eventlog.corpus_at(log=log), [])
 
@@ -652,7 +648,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
         # verifies against the SAME lineage it was minted over...
         close.verify_proof(
             proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
-            cites=[], proposes=[], skill=_LEGACY_SKILL, lineage=lineage, reviewer_count=2,
+            cites=[], proposes=[], skill=_LEGACY_SKILL, lineage=lineage,
         )
         # ...but an ALTERED lineage (forged authored provenance) is rejected.
         with self.assertRaises(ValueError):
@@ -660,8 +656,7 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
                 proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
                 cites=[], proposes=[], skill=_LEGACY_SKILL,
                 lineage=[{"type": "contradicts", "target": "POISONED at publish"}],
-                reviewer_count=2,
-            )
+                            )
 
     def test_empty_lineage_is_back_compat(self):
         # A proof minted with NO lineage (the param unset) verifies against [] AND against an
@@ -673,29 +668,24 @@ class PublishRefusesWithoutAPassingReviewProof(unittest.TestCase):
             close.verify_proof(
                 proof, slug=slug, spec=_spec(), intent="open: x; bet: y",
                 cites=[], proposes=[], skill=_LEGACY_SKILL, lineage=lineage,
-                reviewer_count=2,
-            )
+                            )
 
-    def test_run_close_failing_gate_never_publishes(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            log = Path(tmp) / "log.jsonl"
-            art = {"slug": "blocked", "content": _spec(), "cites": [], "proposes": [],
-                   "intent": "open: x; bet: y"}
-            published = []
+    def test_run_close_furos_never_block_the_publish(self):
+        # ADR-0025: a reviewer that only finds furos no longer blocks — the page publishes with
+        # the notes; only the MECHANICAL genus can still refuse.
+        published = []
 
-            def publish_fn(artefato, verdict):
-                published.append(artefato)
+        def furos_only(artefato, complete_fn=None):
+            return {"furos": ["x"]}
+        furos_only.identity = close.REVIEWER_ID
 
-            def always_strike(artefato, complete_fn=None):
-                return {"pass": False, "scores": {}, "strikes": ["x"], "overall": 2.0}
-
-            result = close.run_close(
-                art, produce_fn=lambda: art, reviewers=(always_strike, always_strike),
-                complete_fn=lambda *a, **k: "", publish_fn=publish_fn,
-            )
-            self.assertFalse(result["pass"])
-            self.assertEqual(published, [])                  # the gate never let it publish
-            self.assertEqual(eventlog.corpus_at(log=log), [])
+        art = {"slug": "noted", "content": _spec(), "cites": [], "proposes": [],
+               "intent": "open: x; bet: y"}
+        result = close.run_close(art, produce_fn=lambda: art, reviewer=furos_only,
+                                 publish_fn=lambda a, p: published.append(a))
+        self.assertTrue(result["pass"])
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["content"]["reviewer_notes"], ["x"])
 
 
 class ProjectAfterPublishIsAGuaranteedSideEffect(unittest.TestCase):
@@ -1500,7 +1490,7 @@ class LegacyPublishClosedForRitoProducers(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 close.run_close(
                     art, produce_fn=lambda: art,
-                    reviewers=(close.feynman_review, close.regular_review),
+                    
                     complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
                     publish_fn=publish_fn)
             self.assertIn("legacy publish is closed for rito producers", str(ctx.exception))
@@ -2093,35 +2083,36 @@ class AdoptionTelemetryEventAtPublish(unittest.TestCase):
             self.assertFalse(publisher._form_owes_visual("map"))  # env degrades the renderable floor
 
 
-class PublishCarriesResidualsFromTheProof(unittest.TestCase):
-    """S6 (design-close §5): a publish-with-residuals proof carries `unaddressed`, and
-    `publisher.publish` reads it OFF the proof (never a caller arg) → a first-class `residuals`
-    field on the `artefato.published` event. A normal publish records residuals=None."""
+class PublishCarriesReviewerNotes(unittest.TestCase):
+    """ADR-0025 (owner, 2026-11-01): "quero que o revisor só avise dos furos, e o edge pode ou
+    corrigir ou só mencionar a nota do revisor, à sua conveniencia". The furos the producer kept
+    ride the proof-bound content as `reviewer_notes`: rendered on the PAGE as "Notas do revisor"
+    and recorded on the event as `residuals` (read OFF the proof, never a caller arg)."""
 
-    def test_residual_publish_records_unaddressed_on_the_event(self):
+    def test_kept_furo_is_on_the_published_page_and_the_event(self):
         with tempfile.TemporaryDirectory() as tmp:
-            os.environ["EDGE_PUBLISH_WITH_RESIDUALS"] = "1"
-            try:
-                log = Path(tmp) / "log.jsonl"
-                slug, spec, intent = "residual-page", _spec(), "open: x; bet: y"
-                unaddressed = [{"reviewer": close.FEYNMAN_REVIEWER_ID,
-                                "strikes": ["overstates the claim"],
-                                "rationales": {"rigor": "why"}, "overall": 3.0}]
-                verdicts = [
-                    {"pass": False, "scores": {"rigor": 3}, "strikes": ["overstates the claim"],
-                     "overall": 3.0, "reviewer": close.FEYNMAN_REVIEWER_ID},
-                    {"pass": False, "scores": {"rigor": 3}, "strikes": ["overstates the claim"],
-                     "overall": 3.0, "reviewer": close.REGULAR_REVIEWER_ID},
-                ]
-                proof = close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
-                                          cites=[], proposes=[], skill=_LEGACY_SKILL,
-                                          residual_publish=True, unaddressed=unaddressed)
-                publisher.publish(slug, spec, intent=intent, skill=_LEGACY_SKILL, date="2026-06-08",
-                                  log=log, blog_dir=tmp, embed_fn=_fake_embed, verdict=proof)
-                ev = eventlog.read(types=["artefato.published"], log=log)[-1]
-                self.assertEqual(ev["payload"]["residuals"], unaddressed)
-            finally:
-                os.environ.pop("EDGE_PUBLISH_WITH_RESIDUALS", None)
+            log = Path(tmp) / "log.jsonl"
+            art = {"slug": "noted-page", "content": _spec(), "cites": [], "proposes": [],
+                   "intent": "open: x; bet: y", "skill": _LEGACY_SKILL,
+                   "dispatch_id": eventlog.test_dispatch_id()}
+            eventlog.dispatch_open({"dispatch_id": art["dispatch_id"]}, log=log)
+
+            def publish_fn(a, proof):
+                publisher.publish(a["slug"], a["content"], intent=a["intent"], skill=a["skill"],
+                                  date="2026-11-01", log=log, blog_dir=tmp,
+                                  embed_fn=_fake_embed, verdict=proof,
+                                  dispatch_id=a["dispatch_id"])
+
+            proof = close.run_close(
+                art, produce_fn=lambda: art,
+                complete_fn=lambda *a, **k: '{"furos": ["FURO 1: o numero nao tem fonte"]}',
+                publish_fn=publish_fn)
+            self.assertTrue(proof["pass"])
+            page = (Path(tmp) / "noted-page.html").read_text()
+            self.assertIn("Notas do revisor", page)
+            self.assertIn("o numero nao tem fonte", page)
+            ev = eventlog.read(types=["artefato.published"], log=log)[-1]
+            self.assertEqual(ev["payload"]["residuals"], ["FURO 1: o numero nao tem fonte"])
 
     def test_normal_publish_records_residuals_none(self):
         with tempfile.TemporaryDirectory() as tmp:

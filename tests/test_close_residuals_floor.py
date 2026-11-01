@@ -1,21 +1,14 @@
-"""S6 — the close's genus floor + publish-with-residuals (design-close.md, plan §S6/§E8).
+"""S6 — the close's genus floor (design-close.md, plan §S6/§E8).
 
-TWO deliverables, both OPT-IN (default OFF → byte-compat):
-  A. GENUS FLOOR — a themed dispatch with zero recognized source-reads is a genus-class
-     violation (blocking-first, never a residual). The mechanism lives HARVEST-side
-     (`harvest.close_floor`, a wrapper over the pure `session_floor`); close.py only consumes a
-     `floor_fn: () -> list[str]`. Fail-OPEN (inverse of genus): darkness → [] + a counted
-     `grounding.floor_dark` event, never a block.
-  B. PUBLISH-WITH-RESIDUALS — bounce exhaustion with genus-clean + REAL reviewer strikes publishes
-     the draft WITH a "Crítica não endereçada" section appended BEFORE the mint (so the proof
-     digest binds it) instead of hard-failing. Infra (transport re-raise) and synthetic strikes
-     never residual-publish; genus-dirty-post-append never publishes.
+GENUS FLOOR — a themed dispatch with zero recognized source-reads is a genus-class violation
+(blocking-first). The mechanism lives HARVEST-side (`harvest.close_floor`, a wrapper over the
+pure `session_floor`); close.py only consumes a `floor_fn: () -> list[str]`. Fail-OPEN (inverse
+of genus): darkness → [] + a counted `grounding.floor_dark` event, never a block. Ticket B (B.4)
+raised EDGE_GROUNDING_FLOOR's default 0→1=OBSERVE: env-unset COUNTS but NEVER blocks; explicit 0
+stays fully off (see tests/test_gate_metadata.py for the env-unset contract).
 
-SECURITY: with the knobs at default (EDGE_PUBLISH_WITH_RESIDUALS=0, EDGE_GENUS_BOUNCE_MAX=
-BOUNCE_MAX) run_close is byte-identical to today — the existing close suite (test_close_loop /
-test_close_infra) is the byte-compat oracle. Ticket B (B.4) raised EDGE_GROUNDING_FLOOR's
-default 0→1=OBSERVE: env-unset now COUNTS (grounding.floor/floor_dark) but still NEVER blocks;
-explicit 0 stays fully off (see tests/test_gate_metadata.py for the env-unset contract).
+(Publish-with-residuals, the cosmetic meta-gate and the split genus/reviewer bounce budget were
+removed by ADR-0025: the reviewer only warns, so there is no residual to grade.)
 """
 import json
 import os
@@ -41,9 +34,8 @@ import eventlog   # noqa: E402
 def _conformant_artefato(slug="s6-artefato"):
     """A genus-conformant artefato that reaches the reviewers + the mint. Rich-rite-COMPLETE
     (derivation marker 'therefore', boundary marker 'uncertain', cites=external-frame, distills=
-    lineage), so appending the residual section — which pushes prose past the rich-rite trigger —
-    keeps genus CLEAN (the realistic production case: a developed report already carries the four
-    moves)."""
+    lineage), so it stays genus-CLEAN (the realistic production case: a developed report already
+    carries the four moves)."""
     return {
         "slug": slug,
         "content": {"sections": [{"title": "Body", "blocks": [
@@ -65,33 +57,13 @@ def _genus_invalid_artefato(slug="genus-bad"):
     return art
 
 
-def _passing_reviewer(identity):
+def _reviewer(calls=None):
     def r(artefato, complete_fn=None):
-        return {"pass": True, "scores": {"rigor": 4}, "strikes": [], "overall": 4.0}
-    r.identity = identity
+        if calls is not None:
+            calls["n"] += 1
+        return {"furos": []}
+    r.identity = close.REVIEWER_ID
     return r
-
-
-def _striking_reviewer(identity, strike="a claim overstates the evidence"):
-    """A canonical-identity reviewer that ALWAYS strikes with a REAL (non-synthetic) strike and a
-    non-empty scores dict — the authentic-criticism shape residual-publish requires (§4)."""
-    def r(artefato, complete_fn=None):
-        return {"pass": False, "scores": {"rigor": 3}, "rationales": {"rigor": "overstates"},
-                "strikes": [strike], "overall": 3.0}
-    r.identity = identity
-    return r
-
-
-def _both_striking(strike="a claim overstates the evidence"):
-    return (_striking_reviewer(close.FEYNMAN_REVIEWER_ID, strike),
-            _striking_reviewer(close.REGULAR_REVIEWER_ID, strike))
-
-
-def _cosmetic_judge(prompt, *a, **k):
-    """Stand-in for the issue-#65 semantic cosmetic meta-gate (codex/gpt-5.5): the injected
-    reviewers here strike a purely presentational nit ('overstates the evidence'), so the agent
-    judges it cosmetic and the residual (graded-publish) path proceeds."""
-    return '{"all_cosmetic": true, "rationale": "presentational nit"}'
 
 
 class _KnobEnv:
@@ -121,151 +93,22 @@ class _KnobEnv:
 # A. GENUS FLOOR
 # =========================================================================================
 
-class GenusBounceMaxIsItsOwnCounter(unittest.TestCase):
-    """EDGE_GENUS_BOUNCE_MAX is a SEPARATE counter from the reviewers' BOUNCE_MAX (design §7 / E6).
-    Its DEFAULT is BOUNCE_MAX (E6, BINDING amendment — a default of 15 would change knobs-off
-    behavior and break the byte-compat the verify demands), so the split only manifests when an
-    operator raises the genus backstop."""
-
-    def test_genus_bounce_max_defaults_to_bounce_max_for_byte_compat(self):
-        self.assertEqual(close.GENUS_BOUNCE_MAX, close.BOUNCE_MAX)
-
-    def test_genus_uses_its_own_budget_distinct_from_reviewer_bounce_max(self):
-        with mock.patch.object(close, "GENUS_BOUNCE_MAX", 3):
-            calls = {"n": 0}
-
-            def produce_fn():
-                calls["n"] += 1
-                return _genus_invalid_artefato()   # persistently invalid
-
-            result = close.run_close(
-                _genus_invalid_artefato(), produce_fn=produce_fn,
-                reviewers=(_passing_reviewer(close.FEYNMAN_REVIEWER_ID),
-                           _passing_reviewer(close.REGULAR_REVIEWER_ID)),
-                complete_fn=lambda *a, **k: "")
-            self.assertFalse(result["pass"])
-            self.assertEqual(calls["n"], 3)         # genus's OWN budget, not BOUNCE_MAX
-        self.assertEqual(close.BOUNCE_MAX, 1)       # reviewers' counter unchanged
-
-    def test_knobs_off_genus_and_reviewer_share_one_pool_byte_compat(self):
-        # BYTE-COMPAT (the reviewer's exact repro): at the default (GENUS_BOUNCE_MAX == BOUNCE_MAX)
-        # a genus bounce DEBITS the single shared pool. Draft starts genus-dirty; produce_fn returns
-        # a genus-CLEAN draft; reviewers strike on the produced draft then would pass on a re-produce.
-        # Pre-S6/HEAD: the genus bounce consumes the single BOUNCE_MAX budget, so the reviewer strike
-        # HARD-FAILS with no extra reproduce → pass=False, published=0. The disjoint-pool S6 bug gave
-        # the producer a fresh reviewer bounce (pass=True, published=1); the fix restores HEAD.
-        self.assertEqual(close.GENUS_BOUNCE_MAX, close.BOUNCE_MAX)   # knobs off
-        self.assertEqual(close.BOUNCE_MAX, 1)
-        produce_calls = {"n": 0}
-        review_calls = {"n": 0}
-
-        def produce_fn():
-            produce_calls["n"] += 1
-            return _conformant_artefato()           # genus-CLEAN after the bounce
-
-        def strike_then_pass(identity):
-            state = {"first": True}
-
-            def r(artefato, complete_fn=None):
-                review_calls["n"] += 1
-                if state["first"]:
-                    state["first"] = False
-                    return {"pass": False, "scores": {"rigor": 3},
-                            "strikes": ["overstates"], "overall": 3.0}
-                return {"pass": True, "scores": {"rigor": 4}, "strikes": [], "overall": 4.0}
-            r.identity = identity
-            return r
-
-        published = []
-        result = close.run_close(
-            _genus_invalid_artefato(), produce_fn=produce_fn,
-            reviewers=(strike_then_pass(close.FEYNMAN_REVIEWER_ID),
-                       strike_then_pass(close.REGULAR_REVIEWER_ID)),
-            complete_fn=lambda *a, **k: "",
-            publish_fn=lambda a, p: published.append(a))
-        self.assertFalse(result["pass"])            # genus bounce consumed the shared budget
-        self.assertEqual(published, [])             # HEAD behavior — never published
-        self.assertNotIn("residual_publish", result)
-
-    def test_knobs_off_count_drift_is_one_produce_one_reviewer_round(self):
-        # BYTE-COMPAT count-drift: reviewers ALWAYS strike, genus clean throughout. The shared pool
-        # caps the loop at exactly ONE re-produce and TWO reviewer rounds (initial + the bounce),
-        # NOT the disjoint-pool double-spend. Asserts produce_fn is called once and each reviewer
-        # runs exactly twice (one full extra round), matching HEAD's single-pool loop.
-        self.assertEqual(close.GENUS_BOUNCE_MAX, close.BOUNCE_MAX)
-        self.assertEqual(close.BOUNCE_MAX, 1)
-        produce_calls = {"n": 0}
-
-        def produce_fn():
-            produce_calls["n"] += 1
-            return _conformant_artefato()
-
-        review_calls = {"n": 0}
-
-        def counting_striker(identity):
-            def r(artefato, complete_fn=None):
-                review_calls["n"] += 1
-                return {"pass": False, "scores": {"rigor": 3},
-                        "strikes": ["overstates"], "overall": 3.0}
-            r.identity = identity
-            return r
-
-        result = close.run_close(
-            _conformant_artefato(), produce_fn=produce_fn,
-            reviewers=(counting_striker(close.FEYNMAN_REVIEWER_ID),
-                       counting_striker(close.REGULAR_REVIEWER_ID)),
-            complete_fn=lambda *a, **k: "")
-        self.assertFalse(result["pass"])
-        self.assertEqual(produce_calls["n"], 1)     # exactly ONE re-produce (not 2)
-        # two reviewers × two rounds (initial + one bounce) = 4 reviewer calls; NOT 6 (the S6 bug's
-        # extra round). "one produce, one bounce round" in HEAD's single-pool terms.
-        self.assertEqual(review_calls["n"], 4)
-
-
-class MalformedScoresPrefixIsSynthetic(unittest.TestCase):
-    """Finding 2 (defense-in-depth): `_normalize_verdict` wraps a non-dict `scores` as a
-    'malformed scores:' strike (no `(s)`), so that prefix MUST be synthetic → residual-ineligible."""
-
-    def test_malformed_scores_strike_is_ineligible_for_residual_publish(self):
-        self.assertIn("malformed scores:", close._SYNTHETIC_STRIKE_PREFIXES)
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=1):
-            def bad_scores(art, complete_fn=None):
-                return {"pass": False, "scores": "not-a-dict", "strikes": ["overstates"],
-                        "overall": 0.0}
-            bad_scores.identity = close.FEYNMAN_REVIEWER_ID
-            published = []
-            result = close.run_close(
-                _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=(bad_scores, _striking_reviewer(close.REGULAR_REVIEWER_ID)),
-                complete_fn=lambda *a, **k: "",
-                publish_fn=lambda a, p: published.append(a))
-            self.assertFalse(result["pass"])
-            self.assertNotIn("residual_publish", result)
-            self.assertEqual(published, [])
-
-
 class FloorIsGenusClassBlocking(unittest.TestCase):
-    """A floor violation is genus-class: it runs BEFORE the reviewers, bounces the genus path, and
-    never publishes-with-residuals. A raising floor_fn is DARK → [] (never crashes the close)."""
+    """A floor violation is genus-class: it runs BEFORE the reviewer and bounces the genus path. A
+    raising floor_fn is DARK → [] (never crashes the close)."""
 
     def test_floor_violation_hard_fails_before_reviewers_and_never_publishes(self):
         reviewer_calls = {"n": 0}
-
-        def counting_passer(art, complete_fn=None):
-            reviewer_calls["n"] += 1
-            return {"pass": True, "scores": {"x": 4}, "strikes": [], "overall": 4.0}
-        counting_passer.identity = close.FEYNMAN_REVIEWER_ID
         published = []
         result = close.run_close(
             _conformant_artefato(), produce_fn=_conformant_artefato,
-            reviewers=(counting_passer, _passing_reviewer(close.REGULAR_REVIEWER_ID)),
-            complete_fn=lambda *a, **k: "",
+            reviewer=_reviewer(reviewer_calls),
             publish_fn=lambda a, p: published.append(a),
             floor_fn=lambda: [harvest.FLOOR_VIOLATION])
         self.assertFalse(result["pass"])
         self.assertIn("genus_violations", result)
         self.assertIn(harvest.FLOOR_VIOLATION, result["genus_violations"])
-        self.assertEqual(reviewer_calls["n"], 0)   # reviewers never ran (genus-first)
+        self.assertEqual(reviewer_calls["n"], 0)   # the reviewer never ran (genus-first)
         self.assertEqual(published, [])            # floor never publishes
 
     def test_raising_floor_fn_is_dark_treated_as_empty_never_crashes(self):
@@ -273,17 +116,13 @@ class FloorIsGenusClassBlocking(unittest.TestCase):
             raise RuntimeError("floor blew up")
         proof = close.run_close(
             _conformant_artefato(), produce_fn=_conformant_artefato,
-            reviewers=(_passing_reviewer(close.FEYNMAN_REVIEWER_ID),
-                       _passing_reviewer(close.REGULAR_REVIEWER_ID)),
-            complete_fn=lambda *a, **k: "", floor_fn=floor_fn)
+            reviewer=_reviewer(), floor_fn=floor_fn)
         self.assertTrue(proof["pass"])             # dark floor → [] → normal pass
 
     def test_none_floor_fn_is_byte_compat_no_floor(self):
         proof = close.run_close(
             _conformant_artefato(), produce_fn=_conformant_artefato,
-            reviewers=(_passing_reviewer(close.FEYNMAN_REVIEWER_ID),
-                       _passing_reviewer(close.REGULAR_REVIEWER_ID)),
-            complete_fn=lambda *a, **k: "")   # floor_fn defaults to None
+            reviewer=_reviewer())   # floor_fn defaults to None
         self.assertTrue(proof["pass"])
 
 
@@ -433,144 +272,6 @@ class CloseFloorWrapperKnobLogic(unittest.TestCase):
 # =========================================================================================
 # B. PUBLISH-WITH-RESIDUALS
 # =========================================================================================
-
-class ResidualPublishHappyPath(unittest.TestCase):
-    """Knob ON + bounce exhausted + genus-clean + 2 canonical verdicts with REAL strikes →
-    publish WITH a 'Crítica não endereçada' section appended BEFORE the mint. The proof gains
-    `residual_publish: True` + `unaddressed`; the published artefato carries the section."""
-
-    def test_publishes_with_section_and_unaddressed_in_proof(self):
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=1):
-            captured = {}
-
-            def publish_fn(art, proof):
-                captured["art"] = art
-                captured["proof"] = proof
-
-            result = close.run_close(
-                _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
-                publish_fn=publish_fn)
-            # returned the residual proof
-            self.assertTrue(result.get("residual_publish"))
-            self.assertEqual(len(result["unaddressed"]), 2)
-            self.assertIn("a claim overstates the evidence",
-                          result["unaddressed"][0]["strikes"])
-            # published the APPENDED artefato (section inside content)
-            titles = [s.get("title") for s in
-                      captured["art"]["content"].get("additional_sections", [])]
-            self.assertIn("Crítica não endereçada", titles)
-            # the strike rides VERBATIM on the page section
-            blob = json.dumps(captured["art"]["content"], ensure_ascii=False)
-            self.assertIn("a claim overstates the evidence", blob)
-
-    def test_digest_covers_the_appended_section(self):
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=1):
-            captured = {}
-            result = close.run_close(
-                _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
-                publish_fn=lambda a, p: captured.update(art=a, proof=p))
-            art, proof = captured["art"], captured["proof"]
-            # verify_proof BINDS to the APPENDED content (digest covers the section)
-            close.verify_proof(proof, slug=art["slug"], spec=art["content"],
-                               intent=art["intent"], cites=art["cites"],
-                               proposes=art["proposes"], distills=art.get("distills"),
-                               reviewer_count=2)
-            # tamper: the ORIGINAL (un-appended) content no longer binds → digest mismatch
-            original = _conformant_artefato()["content"]
-            with self.assertRaises(ValueError):
-                close.verify_proof(proof, slug=art["slug"], spec=original,
-                                   intent=art["intent"], cites=art["cites"],
-                                   proposes=art["proposes"], distills=art.get("distills"),
-                                   reviewer_count=2)
-
-    def test_verify_proof_refuses_residual_proof_when_knob_off_at_verify(self):
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=1):
-            captured = {}
-            close.run_close(
-                _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
-                publish_fn=lambda a, p: captured.update(art=a, proof=p))
-        art, proof = captured["art"], captured["proof"]
-        # knob now OFF at verify time → a struck (residual) proof is refused immediately
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=None):
-            with self.assertRaises(ValueError):
-                close.verify_proof(proof, slug=art["slug"], spec=art["content"],
-                                   intent=art["intent"], cites=art["cites"],
-                                   proposes=art["proposes"], reviewer_count=2)
-
-
-class ResidualPublishRefusals(unittest.TestCase):
-    """The fail-closed boundaries: knob-off, genus-dirty-post-append, transport re-raise, and
-    synthetic strikes ALL fall through to the existing HARD-FAIL — never a residual publish."""
-
-    def test_knob_off_is_byte_compat_hard_fail(self):
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=None):
-            published = []
-            result = close.run_close(
-                _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
-                publish_fn=lambda a, p: published.append(a))
-            self.assertFalse(result["pass"])
-            self.assertNotIn("residual_publish", result)
-            self.assertEqual(published, [])
-
-    def test_genus_dirty_after_append_hard_fails_never_publishes(self):
-        # a genus check that is CLEAN on the base draft but DIRTY once the residual section lands
-        real_check = close.check_genus
-
-        def dirty_on_residual(artefato, attest=None):
-            base = real_check(artefato, attest=attest)
-            titles = [s.get("title") for s in
-                      (artefato.get("content", {}).get("additional_sections") or [])
-                      if isinstance(s, dict)]
-            if "Crítica não endereçada" in titles:
-                return base + ["residual-section-broke-genus"]
-            return base
-
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=1), \
-                mock.patch.object(close, "check_genus", dirty_on_residual):
-            published = []
-            result = close.run_close(
-                _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=_both_striking(), complete_fn=_cosmetic_judge,
-                publish_fn=lambda a, p: published.append(a))
-            self.assertFalse(result["pass"])
-            self.assertNotIn("residual_publish", result)
-            self.assertEqual(published, [])   # NEVER publish genus-dirty, even for a residual
-
-    def test_transport_error_raises_never_residual(self):
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=1):
-            def boom(art, complete_fn=None):
-                raise close._llm.LLMTransportError("quota dead", status=429)
-            boom.identity = close.FEYNMAN_REVIEWER_ID
-            published = []
-            with self.assertRaises(close._llm.LLMTransportError):
-                close.run_close(
-                    _conformant_artefato(), produce_fn=_conformant_artefato,
-                    reviewers=(boom, _striking_reviewer(close.REGULAR_REVIEWER_ID)),
-                    complete_fn=lambda *a, **k: "",
-                    publish_fn=lambda a, p: published.append(a))
-            self.assertEqual(published, [])   # infra ≠ residual — never publishes
-
-    def test_synthetic_strike_disqualifies_hard_fail(self):
-        # a reviewer that RAISES a generic exception → wrapped into a synthetic `reviewer raised:`
-        # strike; §4 disqualifies it (crash/drift, not criticism) → hard-fail, never residual.
-        with _KnobEnv(EDGE_PUBLISH_WITH_RESIDUALS=1):
-            def crasher(art, complete_fn=None):
-                raise RuntimeError("reviewer internal boom")
-            crasher.identity = close.FEYNMAN_REVIEWER_ID
-            published = []
-            result = close.run_close(
-                _conformant_artefato(), produce_fn=_conformant_artefato,
-                reviewers=(crasher, _striking_reviewer(close.REGULAR_REVIEWER_ID)),
-                complete_fn=lambda *a, **k: "",
-                publish_fn=lambda a, p: published.append(a))
-            self.assertFalse(result["pass"])
-            self.assertNotIn("residual_publish", result)
-            self.assertEqual(published, [])
-
 
 if __name__ == "__main__":
     unittest.main()

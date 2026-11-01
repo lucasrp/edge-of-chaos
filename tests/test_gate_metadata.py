@@ -1,7 +1,7 @@
 """Ticket B — gates persistem metadado + curadoria de sources + o ATO artefato→source.
 
 B.1: o verdict do gate deixa de ser descartado — `run_close` carimba a rubrica versionada
-(`gate_rubric@1` = sha256 do canonical-JSON de DIMENSIONS+WEIGHTS+focus prompts) no proof;
+(`revisor@1` = sha256 do contrato do revisor, ADR-0025) no proof;
 `publisher.publish` projeta o proof em `gate=` (payload flat, llm_judged/lead — CX-1: NUNCA
 entra num rollup computed) e o persiste no MESMO batch atômico do `artefato.published`.
 
@@ -13,9 +13,8 @@ B.3: o ATO artefato→source — `eventlog.integrate_artefato_source` (HITL: rev
 nunca automático) + o fold `integrated_sources_at`; `publisher.promote_artefato_to_source`
 grava o evento (o log é a verdade) e marca o nó best-effort.
 
-B.4: fim = substância+passabilidade em AND com veto LIMITADO — a nota de clareza/
-contextualização abaixo do piso volta a VETAR como strike NOMEADO (endereçável, bounded
-pelo BOUNCE_MAX existente; o loop termina POR FORA — nunca o loop infinito do #65).
+B.4 (veto de passabilidade) foi removido pelo ADR-0025: o revisor único só aponta furos,
+nunca veta. O gate persistido agora é o contrato do revisor + os furos.
 """
 import json
 import hashlib
@@ -32,128 +31,46 @@ import grounding_yield  # noqa: E402
 import publisher  # noqa: E402
 
 
-def _verdict_json(scores, strikes=(), rationales=None):
-    return json.dumps({"pass": True, "scores": scores, "strikes": list(strikes),
-                       "rationales": rationales or {}, "overall": 4.0})
-
-
-_GOOD_SCORES = {d: 4 for d in close.DIMENSIONS}
+_ART = {
+    "slug": "rubric-stamp",
+    "content": {"sections": [{"title": "Body", "blocks": [
+        {"type": "paragraph", "text": "bound content."}]}]},
+    "cites": [{"ref": "github:abc", "kind": "atividade", "relevant": True, "snippet": "s"}],
+    "proposes": [{"body": "b", "kind": "constraint"}],
+    "intent": "open: x; bet: y",
+}
 
 
 class GateRubricIsVersionedAndStamped(unittest.TestCase):
-    """B.1 — a rubrica é versionada por CONTEÚDO (GLO-13): editar dims/weights/focus = sha novo
-    = versão nova; verdicts velhos ficam pinados à sua. O proof que run_close minta carrega ambos."""
+    """B.1 — o contrato do revisor é versionado por CONTEÚDO (GLO-13): editar o contrato = sha
+    novo; verdicts velhos ficam pinados ao seu. O proof que run_close minta carrega ambos."""
 
     def test_version_label_and_sha_shape(self):
-        self.assertEqual(close.GATE_RUBRIC_VERSION, "gate_rubric@2")
-        self.assertRegex(close.GATE_RUBRIC_SHA, r"^[0-9a-f]{64}$")
+        self.assertEqual(close.REVIEW_CONTRACT_VERSION, "revisor@1")
+        self.assertRegex(close.REVIEW_CONTRACT_SHA, r"^[0-9a-f]{64}$")
 
-    def test_sha_is_the_canonical_json_of_dims_weights_and_focus(self):
-        blob = json.dumps(
-            {"dimensions": close.DIMENSIONS, "weights": close.DIMENSION_WEIGHTS,
-             "feynman_focus": close._FEYNMAN_FOCUS, "regular_focus": close._REGULAR_FOCUS},
-            sort_keys=True, ensure_ascii=False).encode("utf-8")
-        self.assertEqual(close.GATE_RUBRIC_SHA, hashlib.sha256(blob).hexdigest())
+    def test_sha_is_the_sha_of_the_reviewer_contract(self):
+        import revisor
+        self.assertEqual(close.REVIEW_CONTRACT_SHA,
+                         hashlib.sha256(revisor.REVIEWER_CONTRACT.encode("utf-8")).hexdigest())
 
     def test_minted_proof_carries_rubric_version_and_sha(self):
-        art = {
-            "slug": "rubric-stamp",
-            "content": {"sections": [{"title": "Body", "blocks": [
-                {"type": "paragraph", "text": "bound content."}]}]},
-            "cites": [{"ref": "github:abc", "kind": "atividade", "relevant": True,
-                       "snippet": "s"}],
-            "proposes": [{"body": "b", "kind": "constraint"}],
-            "intent": "open: x; bet: y",
-        }
-        proof = close.run_close(
-            art, lambda: art,
-            complete_fn=lambda *a, **k: _verdict_json(_GOOD_SCORES))
+        proof = close.run_close(dict(_ART), lambda: _ART,
+                                complete_fn=lambda *a, **k: '{"furos": []}')
         self.assertTrue(proof["pass"])
-        self.assertEqual(proof["gate_rubric"], close.GATE_RUBRIC_VERSION)
-        self.assertEqual(proof["gate_rubric_sha"], close.GATE_RUBRIC_SHA)
+        self.assertEqual(proof["gate_rubric"], close.REVIEW_CONTRACT_VERSION)
+        self.assertEqual(proof["gate_rubric_sha"], close.REVIEW_CONTRACT_SHA)
 
-
-class PassabilityVetoIsBoundedAndNamed(unittest.TestCase):
-    """B.4 — clareza/passabilidade volta a VETAR (a sobre-correção do #65 fez a nota virar
-    conselho → shipou 'referente sem nome'), mas LIMITADO: só uma nota PRESENTE e numérica
-    abaixo do piso veta, como strike NOMEADO (endereçável pelo improve loop) — o bound é o
-    BOUNCE_MAX de sempre, o loop termina por fora."""
-
-    def test_low_didactic_clarity_vetoes_with_a_named_strike(self):
-        raw = _verdict_json({**_GOOD_SCORES, "didactic_clarity": 2},
-                            rationales={"didactic_clarity": "referente sem nome"})
-        v = close._parse_verdict(raw)
-        self.assertFalse(v["pass"])
-        veto = [s for s in v["strikes"] if s.startswith("passabilidade-veto: didactic_clarity")]
-        self.assertEqual(len(veto), 1, v["strikes"])
-        # endereçável: o strike carrega o rationale do reviewer (o QUE consertar)
-        self.assertIn("referente sem nome", veto[0])
-
-    def test_low_contextualization_vetoes(self):
-        v = close._parse_verdict(_verdict_json({**_GOOD_SCORES, "contextualization": 1}))
-        self.assertFalse(v["pass"])
-        self.assertTrue(any(s.startswith("passabilidade-veto: contextualization")
-                            for s in v["strikes"]))
-
-    def test_score_at_the_floor_does_not_veto(self):
-        v = close._parse_verdict(_verdict_json({**_GOOD_SCORES, "didactic_clarity": 3,
-                                                "contextualization": 3}))
-        self.assertTrue(v["pass"])
-        self.assertEqual(v["strikes"], [])
-
-    def test_nan_or_infinite_score_fails_closed_never_bypasses_the_veto(self):
-        # codex adversarial #1: json.loads aceita NaN/Infinity; NaN < 3 é False — sem o
-        # guard, uma nota NaN passaria pelo veto E contaminaria o overall. Não-finito =
-        # malformado → strike, fail-closed.
-        raw = ('{"pass": true, "scores": {' +
-               ", ".join(f'"{d}": 4' for d in close.DIMENSIONS if d != "didactic_clarity") +
-               ', "didactic_clarity": NaN}, "strikes": []}')
-        v = close._parse_verdict(raw)
-        self.assertFalse(v["pass"])
-        self.assertTrue(any("malformed score" in s for s in v["strikes"]), v["strikes"])
-        self.assertEqual(v["overall"], v["overall"], "overall nunca é NaN")
-
-    def test_missing_passability_dims_never_veto(self):
-        # o guard anti-#65: um reviewer que OMITE a dim nunca veta por omissão —
-        # senão o gate voltaria inganhável (score ausente ≠ nota baixa).
-        v = close._parse_verdict('{"pass": true, "scores": {}, "strikes": []}')
-        self.assertTrue(v["pass"])
-        self.assertEqual(v["strikes"], [])
-
-    def test_veto_is_bounded_at_the_close_seam(self):
-        # o loop termina POR FORA: um reviewer que SEMPRE dá clareza 2 bounca até o
-        # BOUNCE_MAX e HARD-FAILS com o strike nomeado — nunca o loop infinito do #65.
-        art = {
-            "slug": "veto-bounded",
-            "content": {"sections": [{"title": "Body", "blocks": [
-                {"type": "paragraph", "text": "conteúdo."}]}]},
-            "cites": [{"ref": "github:abc", "kind": "atividade", "relevant": True,
-                       "snippet": "s"}],
-            "proposes": [{"body": "b", "kind": "constraint"}],
-            "intent": "open: x; bet: y",
-        }
-        calls = {"n": 0}
-
-        def produce_fn():
-            calls["n"] += 1
-            return dict(art, slug=f"veto-bounded-{calls['n']}")
-
+    def test_furos_never_veto_at_the_close_seam(self):
+        # ADR-0025: o que antes era veto (clareza baixa, strike) agora é furo — publica.
         published = []
-        out = close.run_close(
-            art, produce_fn,
-            complete_fn=lambda *a, **k: _verdict_json({**_GOOD_SCORES,
-                                                       "didactic_clarity": 2}),
+        proof = close.run_close(
+            dict(_ART), lambda: _ART,
+            complete_fn=lambda *a, **k: '{"furos": ["referente sem nome"]}',
             publish_fn=lambda a, p: published.append(a))
-        self.assertFalse(out["pass"])
-        self.assertEqual(published, [])
-        self.assertLessEqual(calls["n"], close.BOUNCE_MAX)
-        self.assertTrue(any(s.startswith("passabilidade-veto:")
-                            for v in out["verdicts"] for s in v["strikes"]))
-
-    def test_veto_dims_and_floor_are_pinned(self):
-        self.assertEqual(set(close.PASSABILITY_VETO_DIMS),
-                         {"didactic_clarity", "contextualization"})
-        self.assertEqual(close.PASSABILITY_VETO_FLOOR, 3)
+        self.assertTrue(proof["pass"])
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["content"]["reviewer_notes"], ["referente sem nome"])
 
 
 class GatePersistsOnThePublishedEvent(unittest.TestCase):
@@ -162,36 +79,23 @@ class GatePersistsOnThePublishedEvent(unittest.TestCase):
     `publish_artefato_atomic` o persiste no MESMO batch do `artefato.published` (replayável,
     sem novo tipo de evento). Forward-only: evento legado sem `gate` folda tolerante."""
 
-    def _proof(self, strikes=()):
+    def _proof(self, furos=()):
         return {
             "pass": True, "digest": "x", "token": object(),
-            "gate_rubric": close.GATE_RUBRIC_VERSION,
-            "gate_rubric_sha": close.GATE_RUBRIC_SHA,
-            "verdicts": [
-                {"reviewer": close.FEYNMAN_REVIEWER_ID, "pass": True,
-                 "scores": {"content_depth": 4, "feynman_method": 5, "bad": "high"},
-                 "rationales": {"content_depth": "dados reais"},
-                 "strikes": list(strikes), "overall": 4.2},
-                {"reviewer": close.REGULAR_REVIEWER_ID, "pass": True,
-                 "scores": {"didactic_clarity": 3},
-                 "rationales": {"didactic_clarity": "termos definidos"},
-                 "strikes": [], "overall": 3.9},
-            ],
+            "gate_rubric": close.REVIEW_CONTRACT_VERSION,
+            "gate_rubric_sha": close.REVIEW_CONTRACT_SHA,
+            "verdicts": [{"reviewer": close.REVIEWER_ID, "furos": list(furos)}],
+            "reviewer_notes": list(furos),
         }
 
     def test_gate_payload_shape(self):
         gate = publisher._gate_payload(self._proof())
-        self.assertEqual(gate["rubric"], close.GATE_RUBRIC_VERSION)
-        self.assertEqual(gate["rubric_sha"], close.GATE_RUBRIC_SHA)
+        self.assertEqual(gate["rubric"], close.REVIEW_CONTRACT_VERSION)
+        self.assertEqual(gate["rubric_sha"], close.REVIEW_CONTRACT_SHA)
         self.assertTrue(gate["pass"])
         self.assertEqual(gate["strikes_n"], 0)
-        # scores por reviewer, só numéricos (props flat no nó — um score corrompido não vira prop)
-        self.assertEqual(gate["feynman"]["scores"],
-                         {"content_depth": 4, "feynman_method": 5})
-        self.assertEqual(gate["regular"]["scores"], {"didactic_clarity": 3})
-        self.assertEqual(gate["feynman"]["rationales"], {"content_depth": "dados reais"})
-        # provenance (CX-1): verdict de gate é llm_judged, rigor teto lead — o verificar grita
-        # se um verdict-de-gate reivindicar cravado.
+        self.assertEqual(gate["furos"], [])
+        # provenance (CX-1): verdict de revisão é llm_judged, rigor teto lead.
         self.assertEqual(gate["provenance_class"], "llm_judged")
         self.assertEqual(gate["rigor"], "lead")
         self.assertEqual(gate["validity"], "inferred_default")
@@ -204,18 +108,8 @@ class GatePersistsOnThePublishedEvent(unittest.TestCase):
         tampered["gate_rubric"] = "gate_rubric@99"
         tampered["gate_rubric_sha"] = "f" * 64
         gate = publisher._gate_payload(tampered)
-        self.assertEqual(gate["rubric"], close.GATE_RUBRIC_VERSION)
-        self.assertEqual(gate["rubric_sha"], close.GATE_RUBRIC_SHA)
-
-    def test_gate_payload_scores_are_allowlisted_to_the_rubric_dims(self):
-        # codex adversarial #3: um reviewer não pode cunhar prop arbitrária no nó — só
-        # dims da rubrica viram gate_<rev>_<dim>.
-        proof = self._proof()
-        proof["verdicts"][0]["scores"]["invented_dim"] = 5
-        gate = publisher._gate_payload(proof)
-        self.assertNotIn("invented_dim", gate["feynman"]["scores"])
-        props = publisher._gate_props(gate)
-        self.assertNotIn("gate_feynman_invented_dim", props)
+        self.assertEqual(gate["rubric"], close.REVIEW_CONTRACT_VERSION)
+        self.assertEqual(gate["rubric_sha"], close.REVIEW_CONTRACT_SHA)
 
     def test_gate_payload_never_enters_a_computed_rollup(self):
         # CX-1 (o verificar grita): um verdict-de-gate é llm_judged — reivindicar cravado/
@@ -225,10 +119,12 @@ class GatePersistsOnThePublishedEvent(unittest.TestCase):
         with self.assertRaises(ValueError):
             cortex_provenance.assert_rollup_computed([gate])
 
-    def test_gate_payload_with_strikes_is_not_a_pass(self):
-        gate = publisher._gate_payload(self._proof(strikes=["referente sem nome"]))
+    def test_gate_payload_with_furos_is_not_clean(self):
+        # `pass` aqui = "nenhum furo" (sinal pro yield), nunca o bilhete de publicação.
+        gate = publisher._gate_payload(self._proof(furos=["referente sem nome"]))
         self.assertFalse(gate["pass"])
         self.assertEqual(gate["strikes_n"], 1)
+        self.assertEqual(gate["notes_n"], 1)
 
     def test_gate_payload_degrades_to_none_never_raises(self):
         self.assertIsNone(publisher._gate_payload(None))
@@ -257,16 +153,13 @@ class GatePersistsOnThePublishedEvent(unittest.TestCase):
         # a projeção no nó (:Artefato) — flat props (badge de verdict, MIR-2/3), Cypher-navegável.
         gate = publisher._gate_payload(self._proof())
         props = publisher._gate_props(gate)
-        self.assertEqual(props["gate_rubric"], close.GATE_RUBRIC_VERSION)
+        self.assertEqual(props["gate_rubric"], close.REVIEW_CONTRACT_VERSION)
         self.assertTrue(props["gate_pass"])
         self.assertEqual(props["gate_strikes_n"], 0)
-        self.assertEqual(props["gate_feynman_content_depth"], 4)
-        self.assertEqual(props["gate_regular_didactic_clarity"], 3)
         self.assertEqual(props["gate_provenance_class"], "llm_judged")
         self.assertEqual(props["gate_rigor"], "lead")
         self.assertEqual(props["gate_validity"], "inferred_default")
-        rat = json.loads(props["gate_rationales"])
-        self.assertEqual(rat["feynman"]["content_depth"], "dados reais")
+        self.assertEqual(json.loads(props["gate_furos"]), [])
         self.assertEqual(publisher._gate_props(None), {})
 
     def test_corpus_fold_carries_gate_for_reproject(self):

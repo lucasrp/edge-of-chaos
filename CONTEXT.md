@@ -69,7 +69,7 @@ Escala pra bloqueio por evidência logada, não por vibe (ADR-00XX).
 **Resp:** gatear o genus, format-agnostic.
 **Interface:** `close(draft) → gate(pass|strikes) + artefato.contract(kind)`
 
-- **Close:** o portão fixo de saída que todo producer atravessa — review (cego: vê texto final + cites) → improve (re-produção: strike revisa o rascunho) → publish (atômico, com intent kernel). **Strikes gateiam; score é advisory.**
+- **Close:** a saída fixa que todo producer atravessa — checagem mecânica (genus) → revisão (UM revisor cego que só aponta furos, sem veto — ADR-0025) → o produtor corrige ou anota em "Notas do revisor" → publish (atômico, com intent kernel). **A revisão nunca bloqueia.**
 - **Rich rite (checagem):** os 4 moves como strikes `rich-rite:<move>`, **em qualquer lugar, nunca seção nomeada** (ADR-0013). Floor content-relativo, nunca word-count.
 - **Grounding floor:** afere o piso de aquisição **chamando** `Aquisição.grounding.floor()` — não reimplementa (senão volta o vazamento de formato).
 - **Intent kernel:** o "porquê" de ~3 linhas emitido no close (CONTRACT C3) — a camada pragmática que nenhum leitor frio recupera.
@@ -507,11 +507,11 @@ by whoever lived the session. The word **consolidate** now means only **Hypothes
 *Avoid*: postflight, save, the 1905-line consolidate-state, posterior close subagent
 
 **Close**:
-The **fixed exit gate of the shared pipeline** every producer funnels through — review (blind:
-the gates see the final text + cites only, and check each **property anywhere, never a named
-section** — ADR-0013) → improve (wired **re-production**: a strike revises the draft rather than
-dead-ending it) → publish (atomic, with the **intent kernel**). **Strikes gate; the weighted
-score is advisory.** Directive resolution is **not** the shared close's job: open Directives are
+The **fixed exit of the shared pipeline** every producer funnels through — the mechanical genus
+check (bounded; a violation re-produces) → review (ONE blind reviewer that sees the final text +
+cites only and **only points out furos** — no score, no veto, no second round, ADR-0013/0025) →
+the producer decides each furo (fix it, or keep it under **"Notas do revisor"**) → publish
+(atomic, with the **intent kernel**). **The review never blocks.** Directive resolution is **not** the shared close's job: open Directives are
 resolved by the **grill** close, which writes an explicit `voz.resolved` outcome per Directive
 (ADR-0017) — other producers' closes leave the rail untouched (one lifecycle owner, one `voz.resolved`
 gate). Runs at every producer's exit — round-robin is for

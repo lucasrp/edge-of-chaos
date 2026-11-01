@@ -101,24 +101,20 @@ prompts. The runtime owns sequencing, sealing, rendering (the pinned neutral-mar
 
 The stages you feed (authoring format is **Markdown**, H1 first; tables/lists/blockquotes carry
 the visual idiom): `grounding1_dossier` (your gathered factual dossier — the gather-grounding
-slot above) → `first_authorial_draft` → `gap_critique` → `grounding2_targeted` →
-`provisional_rewrite` → `fact_audit` → `author_correction` → `treatment_cleanup` (deterministic
-copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) →
-`final_review` (fail-closed `ACCEPTANCE:` header) → `publication`. The canonical prompt bodies
+slot above) → `first_authorial_draft` → `reviewer_notes` (ONE reviewer that only points out furos — no veto, no score, no second round; ADR-0025) → `author_revision` (you decide each furo at your convenience: fix it, or keep it and mention it under `## Notas do revisor`) → `treatment_cleanup` (deterministic copy when the leak scan is clean) → `final_html` (pinned render, runtime-owned) → `publication`. The canonical prompt bodies
 are archived in `drafts/old-edge-double-grounding-repro/run.py`; adapt their content to THIS
 theme — the produce guidance above (the PEDAGOGUE's Feynman voice, prose carries the argument, a
 table only for a genuine A-vs-B comparison, length EMERGENT) is what the authoring prompts must
-carry. Three stages carry the exp-feynman-pedagogico intent: the authoring drafts
-(`first_authorial_draft`/`provisional_rewrite`/`author_correction`) write in that voice;
-`gap_critique` is a **pedagogical critique** — where does this fail to TEACH? where is it cryptic,
-where is the contextualization thin? name the gaps a reader cannot cross; and `grounding2_targeted`
-REACHES for **NEW grounding** — world/domain material beyond grounding-1 — to fill the pedagogical
-gaps the critique named (the win expands HERE). **Fidelity guard: the new grounding must be FETCHED
-and cited, NEVER invented** — grounding-1 plus the logged fetched sources are the only factual
-anchor; a pedagogical handle is a way of explaining a grounded fact, never a license to fabricate one.
-The `fact_audit` stage audits against grounding-1 **and** the grounding-2 fetched sources, so a
-fabricated grounding-2 citation is caught (both are passed to its prompt). Structurally enforcing the
-fetch-and-log — provenance receipts per fetched source — is a SEPARATE paused thread, not bundled here.
+carry. The exp-feynman-pedagogico intent rides two places: the authoring drafts
+(`first_authorial_draft`/`author_revision`) write in that voice, and the reviewer's focus is
+**pedagogical** — where does this fail to TEACH? where is it cryptic, where is the
+contextualization thin? — named as furos, never as a verdict. Since ADR-0025 there is no
+second grounding round: reach for **NEW grounding** — world/domain material beyond what you
+already hold — while you gather grounding-1, BEFORE the draft. **Fidelity guard: new grounding
+must be FETCHED and cited, NEVER invented** — the dossier's fetched sources are the only factual
+anchor; a pedagogical handle explains a grounded fact, it never licenses fabricating one. A fact
+with no source is a furo the reviewer names ("fato sem fonte"); the author fixes it or keeps it
+and says so under `## Notas do revisor`.
 
 The wake's `DISPATCH_ID=<id>` line rides into the run (the canonical publish refuses without
 it, E1c). The product spine still ships: pass `publish_meta` with `proposes` (candidate
@@ -142,13 +138,9 @@ that becomes the canonical reading; omit when no experiment closes).
 
     prompts = {
         'first_authorial_draft': lambda o: f"<the produce guidance, this theme; duty is skills/_shared/scaffold.md — execute it, do not restate it; PEDAGOGUE's Feynman voice: build from the concrete, motivate WHY before formalism, one vivid handle per hard idea, address the reader, explain-don't-label; prose carries the argument, a table only for a genuine A-vs-B comparison; length EMERGENT, no length target; synthesis-to-a-bite is a failure>\n\nDOSSIER:\n{o['grounding1_dossier']}",
-        'gap_critique':          lambda o: f"<critique of the FULL ARC against skills/_shared/scaffold.md: where is there no door in the first block? where is a load-bearing claim asserted not reasoned? where is it a bite / lead that stands alone without the arc? where would a stranger who did not live the session fail to restate claim and why? where is the world absent? A tight lead is a gap, not a pass>\n\n{o['first_authorial_draft']}",
-        'grounding2_targeted':   lambda o: f"<REACH for NEW grounding (world/domain beyond grounding-1) to fill the pedagogical gaps the critique named; FETCH + cite each source with its snippet, NEVER invent a fact or a citation. If the critique names no uncrossable gap, return no new grounding>\n\nGROUNDING-1 (the anchor — do not duplicate what it already covers):\n{o['grounding1_dossier']}\n\nCRITIQUE:\n{o['gap_critique']}",
-        'provisional_rewrite':   lambda o: f"<same-author rewrite in the Feynman voice, executing skills/_shared/scaffold.md, folding critique+the new grounding2 into contextualizing prose>\n\n{o['grounding2_targeted']}",
-        'fact_audit':            lambda o: f"<independent fact audit: every factual claim traces to grounding-1 OR a grounding-2 source with its cited snippet; flag any fact or citation with no source (fabrication guard — treat grounding-2 as candidate evidence, don't trust a citation at face value)>\n\nGROUNDING-1:\n{o['grounding1_dossier']}\n\nGROUNDING-2 (candidate evidence):\n{o['grounding2_targeted']}\n\n{o['provisional_rewrite']}",
-        'author_correction':     lambda o: f"<bounded same-author correction from the audit>\n\n{o['fact_audit']}",
-        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_correction']}",
-        'final_review':          lambda o: f"<strict review of the READER-FACING page (rendered HTML if the sealed draft is YAML; markdown as-is); begin with the 3-line ACCEPTANCE header. PASS only if skills/_shared/scaffold.md holds — door, derivation visible, score 5 (a stranger understands), the world present. Cover-every-facet padding is not a pass. Synthesis-to-a-bite / 'the lead suffices' is FAIL for the genus, never ACCEPTANCE>\n\n{o.get('reader_facing') or o['treatment_cleanup']}",
+        'reviewer_notes':        lambda o: f"<point out the FUROS only (no verdict, no veto) — critique of the FULL ARC against skills/_shared/scaffold.md: where is there no door in the first block? where is a load-bearing claim asserted not reasoned? where is it a bite / lead that stands alone without the arc? where would a stranger who did not live the session fail to restate claim and why? where is the world absent? A tight lead is a gap, not a pass>\n\nDOSSIER:\n{o['grounding1_dossier']}\n\n{o['reader_facing']}",
+        'author_revision':       lambda o: f"<same-author revision in the same voice: for EACH furo, fix it or keep it and mention it under 'Notas do revisor' — your call; never invent a fact or a citation (what has no source leaves the text or becomes declared uncertainty)>\n\nDOSSIER:\n{o['grounding1_dossier']}\n\n{o['first_authorial_draft']}",
+        'treatment_cleanup':     lambda o: f"<bounded same-author leak cleanup>\n\nSCAN:\n{o['treatment_leaks']}\n\n{o['author_revision']}",
     }
 
     rito.run_rito(slug, run_dir=f'state/rito/{slug}',

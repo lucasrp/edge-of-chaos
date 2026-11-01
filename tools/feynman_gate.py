@@ -3,10 +3,10 @@
 Old-edge review-gate reviewer (3e6a407 REVIEWER_SYSTEM + DIMENSIONS), adapted
 to FREE form: substance over skeleton. A model scores eight axes 0-4 with
 written feedback (ceiling 4: a 5 would mean "nothing to say"). Every axis
-must name a page-specific improvement. The rite always runs two evaluate
-→ lastro → rewrite rounds; a score does not skip a lastro and a low score
-does not extra-loop. The notes are a briefing for the next lastro, not a
-ticket that blesses or aborts the loop. There is no minimum score to pass.
+must name a page-specific improvement. The notes are a briefing, never a
+ticket. There is no minimum score to pass. Since ADR-0025 the rite no longer
+runs this reviewer (its single advisory reviewer lives in tools/revisor.py);
+this module stays as the standalone page judge / CLI.
 
 No mandatory H2, no forced SVG, no YAML keys, no openai/xAI client.
 
@@ -753,63 +753,6 @@ def judge(page: str) -> dict:
     }
 
 
-def _page_from(outputs: dict) -> str:
-    return (
-        outputs.get("feynman_page")
-        or outputs.get("reader_facing")
-        or outputs.get("author_correction")
-        or ""
-    )
-
-
-def _default_ground_prompt(outputs: dict, letter: str) -> str:
-    page = _page_from(outputs)
-    brief = outputs.get("feynman_briefing") or briefing({})
-    verdict_txt = outputs.get("feynman_gate_verdict") or ""
-    return (
-        f"Produce NEW lastro (fresh facts, names of instruments, n, sources in the "
-        f"world) aimed at the reviewer notes in the briefing for round {letter}. "
-        f"Do not rewrite the article. Do not invent a fact or a citation. FETCH "
-        f"and cite each source with a snippet. A high score does not skip this "
-        f"lastro. A low score does not add an extra loop. Two rounds always run.\n\n"
-        f"BRIEFING:\n{brief}\n\nREVIEW JSON:\n{verdict_txt}\n\nPAGE:\n{page}"
-    )
-
-
-def _default_rewrite_prompt(outputs: dict, letter: str) -> str:
-    page = (
-        outputs.get("feynman_page")
-        or outputs.get("author_correction")
-        or ""
-    )
-    lastro_key = "feynman_grounding_a" if letter == "A" else "feynman_grounding_b"
-    lastro = outputs.get(lastro_key) or ""
-    brief = outputs.get("feynman_briefing") or ""
-    return (
-        f"Rewrite the page using the new lastro from round {letter}. Judge ONLY this "
-        f"page: teach every load-bearing term on first use; hang the work on named "
-        f"things in the world in the prose; derive before the scoreboard; put "
-        f"specific uncertainty where the reasoning stops. A Glossário or Bibliografia "
-        f"H2 does not satisfy those duties. No forced SVG. Do not leak treatment "
-        f"words (draft, rascunho, prompt, harness).\n\n"
-        f"BRIEFING:\n{brief}\n\nLASTRO:\n{lastro}\n\nPAGE:\n{page}"
-    )
-
-
-def _default_review_prompt(outputs: dict) -> str:
-    return reviewer_prompt(_page_from(outputs))
-
-
-LOOP_PROMPTS = {
-    "feynman_gate_1": _default_review_prompt,
-    "feynman_gate_2": _default_review_prompt,
-    "feynman_grounding_a": lambda o: _default_ground_prompt(o, "A"),
-    "feynman_rewrite_1": lambda o: _default_rewrite_prompt(o, "A"),
-    "feynman_grounding_b": lambda o: _default_ground_prompt(o, "B"),
-    "feynman_rewrite_2": lambda o: _default_rewrite_prompt(o, "B"),
-}
-
-
 def header(verdict: dict) -> str:
     return (
         f"FEYNMAN: NOTES overall={verdict.get('overall', 0)} "
@@ -818,7 +761,7 @@ def header(verdict: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Legacy LLM helper (not the tooth). Kept so LENS_BLOCK callers stay stable.
+# Legacy LLM helper (not the tooth).
 # Do not invoke from the rite. Do not call xAI.
 # ---------------------------------------------------------------------------
 
@@ -876,26 +819,6 @@ def _parse(raw):
         "gaps": list(obj.get("gaps", [])),
         "veredito": str(obj.get("veredito", "")),
     }
-
-
-LENS_BLOCK = """\
-=== LENTE LECTURES-ON-PHYSICS (parte integrante desta revisão) ===
-Julgue TAMBÉM a clareza pedagógica do texto contra a régua das *Feynman Lectures on
-Physics*: intuição/primeiros princípios antes do uso; NENHUM referente sem nome e sem
-glosa (termo, slug, id, data-código — tudo explicado para um leitor que NÃO viveu a
-sessão); o novo contextualizado; o concreto ancorando cada abstração; um outsider
-inteligente consegue reconstruir o argumento; honestidade explícita sobre o que não se
-sabe. Um defeito CONCRETO de clareza (referente sem nome, rótulo sem mecanismo, texto
-que assume que o leitor viveu a sessão) é STRIKE como qualquer outro strike desta
-revisão.
-
-Contrapesos vinculantes desta lente:
-1. Ela julga se um leitor de fora consegue SEGUIR — correção factual pertence ao
-   fact-audit (estágio próprio); não re-julgue fatos aqui.
-2. Comprimento NÃO é defeito: enriquecimento pedagógico cresce por natureza. O strike é
-   para ENCHIMENTO — prosa que não adiciona entendimento por palavra (repetição, rótulo
-   re-embalado, cerimônia) — nunca para o texto ter ficado maior.
-"""
 
 
 if __name__ == "__main__":
