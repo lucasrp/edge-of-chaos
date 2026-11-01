@@ -97,10 +97,7 @@ class DispatchOriginFoldsFromTheLog(unittest.TestCase):
 
 def _passing_proof(slug, spec, intent, *, cites=None, dispatch_id=None, skill="report"):
     verdicts = [
-        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-         "reviewer": close.FEYNMAN_REVIEWER_ID},
-        {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-         "reviewer": close.REGULAR_REVIEWER_ID},
+        {"furos": [], "reviewer": close.REVIEWER_ID},
     ]
     return close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                              cites=cites or [], proposes=[], skill=skill,
@@ -281,9 +278,12 @@ class BeatSkillCarriesTheThreeActTronco(unittest.TestCase):
         for token in ("grounding inicial", "proposta"):
             self.assertIn(token, self.low)
 
-    def test_branches_one_agent_per_artefato_with_own_rounds(self):
-        for token in ("um agente por artefato", "rounds", "por fora"):
+    def test_branches_one_agent_per_artefato_with_one_advisory_review(self):
+        # ADR-0025: the review→refine rounds (cap 2, "por fora") became ONE review that only
+        # warns; the agent fixes each furo or keeps it under "Notas do revisor".
+        for token in ("um agente por artefato", "advisory", "notas do revisor"):
             self.assertIn(token, self.low)
+        self.assertNotIn("two review→refine", self.low)
 
     def test_origin_hierarchy_is_named(self):
         self.assertIn("user_requested", self.low)

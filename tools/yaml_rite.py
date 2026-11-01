@@ -402,7 +402,7 @@ _STYLE_RE = re.compile(r"<style\b[^>]*>.*?</style>", re.DOTALL | re.IGNORECASE)
 
 
 def reader_facing_text(text: str) -> str:
-    """What the mentee reads — the probe / final_review / Feynman input.
+    """What the mentee reads — the probe / reviewer input.
 
     YAML drafts become the same HTML `page_bytes` would publish (the CSS
     block is dropped so a Feynman reader is not asked to judge stylesheets).
@@ -419,7 +419,7 @@ def reader_facing_text(text: str) -> str:
 def reader_facing_from_artefato(artefato: dict):
     """Rendered page for a YAML-shaped artefato, or None if not YAML-shaped.
 
-    Used by close._build_prompt so a Feynman reviewer judges the mentee's
+    Used by close._build_prompt so the reviewer judges the mentee's
     page, not the spec keys.
     """
     if not isinstance(artefato, dict) or not _is_yaml_shaped(artefato):

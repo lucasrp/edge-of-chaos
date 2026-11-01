@@ -18,9 +18,9 @@ Three gates at this seam: #2/#3 — the publisher REFUSES unless handed the UNFO
 proof `close.run_close` mints: `close.verify_proof` requires the run_close-only token, a sha256
 digest that BINDS to this exact publish payload (slug + spec + intent + cites + proposes +
 distills + skill + lineage — EVERY persisted publish arg, so distills/skill/lineage cannot be
-altered post-mint to poison provenance), both blind reviewers passed, AND the verdicts carry both CANONICAL reviewer
-identities — so a forged dict, a stale/cross-artefato proof (digest mismatch), a single-reviewer
-proof, or a proof built from fake/injected reviewers cannot back-door the gate. C3 — there is no path that publishes
+altered post-mint to poison provenance), AND the verdict carries the CANONICAL reviewer identity (the
+advisory review ran — ADR-0025: its furos never refuse) — so a forged dict, a stale/cross-artefato proof
+(digest mismatch), or a proof built from a fake/injected reviewer cannot back-door the close. C3 — there is no path that publishes
 without the *why* (raises with no intent; the kernel rides the same atomic call so
 `artefatos_without_kernel(log) == []` right after). #4 — the slug is validated against a strict
 regex and contained under blog_dir (a `../` slug cannot escape).
@@ -34,7 +34,6 @@ a missing group/driver/key prints and returns, never raising into the publish (A
 import hashlib
 import html
 import json
-import math
 import os
 import re
 import subprocess
@@ -1684,86 +1683,53 @@ def project_backbone(log=eventlog.LOG):
             pass
 
 
-# B.1 (ticket B) — o mapa reviewer-canônico → chave curta do payload/props. Os DOIS gates do fim
-# (substância = feynman, passabilidade = regular) — o AND é do close; aqui só se persiste.
-_GATE_REVIEWER_KEYS = {close.FEYNMAN_REVIEWER_ID: "feynman", close.REGULAR_REVIEWER_ID: "regular"}
-
-
 def _gate_payload(proof):
-    """B.1 — projeta o proof que `run_close` mintou num payload PERSISTÍVEL do gate: rubrica
-    versionada (pinada por sha, GLO-13), pass derivado de strikes (#65), scores/rationales por
-    reviewer (só numéricos/strings — vai virar prop flat no nó). Degrada a None (um verdict
-    ausente/malformado nunca quebra o publish — o evento registra a ausência honestamente).
+    """B.1 — projeta o proof que `run_close` mintou num payload PERSISTÍVEL da revisão: o
+    contrato versionado (pinado por sha, GLO-13) e os furos do revisor único (ADR-0025). A
+    revisão só avisa: `pass` aqui quer dizer "nenhum furo apontado" (sinal pro yield), nunca o
+    bilhete de publicação. Degrada a None (um verdict ausente/malformado nunca quebra o publish).
 
-    provenance (CX-1): um verdict de gate é `llm_judged`, rigor teto `lead`, validity
-    `inferred_default` — NUNCA agrega num rollup `computed` (cortex_provenance.assert_rollup_computed
-    grita se tentar)."""
+    provenance (CX-1): um verdict de revisão é `llm_judged`, rigor teto `lead`, validity
+    `inferred_default` — NUNCA agrega num rollup `computed`."""
     if not isinstance(proof, dict):
         return None
     verdicts = proof.get("verdicts")
     if not isinstance(verdicts, list) or not verdicts:
         return None
-    # A rubrica vem do MÓDULO, nunca do proof (Codex adversarial #2): `gate_rubric` não é
-    # digest-bound, então um proof mutado pós-mint carimbaria rubrica falsa no evento. Mint e
-    # publish rodam no mesmo load do módulo — a régua de publish É a de mint; o campo no proof
-    # fica como auditoria, não como fonte.
-    gate = {"rubric": close.GATE_RUBRIC_VERSION,
-            "rubric_sha": close.GATE_RUBRIC_SHA,
+    # O contrato vem do MÓDULO, nunca do proof (Codex adversarial #2): `gate_rubric` não é
+    # digest-bound, então um proof mutado pós-mint carimbaria contrato falso no evento.
+    gate = {"rubric": close.REVIEW_CONTRACT_VERSION,
+            "rubric_sha": close.REVIEW_CONTRACT_SHA,
             "provenance_class": "llm_judged", "rigor": "lead",
             "validity": "inferred_default"}
-    strikes_n = 0
+    furos = []
     for v in verdicts:
-        if not isinstance(v, dict):
-            strikes_n += 1   # um verdict não-dict conta como defeito, nunca como limpo
-            continue
-        s = v.get("strikes")
-        strikes_n += len(s) if isinstance(s, list) else 1
-        key = _GATE_REVIEWER_KEYS.get(v.get("reviewer"))
-        if key:
-            scores = v.get("scores") if isinstance(v.get("scores"), dict) else {}
-            rationales = v.get("rationales") if isinstance(v.get("rationales"), dict) else {}
-            gate[key] = {
-                # só dims da RUBRICA (Codex adversarial: um dim desconhecido do reviewer viraria
-                # prop arbitrária no nó) e só numérico FINITO (json.loads aceita NaN/Infinity).
-                "scores": {d: s for d, s in scores.items()
-                           if d in close.DIMENSIONS
-                           and not isinstance(s, bool) and isinstance(s, (int, float))
-                           and math.isfinite(s)},
-                "rationales": {d: r for d, r in rationales.items() if isinstance(r, str)},
-            }
-    gate["pass"] = strikes_n == 0
-    gate["strikes_n"] = strikes_n
+        if isinstance(v, dict) and isinstance(v.get("furos"), list):
+            furos += [f for f in v["furos"] if isinstance(f, str)]
+    kept = proof.get("reviewer_notes")
+    gate["furos"] = furos
+    gate["strikes_n"] = len(furos)
+    gate["notes_n"] = len(kept) if isinstance(kept, list) else 0
+    gate["pass"] = not furos
     return gate
 
 
 def _gate_props(gate):
-    """As FLAT props do gate no :Artefato (episteme: badge de verdict no NÓ — não um nó, não uma
-    aresta; MIR-2/3, Cypher-navegável): gate_rubric, gate_pass, gate_strikes_n,
-    gate_feynman_<dim>/gate_regular_<dim> (só numéricos), gate_rationales (json) + a proveniência
+    """As FLAT props da revisão no :Artefato (episteme: badge no NÓ — não um nó, não uma aresta;
+    MIR-2/3): gate_rubric, gate_pass (nenhum furo), gate_strikes_n (furos apontados),
+    gate_notes_n (furos mantidos como nota), gate_furos (json) + a proveniência
     (llm_judged/lead/inferred_default). {} quando não há gate — nada a projetar."""
     if not isinstance(gate, dict):
         return {}
+    furos = gate.get("furos") if isinstance(gate.get("furos"), list) else []
     props = {"gate_rubric": gate.get("rubric"), "gate_rubric_sha": gate.get("rubric_sha"),
              "gate_pass": gate.get("pass"), "gate_strikes_n": gate.get("strikes_n"),
+             "gate_notes_n": gate.get("notes_n"),
              "gate_provenance_class": gate.get("provenance_class", "llm_judged"),
              "gate_rigor": gate.get("rigor", "lead"),
-             "gate_validity": gate.get("validity", "inferred_default")}
-    rationales = {}
-    for rev in ("feynman", "regular"):
-        block = gate.get(rev)
-        if not isinstance(block, dict):
-            continue
-        scores = block.get("scores") if isinstance(block.get("scores"), dict) else {}
-        for dim, sc in scores.items():
-            # re-filtra (um gate REPLAYED de evento antigo pode carregar dim/valor que o filtro
-            # de _gate_payload ainda não barrava): rubrica + numérico finito, nunca prop arbitrária.
-            if (dim in close.DIMENSIONS and not isinstance(sc, bool)
-                    and isinstance(sc, (int, float)) and math.isfinite(sc)):
-                props[f"gate_{rev}_{dim}"] = sc
-        rat = block.get("rationales")
-        if isinstance(rat, dict) and rat:
-            rationales[rev] = {d: r for d, r in rat.items() if isinstance(r, str)}
-    props["gate_rationales"] = json.dumps(rationales, ensure_ascii=False, sort_keys=True)
+             "gate_validity": gate.get("validity", "inferred_default"),
+             "gate_furos": json.dumps([f for f in furos if isinstance(f, str)],
+                                      ensure_ascii=False)}
     return {k: v for k, v in props.items() if v is not None}
 
 
@@ -2000,9 +1966,9 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
     (binding covers slug+spec+intent+cites+proposes+distills+skill+lineage+dispatch_id — E1b)
     `close.run_close` mints — `close.verify_proof` requires the run_close-only token, a digest
     that BINDS to THIS exact payload (slug + spec + intent + cites + proposes + distills +
-    skill + lineage), both blind reviewers passed, and both CANONICAL reviewer identities are
-    present. A hand-built dict, a proof minted for a different artefato (digest mismatch), an
-    altered distills/skill/lineage, a single-reviewer proof, or a proof from fake reviewers raises here, before
+    skill + lineage), and the CANONICAL reviewer identity is present (the advisory review ran,
+    ADR-0025). A hand-built dict, a proof minted for a different artefato (digest mismatch), an
+    altered distills/skill/lineage, or a proof from a fake reviewer raises here, before
     any HTML or state lands — the publisher is never a back door around the gate. C3 at the seam: RAISES when `intent` is
     missing/empty — you cannot publish without the kernel (and defensively when the genus
     contract is violated). #4 at the seam: the slug is validated + contained under blog_dir,
@@ -2105,10 +2071,10 @@ def publish(slug, spec, intent, *, skill, verdict=None, proposes=None, distills=
                     "degraded": None, "shortfall": None, "capability_state": None,
                     "error": f"{type(e).__name__}: {e}"}
 
-    # S6 (design-close §5): the unaddressed criticism rides as a first-class event field, read OFF
-    # the proof (`proof['unaddressed']`) — NEVER a caller arg (a caller cannot inject residuals the
-    # gate did not mint; verify_proof already bound the appended spec). None on a normal publish.
-    residuals = verdict.get("unaddressed") if isinstance(verdict, dict) else None
+    # ADR-0025: the furos the producer KEPT ride as a first-class event field, read OFF the proof
+    # (`proof['reviewer_notes']`) — NEVER a caller arg (verify_proof already bound the appended
+    # "Notas do revisor" section). None when the producer kept no note.
+    residuals = (verdict.get("reviewer_notes") or None) if isinstance(verdict, dict) else None
     # B.1 (ticket B) — pare de descartar o verdict: o gate persiste como campo do MESMO batch
     # atômico (verify_proof já validou o proof acima; a projeção é lida DELE, nunca de um arg
     # do caller). None quando o proof não projeta (nunca bloqueia o publish).

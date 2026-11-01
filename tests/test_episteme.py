@@ -448,8 +448,7 @@ class ProofDigestBindsBearsOnParaReportsOnAndExperimentCuration(unittest.TestCas
                           "next": "Run C5."},
             },
         }
-        good = json.dumps({"pass": True, "scores": {d: 4 for d in close.DIMENSIONS},
-                           "strikes": [], "rationales": {}, "overall": 4.0})
+        good = json.dumps({"furos": []})
         proof = close.run_close(art, lambda: art, complete_fn=lambda *a, **k: good)
         self.assertTrue(proof["pass"])
         kw = dict(slug="bound", spec=art["content"], intent=art["intent"],
@@ -494,10 +493,7 @@ class PublishForwardsBearsOnToEventAndProjection(unittest.TestCase):
                       "next": "Run C5."},
         }
         verdicts = [
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.FEYNMAN_REVIEWER_ID},
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.REGULAR_REVIEWER_ID},
+            {"furos": [], "reviewer": close.REVIEWER_ID},
         ]
         # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish;
         # the bears_on/para/reports_on/experiment_curation forwarding is skill-agnostic at this

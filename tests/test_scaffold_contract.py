@@ -25,7 +25,7 @@ SCAFFOLD = REPO / "skills" / "_shared" / "scaffold.md"
 SLOT_ROLES = ("gather-grounding", "converge", "diverge")
 
 # The 5 stages of the context-denial ladder (ADR-0013), in rungs.
-LADDER_STAGES = ("producer", "serendipity", "critic", "reviewers", "publisher")
+LADDER_STAGES = ("producer", "serendipity", "critic", "reviewer", "publisher")  # ADR-0025: one reviewer
 
 # Report-welding that MUST be absent — the scaffold must stay non-procrusto: no report
 # semantics hard-coded into a slot (explorer=URL, cite=link), and no named-section mandate.

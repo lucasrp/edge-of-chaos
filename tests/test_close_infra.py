@@ -70,16 +70,17 @@ class TransportErrorIsInfraNotVerdict(unittest.TestCase):
         self.assertEqual(infra[0]["payload"]["status"], 429)
         self.assertIn("insufficient_quota", infra[0]["payload"]["detail"])
 
-    def test_generic_reviewer_exception_still_fails_closed_bounded(self):
-        """Regressão: uma exceção NÃO-transporte segue virando veredito reprovado
-        (bounce bounded), nunca um raise — o fail-closed de sempre."""
+    def test_generic_reviewer_exception_degrades_never_blocks(self):
+        """ADR-0025: uma exceção NÃO-transporte do revisor vira nota `degraded` sem furos —
+        nunca um raise, nunca um bloqueio (o revisor só avisa)."""
         def broken_completer(prompt):
             raise RuntimeError("schema drift")
 
         art = _conformant_artefato()
         result = close.run_close(art, produce_fn=lambda: art,
                                  complete_fn=broken_completer)
-        self.assertFalse(result["pass"])
+        self.assertTrue(result["pass"])
+        self.assertIn("schema drift", result["verdicts"][0]["degraded"])
         self.assertEqual(self._events(), [])   # nada de evento de infra
 
 

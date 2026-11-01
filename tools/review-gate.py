@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Old-Edge review-gate via grok CLI — NOT OpenAI/xAI API.
 
-Two review→refine rounds. Criteria: 9 dims, all >= 3, overall >= 3.5, zero critical.
+ADVISORY since ADR-0025 (owner, 2026-11-01: "quero que o revisor só avise dos furos, e o edge
+pode ou corrigir ou só mencionar a nota do revisor, à sua conveniencia"): ONE review by default,
+no automatic refine, exit 0 whatever the verdict. The 9-dim criteria (all >= 3, overall >= 3.5,
+zero critical) are still reported, as information. The furos (critical_issues + suggestions) go
+to `review-gate.feedback.json`; the producer fixes them in the YAML or keeps them under a
+"Notas do revisor" section. `--rounds N` (N > 1) is an explicit opt-in review→refine loop.
 No word-count cap (the March gate did not have one).
 
 Binding fail is LEITURA ISOLADA / isolated reading: a colleague of the operator,
@@ -11,7 +16,7 @@ Referências / Linhagem) is gone. Linhagem-first is a fail, not a required secti
 
 Usage:
   tools/edge-python tools/review-gate.py SPEC.yaml \
-      --html OUT.html --outdir DIR [--rounds 2]
+      --html OUT.html --outdir DIR [--rounds 1]
 """
 from __future__ import annotations
 
@@ -453,7 +458,7 @@ def main(argv=None) -> int:
     p.add_argument("yaml", help="YAML spec path")
     p.add_argument("--html", default=None, help="HTML output path (regenerated after refine)")
     p.add_argument("--outdir", default=None, help="Where to write gate-N.json")
-    p.add_argument("--rounds", type=int, default=2)
+    p.add_argument("--rounds", type=int, default=1)
     p.add_argument("--entry", default=None, help="Optional blog entry (unused except noted)")
     args = p.parse_args(argv)
 
@@ -499,25 +504,16 @@ def main(argv=None) -> int:
         if ok and html_path is not None:
             _regen_html(yaml_path, html_path)
 
-    # If last refine happened because we broke only on pass/last: when last failed
-    # and we refined inside the loop only when r < rounds. After final refine of
-    # an earlier round we already re-reviewed. If the last review failed we still
-    # try one trailing refine + regen so the published HTML is the improved one.
-    if last is not None and not last.get("pass"):
-        # already refined if r < rounds; if we exited on last review fail, refine now
-        refine_marker = outdir / f"gate-{rounds}.refine.raw.txt"
-        if not refine_marker.exists():
-            print("── Trailing refine after last review ──", file=sys.stderr)
-            ok = refine_once(yaml_path, last, refine_marker)
-            if ok and html_path is not None:
-                _regen_html(yaml_path, html_path)
-
-    feedback = {"final_review": last, "rounds": rounds, "yaml": str(yaml_path), "html": str(html_path) if html_path else None}
+    furos = list((last or {}).get("critical_issues") or []) + list((last or {}).get("suggestions") or [])
+    feedback = {"final_review": last, "rounds": rounds, "furos": furos, "advisory": True,
+                "yaml": str(yaml_path), "html": str(html_path) if html_path else None}
     (outdir / "review-gate.feedback.json").write_text(
         json.dumps(feedback, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    print(json.dumps({"ok": True, "pass": bool(last and last.get("pass")), "overall": (last or {}).get("overall"), "outdir": str(outdir)}, ensure_ascii=False))
-    return 0 if last and last.get("pass") else 1
+    print(json.dumps({"ok": True, "advisory": True, "pass": bool(last and last.get("pass")),
+                      "overall": (last or {}).get("overall"), "furos": len(furos),
+                      "outdir": str(outdir)}, ensure_ascii=False))
+    return 0   # ADR-0025: the review only warns — it never fails the produce
 
 
 if __name__ == "__main__":

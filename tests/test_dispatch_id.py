@@ -238,7 +238,7 @@ def _mint(art):
     binds whatever the artefato dict carries, dispatch_id included."""
     return close.run_close(
         art, produce_fn=lambda: art,
-        reviewers=(close.feynman_review, close.regular_review),
+        
         complete_fn=lambda *a, **k: '{"pass": true, "scores": {}, "strikes": []}',
     )
 
@@ -264,13 +264,13 @@ class ProofChainBindsDispatchId(unittest.TestCase):
         close.verify_proof(
             proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
             cites=art["cites"], proposes=art["proposes"],
-            dispatch_id="d-A", reviewer_count=2)
+            dispatch_id="d-A")
         # …and a publish attempted under ANOTHER dispatch_id is a digest mismatch.
         with self.assertRaises(ValueError):
             close.verify_proof(
                 proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
                 cites=art["cites"], proposes=art["proposes"],
-                dispatch_id="d-B", reviewer_count=2)
+                dispatch_id="d-B")
 
     def test_legacy_no_dispatch_id_payloads_still_verify(self):
         # byte-compat: an artefato with no dispatch_id digests as None on both sides — the
@@ -279,7 +279,7 @@ class ProofChainBindsDispatchId(unittest.TestCase):
         proof = _mint(art)
         close.verify_proof(
             proof, slug=art["slug"], spec=art["content"], intent=art["intent"],
-            cites=art["cites"], proposes=art["proposes"], reviewer_count=2)
+            cites=art["cites"], proposes=art["proposes"])
 
 
 class CanonicalLogRequiresDispatchId(unittest.TestCase):
@@ -438,10 +438,7 @@ class PublisherCarriesTheProofBoundDispatchId(unittest.TestCase):
         cites = [{"ref": "github:abc", "kind": "atividade", "relevant": True,
                   "snippet": "the cursor became a watermark"}]
         verdicts = [
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.FEYNMAN_REVIEWER_ID},
-            {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-             "reviewer": close.REGULAR_REVIEWER_ID},
+            {"furos": [], "reviewer": close.REVIEWER_ID},
         ]
         # legacy-publish vehicle: `report` moved to the rite and is refused by publisher.publish
         # now, so this dispatch-id test drives a still-legacy producer (prototype).
@@ -477,10 +474,7 @@ class PublisherCarriesTheProofBoundDispatchId(unittest.TestCase):
             slug, spec, intent = "phantom-id", {"sections": [{"title": "B", "blocks": [
                 {"type": "paragraph", "text": "x"}]}]}, "open: x; bet: y"
             verdicts = [
-                {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-                 "reviewer": close.FEYNMAN_REVIEWER_ID},
-                {"pass": True, "scores": {}, "strikes": [], "overall": 4.0,
-                 "reviewer": close.REGULAR_REVIEWER_ID},
+                {"furos": [], "reviewer": close.REVIEWER_ID},
             ]
             proof = close._mint_proof(verdicts, slug=slug, spec=spec, intent=intent,
                                       cites=[], proposes=[], skill="report",
